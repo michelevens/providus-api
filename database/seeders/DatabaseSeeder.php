@@ -20,6 +20,7 @@ class DatabaseSeeder extends Seeder
             TelehealthPolicySeeder::class,
             TaxonomyCodeSeeder::class,
             StrategyProfileSeeder::class,
+            EnnHealthDataSeeder::class,
         ]);
     }
 }
