@@ -22,5 +22,11 @@ class DatabaseSeeder extends Seeder
             StrategyProfileSeeder::class,
             EnnHealthDataSeeder::class,
         ]);
+
+        // Promote admin@ennhealth.com to superadmin
+        $admin = User::where('email', 'admin@ennhealth.com')->first();
+        if ($admin && $admin->role !== 'superadmin') {
+            $admin->update(['role' => 'superadmin']);
+        }
     }
 }
