@@ -32,7 +32,7 @@ class Application extends Model
         'status', 'portal_url', 'application_ref', 'enrollment_id',
         'submitted_date', 'received_date', 'effective_date', 'denial_reason',
         'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
-        'payer_contact_email', 'notes', 'tags',
+        'payer_contact_email', 'notes', 'tags', 'document_checklist',
     ];
 
     protected $casts = [
@@ -41,6 +41,7 @@ class Application extends Model
         'effective_date' => 'date',
         'est_monthly_revenue' => 'decimal:2',
         'tags' => 'array',
+        'document_checklist' => 'array',
         'wave' => 'integer',
     ];
 
