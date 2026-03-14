@@ -13,8 +13,13 @@ class TenantScope implements Scope
         if (auth()->check()) {
             $user = auth()->user();
 
-            // SuperAdmin sees everything — no tenant scoping
+            // SuperAdmin can switch agencies via X-Agency-Id header
             if ($user->role === 'superadmin') {
+                $overrideAgencyId = request()->header('X-Agency-Id');
+                if ($overrideAgencyId) {
+                    $builder->where($model->getTable() . '.agency_id', (int) $overrideAgencyId);
+                }
+                // No header = see everything
                 return;
             }
 

@@ -174,13 +174,18 @@ Route::middleware('auth:sanctum')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(function () {
-    // Future: cross-agency management endpoints
-});
+    Route::get('/agencies', function () {
+        $agencies = \App\Models\Agency::withCount(['users', 'organizations', 'providers', 'applications'])
+            ->with('config:id,agency_id,notification_email')
+            ->orderBy('name')
+            ->get();
+        return response()->json(['success' => true, 'data' => $agencies]);
+    });
 
-// TEMPORARY: promote account to superadmin — REMOVE after use
-Route::get('/promote-superadmin', function () {
-    $user = \App\Models\User::where('email', 'admin@ennhealth.com')->first();
-    if (!$user) return response()->json(['error' => 'User not found'], 404);
-    $user->update(['role' => 'superadmin']);
-    return response()->json(['success' => true, 'message' => 'Promoted to superadmin', 'user' => $user]);
+    Route::get('/agencies/{id}', function (int $id) {
+        $agency = \App\Models\Agency::withCount(['users', 'organizations', 'providers', 'applications', 'licenses', 'tasks'])
+            ->with(['config', 'users:id,agency_id,first_name,last_name,email,role,is_active'])
+            ->findOrFail($id);
+        return response()->json(['success' => true, 'data' => $agency]);
+    });
 });

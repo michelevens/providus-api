@@ -13,9 +13,19 @@ class AgencyController extends Controller
 {
     public function show(Request $request): JsonResponse
     {
+        $user = $request->user();
+
+        // SuperAdmin can view any agency via X-Agency-Id header
+        if ($user->isSuperAdmin() && $request->header('X-Agency-Id')) {
+            $agency = \App\Models\Agency::find((int) $request->header('X-Agency-Id'));
+            if ($agency) {
+                return response()->json(['success' => true, 'data' => $agency]);
+            }
+        }
+
         return response()->json([
             'success' => true,
-            'data' => $request->user()->agency,
+            'data' => $user->agency,
         ]);
     }
 
