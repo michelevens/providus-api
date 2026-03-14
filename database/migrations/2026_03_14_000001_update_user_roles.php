@@ -22,10 +22,8 @@ return new class extends Migration
         DB::table('users')->where('role', 'staff')->update(['role' => 'agency']);
         DB::table('users')->where('role', 'readonly')->update(['role' => 'agency']);
 
-        // Update default value for role column
-        Schema::table('users', function (Blueprint $table) {
-            $table->string('role')->default('agency')->change();
-        });
+        // Update default value via raw SQL (avoids doctrine/dbal dependency)
+        DB::statement("ALTER TABLE users ALTER COLUMN role SET DEFAULT 'agency'");
     }
 
     public function down(): void
@@ -36,8 +34,9 @@ return new class extends Migration
         DB::table('users')->where('role', 'organization')->update(['role' => 'staff']);
         DB::table('users')->where('role', 'provider')->update(['role' => 'readonly']);
 
+        DB::statement("ALTER TABLE users ALTER COLUMN role SET DEFAULT 'staff'");
+
         Schema::table('users', function (Blueprint $table) {
-            $table->string('role')->default('staff')->change();
             $table->dropForeign(['organization_id']);
             $table->dropForeign(['provider_id']);
             $table->dropColumn(['organization_id', 'provider_id']);
