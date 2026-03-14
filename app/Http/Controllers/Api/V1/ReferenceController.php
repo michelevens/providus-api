@@ -13,7 +13,7 @@ class ReferenceController extends Controller
 {
     public function states(): JsonResponse
     {
-        $states = [
+        $statesMap = [
             'AL'=>'Alabama','AK'=>'Alaska','AZ'=>'Arizona','AR'=>'Arkansas','CA'=>'California',
             'CO'=>'Colorado','CT'=>'Connecticut','DE'=>'Delaware','FL'=>'Florida','GA'=>'Georgia',
             'HI'=>'Hawaii','ID'=>'Idaho','IL'=>'Illinois','IN'=>'Indiana','IA'=>'Iowa',
@@ -26,6 +26,12 @@ class ReferenceController extends Controller
             'VA'=>'Virginia','WA'=>'Washington','WV'=>'West Virginia','WI'=>'Wisconsin','WY'=>'Wyoming',
             'DC'=>'District of Columbia',
         ];
+
+        $states = [];
+        foreach ($statesMap as $code => $name) {
+            $states[] = ['code' => $code, 'abbreviation' => $code, 'name' => $name];
+        }
+
         return response()->json(['success' => true, 'data' => $states]);
     }
 
