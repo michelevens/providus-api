@@ -697,7 +697,6 @@ class PayerSeeder extends Seeder
                 ['slug' => $payer['slug']],
                 array_merge($payer, [
                     'created_at' => $now,
-                    'updated_at' => $now,
                 ])
             );
         }
