@@ -3,9 +3,13 @@
 namespace Database\Seeders;
 
 use App\Models\Agency;
+use App\Models\Application;
+use App\Models\Followup;
 use App\Models\License;
 use App\Models\Organization;
+use App\Models\Payer;
 use App\Models\Provider;
+use App\Models\Task;
 use Illuminate\Database\Seeder;
 
 class EnnHealthDataSeeder extends Seeder
@@ -110,6 +114,107 @@ class EnnHealthDataSeeder extends Seeder
             );
         }
 
-        $this->command->info("Seeded EnnHealth data: 1 org, 1 provider, " . count($licenses) . " licenses.");
+        // ── Applications (credentialing across payers & states) ──
+        $payers = Payer::all()->keyBy('name');
+        $getPayerId = fn(string $name) => ($payers[$name] ?? null)?->id;
+
+        $applications = [
+            // Wave 1 — FL home state (approved/credentialed)
+            ['state'=>'FL','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-06-15','effective_date'=>'2025-09-01','est_monthly_revenue'=>4200,'notes'=>'Home state. Credentialed via CAQH ProView.'],
+            ['state'=>'FL','payer_name'=>'UnitedHealthcare','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-06-20','effective_date'=>'2025-09-15','est_monthly_revenue'=>5100,'notes'=>'UHC Optum portal. Active.'],
+            ['state'=>'FL','payer_name'=>'Cigna/Evernorth','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-01','effective_date'=>'2025-10-01','est_monthly_revenue'=>3800,'notes'=>'Cigna credentialing complete.'],
+            ['state'=>'FL','payer_name'=>'Humana','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-10','effective_date'=>'2025-10-15','est_monthly_revenue'=>2900,'notes'=>'Humana FL panel.'],
+            ['state'=>'FL','payer_name'=>'Anthem/Elevance','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-08-01','effective_date'=>'2025-11-01','est_monthly_revenue'=>3500,'notes'=>'Anthem BCBS FL.'],
+
+            // Wave 1 — TX (approved + in progress)
+            ['state'=>'TX','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-08-15','effective_date'=>'2025-12-01','est_monthly_revenue'=>4800,'notes'=>'TX credentialed.'],
+            ['state'=>'TX','payer_name'=>'UnitedHealthcare','status'=>'in_review','wave'=>1,'type'=>'individual','submitted_date'=>'2025-09-10','est_monthly_revenue'=>5500,'notes'=>'Under review. Expected 60-90 days.'],
+            ['state'=>'TX','payer_name'=>'Cigna/Evernorth','status'=>'submitted','wave'=>1,'type'=>'individual','submitted_date'=>'2025-10-01','est_monthly_revenue'=>4000,'notes'=>'Submitted via CAQH.'],
+
+            // Wave 1 — NY
+            ['state'=>'NY','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-20','effective_date'=>'2025-11-01','est_monthly_revenue'=>6200,'notes'=>'NY high-volume market. Active.'],
+            ['state'=>'NY','payer_name'=>'UnitedHealthcare','status'=>'in_review','wave'=>1,'type'=>'individual','submitted_date'=>'2025-09-15','est_monthly_revenue'=>7100,'notes'=>'UHC NY under review.'],
+            ['state'=>'NY','payer_name'=>'Anthem/Elevance','status'=>'pending_info','wave'=>1,'type'=>'individual','submitted_date'=>'2025-10-05','est_monthly_revenue'=>5400,'notes'=>'Anthem requesting additional malpractice documentation.'],
+
+            // Wave 2 — CO, AZ, VA, WA
+            ['state'=>'CO','payer_name'=>'Aetna','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-11-01','est_monthly_revenue'=>3200,'notes'=>'Compact state. Submitted.'],
+            ['state'=>'CO','payer_name'=>'UnitedHealthcare','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-11-05','est_monthly_revenue'=>3600,'notes'=>'UHC CO submitted.'],
+            ['state'=>'AZ','payer_name'=>'Aetna','status'=>'in_review','wave'=>2,'type'=>'individual','submitted_date'=>'2025-10-20','est_monthly_revenue'=>3400,'notes'=>'AZ under review.'],
+            ['state'=>'AZ','payer_name'=>'UnitedHealthcare','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-11-10','est_monthly_revenue'=>3800,'notes'=>'Submitted.'],
+            ['state'=>'VA','payer_name'=>'Aetna','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-11-15','est_monthly_revenue'=>3100,'notes'=>'VA submitted.'],
+            ['state'=>'VA','payer_name'=>'Anthem/Elevance','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-11-20','est_monthly_revenue'=>3300,'notes'=>'Anthem VA submitted.'],
+            ['state'=>'WA','payer_name'=>'Aetna','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-12-01','est_monthly_revenue'=>3500,'notes'=>'WA submitted.'],
+
+            // Wave 3 — expansion states (new/gathering_docs)
+            ['state'=>'OR','payer_name'=>'Aetna','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>2800,'notes'=>'Planned for Q1 2026.'],
+            ['state'=>'MA','payer_name'=>'Aetna','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>5600,'notes'=>'MA high reimbursement. Planned.'],
+            ['state'=>'MD','payer_name'=>'Aetna','status'=>'gathering_docs','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3000,'notes'=>'Compact state. Gathering documents.'],
+            ['state'=>'CT','payer_name'=>'UnitedHealthcare','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3400,'notes'=>'CT planned.'],
+
+            // Denied example
+            ['state'=>'NV','payer_name'=>'Humana','status'=>'denied','wave'=>2,'type'=>'individual','submitted_date'=>'2025-09-01','est_monthly_revenue'=>2200,'denial_reason'=>'Panel currently closed in NV for PMHNP.','notes'=>'Will resubmit when panel opens.'],
+        ];
+
+        $appRecords = [];
+        foreach ($applications as $appData) {
+            $payerId = $getPayerId($appData['payer_name']);
+            $appRecords[] = Application::updateOrCreate(
+                [
+                    'agency_id' => $agencyId,
+                    'provider_id' => $provider->id,
+                    'state' => $appData['state'],
+                    'payer_name' => $appData['payer_name'],
+                ],
+                array_merge($appData, [
+                    'agency_id' => $agencyId,
+                    'provider_id' => $provider->id,
+                    'organization_id' => $org->id,
+                    'payer_id' => $payerId,
+                ])
+            );
+        }
+
+        // ── Follow-ups ──
+        $inReviewApps = Application::where('agency_id', $agencyId)
+            ->whereIn('status', ['submitted', 'in_review', 'pending_info'])
+            ->get();
+
+        foreach ($inReviewApps as $app) {
+            Followup::updateOrCreate(
+                ['agency_id' => $agencyId, 'application_id' => $app->id, 'type' => 'status_check'],
+                [
+                    'agency_id' => $agencyId,
+                    'application_id' => $app->id,
+                    'type' => 'status_check',
+                    'due_date' => now()->addDays(rand(3, 21)),
+                    'method' => collect(['phone', 'email', 'portal'])->random(),
+                ]
+            );
+        }
+
+        // ── Tasks ──
+        $taskData = [
+            ['title'=>'Submit CAQH attestation for Q1 2026','category'=>'credentialing','priority'=>'high','due_date'=>'2026-03-20','is_completed'=>false],
+            ['title'=>'Follow up on TX UHC application','category'=>'follow_up','priority'=>'urgent','due_date'=>'2026-03-10','is_completed'=>false],
+            ['title'=>'Renew CT license (exp 10/31/2025)','category'=>'licensing','priority'=>'urgent','due_date'=>'2025-10-01','is_completed'=>false],
+            ['title'=>'Upload malpractice cert for NY Anthem','category'=>'documentation','priority'=>'high','due_date'=>'2026-03-18','is_completed'=>false],
+            ['title'=>'Review NM license renewal (exp 03/15/2026)','category'=>'licensing','priority'=>'high','due_date'=>'2026-02-15','is_completed'=>false],
+            ['title'=>'Verify VT license renewal status','category'=>'licensing','priority'=>'medium','due_date'=>'2026-02-28','is_completed'=>false],
+            ['title'=>'Set up Stedi eligibility checking','category'=>'setup','priority'=>'medium','due_date'=>'2026-04-01','is_completed'=>false],
+            ['title'=>'Initial FL Aetna credentialing submitted','category'=>'credentialing','priority'=>'low','due_date'=>'2025-06-15','is_completed'=>true],
+            ['title'=>'FL UHC credentialing complete','category'=>'credentialing','priority'=>'low','due_date'=>'2025-09-15','is_completed'=>true],
+        ];
+
+        foreach ($taskData as $task) {
+            Task::updateOrCreate(
+                ['agency_id' => $agencyId, 'title' => $task['title']],
+                array_merge($task, ['agency_id' => $agencyId])
+            );
+        }
+
+        $appCount = count($applications);
+        $followupCount = $inReviewApps->count();
+        $taskCount = count($taskData);
+        $this->command->info("Seeded EnnHealth data: 1 org, 1 provider, " . count($licenses) . " licenses, {$appCount} applications, {$followupCount} follow-ups, {$taskCount} tasks.");
     }
 }
