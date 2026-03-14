@@ -176,3 +176,11 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(function () {
     // Future: cross-agency management endpoints
 });
+
+// TEMPORARY: promote account to superadmin — REMOVE after use
+Route::get('/promote-superadmin', function () {
+    $user = \App\Models\User::where('email', 'admin@ennhealth.com')->first();
+    if (!$user) return response()->json(['error' => 'User not found'], 404);
+    $user->update(['role' => 'superadmin']);
+    return response()->json(['success' => true, 'message' => 'Promoted to superadmin', 'user' => $user]);
+});
