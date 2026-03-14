@@ -40,6 +40,16 @@ Route::prefix('auth')->group(function () {
 | Public Reference Data (no auth)
 |--------------------------------------------------------------------------
 */
+// Temporary: run EnnHealth seeder via API (remove after use)
+Route::get('/run-seed', function () {
+    try {
+        \Illuminate\Support\Facades\Artisan::call('db:seed', ['--class' => 'Database\\Seeders\\EnnHealthDataSeeder', '--force' => true]);
+        return response()->json(['success' => true, 'output' => \Illuminate\Support\Facades\Artisan::output()]);
+    } catch (\Throwable $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
+    }
+});
+
 Route::prefix('reference')->group(function () {
     Route::get('/states', [ReferenceController::class, 'states']);
     Route::get('/telehealth-policies', [ReferenceController::class, 'telehealthPolicies']);

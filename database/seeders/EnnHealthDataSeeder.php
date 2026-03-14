@@ -122,14 +122,14 @@ class EnnHealthDataSeeder extends Seeder
             // Wave 1 — FL home state (approved/credentialed)
             ['state'=>'FL','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-06-15','effective_date'=>'2025-09-01','est_monthly_revenue'=>4200,'notes'=>'Home state. Credentialed via CAQH ProView.'],
             ['state'=>'FL','payer_name'=>'UnitedHealthcare','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-06-20','effective_date'=>'2025-09-15','est_monthly_revenue'=>5100,'notes'=>'UHC Optum portal. Active.'],
-            ['state'=>'FL','payer_name'=>'Cigna/Evernorth','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-01','effective_date'=>'2025-10-01','est_monthly_revenue'=>3800,'notes'=>'Cigna credentialing complete.'],
+            ['state'=>'FL','payer_name'=>'Cigna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-01','effective_date'=>'2025-10-01','est_monthly_revenue'=>3800,'notes'=>'Cigna credentialing complete.'],
             ['state'=>'FL','payer_name'=>'Humana','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-10','effective_date'=>'2025-10-15','est_monthly_revenue'=>2900,'notes'=>'Humana FL panel.'],
             ['state'=>'FL','payer_name'=>'Anthem/Elevance','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-08-01','effective_date'=>'2025-11-01','est_monthly_revenue'=>3500,'notes'=>'Anthem BCBS FL.'],
 
             // Wave 1 — TX (approved + in progress)
             ['state'=>'TX','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-08-15','effective_date'=>'2025-12-01','est_monthly_revenue'=>4800,'notes'=>'TX credentialed.'],
             ['state'=>'TX','payer_name'=>'UnitedHealthcare','status'=>'in_review','wave'=>1,'type'=>'individual','submitted_date'=>'2025-09-10','est_monthly_revenue'=>5500,'notes'=>'Under review. Expected 60-90 days.'],
-            ['state'=>'TX','payer_name'=>'Cigna/Evernorth','status'=>'submitted','wave'=>1,'type'=>'individual','submitted_date'=>'2025-10-01','est_monthly_revenue'=>4000,'notes'=>'Submitted via CAQH.'],
+            ['state'=>'TX','payer_name'=>'Cigna','status'=>'submitted','wave'=>1,'type'=>'individual','submitted_date'=>'2025-10-01','est_monthly_revenue'=>4000,'notes'=>'Submitted via CAQH.'],
 
             // Wave 1 — NY
             ['state'=>'NY','payer_name'=>'Aetna','status'=>'approved','wave'=>1,'type'=>'individual','submitted_date'=>'2025-07-20','effective_date'=>'2025-11-01','est_monthly_revenue'=>6200,'notes'=>'NY high-volume market. Active.'],
@@ -146,10 +146,10 @@ class EnnHealthDataSeeder extends Seeder
             ['state'=>'WA','payer_name'=>'Aetna','status'=>'submitted','wave'=>2,'type'=>'individual','submitted_date'=>'2025-12-01','est_monthly_revenue'=>3500,'notes'=>'WA submitted.'],
 
             // Wave 3 — expansion states (new/gathering_docs)
-            ['state'=>'OR','payer_name'=>'Aetna','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>2800,'notes'=>'Planned for Q1 2026.'],
-            ['state'=>'MA','payer_name'=>'Aetna','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>5600,'notes'=>'MA high reimbursement. Planned.'],
-            ['state'=>'MD','payer_name'=>'Aetna','status'=>'gathering_docs','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3000,'notes'=>'Compact state. Gathering documents.'],
-            ['state'=>'CT','payer_name'=>'UnitedHealthcare','status'=>'new','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3400,'notes'=>'CT planned.'],
+            ['state'=>'OR','payer_name'=>'Aetna','status'=>'not_started','wave'=>3,'type'=>'individual','est_monthly_revenue'=>2800,'notes'=>'Planned for Q1 2026.'],
+            ['state'=>'MA','payer_name'=>'Aetna','status'=>'not_started','wave'=>3,'type'=>'individual','est_monthly_revenue'=>5600,'notes'=>'MA high reimbursement. Planned.'],
+            ['state'=>'MD','payer_name'=>'Aetna','status'=>'submitted','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3000,'notes'=>'Compact state. Gathering documents.'],
+            ['state'=>'CT','payer_name'=>'UnitedHealthcare','status'=>'not_started','wave'=>3,'type'=>'individual','est_monthly_revenue'=>3400,'notes'=>'CT planned.'],
 
             // Denied example
             ['state'=>'NV','payer_name'=>'Humana','status'=>'denied','wave'=>2,'type'=>'individual','submitted_date'=>'2025-09-01','est_monthly_revenue'=>2200,'denial_reason'=>'Panel currently closed in NV for PMHNP.','notes'=>'Will resubmit when panel opens.'],
