@@ -2,12 +2,22 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 class EnsureAgencyRole
 {
+    /**
+     * Handle an incoming request.
+     *
+     * Accepts one or more role names. The user passes if:
+     *   - They are a superadmin (always passes), OR
+     *   - Their role is in the allowed list.
+     *
+     * When no roles are passed the middleware just checks authentication.
+     */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         $user = $request->user();
@@ -16,12 +26,13 @@ class EnsureAgencyRole
             return response()->json(['error' => 'Unauthenticated'], 401);
         }
 
-        // Owner has access to everything
-        if ($user->role === 'owner') {
+        // SuperAdmin has access to everything
+        if ($user->isSuperAdmin()) {
             return $next($request);
         }
 
-        if (!in_array($user->role, $roles)) {
+        // If specific roles were listed, the user must match one of them
+        if (!empty($roles) && !in_array($user->role, $roles)) {
             return response()->json(['error' => 'Insufficient permissions'], 403);
         }
 

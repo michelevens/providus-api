@@ -45,7 +45,7 @@ class AuthController extends Controller
             'password' => $request->password,
             'first_name' => $request->first_name,
             'last_name' => $request->last_name,
-            'role' => 'owner',
+            'role' => 'agency',
         ]);
 
         $token = $user->createToken('auth-token')->plainTextToken;
@@ -84,7 +84,7 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'token' => $token,
-            'user' => $user->load('agency'),
+            'user' => $user->load($this->userRelations($user)),
         ]);
     }
 
@@ -97,9 +97,29 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
+        $user = $request->user();
+
         return response()->json([
             'success' => true,
-            'user' => $request->user()->load('agency.config'),
+            'user' => $user->load($this->userRelations($user)),
         ]);
+    }
+
+    /**
+     * Determine which relationships to eager-load based on user role.
+     */
+    private function userRelations(User $user): array
+    {
+        $relations = ['agency.config'];
+
+        if (in_array($user->role, ['organization', 'provider'])) {
+            $relations[] = 'organization';
+        }
+
+        if ($user->role === 'provider') {
+            $relations[] = 'provider';
+        }
+
+        return $relations;
     }
 }

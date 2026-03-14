@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Organization;
+use App\Models\Provider;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -78,10 +80,14 @@ class AgencyController extends Controller
         return response()->json(['success' => true, 'data' => $config->fresh()]);
     }
 
-    // Agency user management
+    // ── Agency User Management ───────────────────────────────────
+
     public function listUsers(Request $request): JsonResponse
     {
-        $users = User::where('agency_id', $request->user()->agency_id)->get();
+        $users = User::where('agency_id', $request->user()->agency_id)
+            ->with(['organization', 'provider'])
+            ->get();
+
         return response()->json(['success' => true, 'data' => $users]);
     }
 
@@ -91,12 +97,60 @@ class AgencyController extends Controller
             'email' => 'required|email|unique:users,email',
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'role' => 'required|in:admin,staff,readonly',
+            'role' => 'required|in:agency,organization,provider',
             'password' => 'required|string|min:8',
+            'organization_id' => 'nullable|integer',
+            'provider_id' => 'nullable|integer',
         ]);
 
+        $agencyId = $request->user()->agency_id;
+
+        // Organization role requires organization_id
+        if ($request->role === 'organization') {
+            if (!$request->organization_id) {
+                return response()->json([
+                    'error' => 'organization_id is required for organization role',
+                ], 422);
+            }
+        }
+
+        // Provider role requires provider_id
+        if ($request->role === 'provider') {
+            if (!$request->provider_id) {
+                return response()->json([
+                    'error' => 'provider_id is required for provider role',
+                ], 422);
+            }
+        }
+
+        // Validate organization belongs to this agency
+        if ($request->organization_id) {
+            $org = Organization::where('agency_id', $agencyId)
+                ->find($request->organization_id);
+
+            if (!$org) {
+                return response()->json([
+                    'error' => 'Organization not found in this agency',
+                ], 404);
+            }
+        }
+
+        // Validate provider belongs to this agency
+        if ($request->provider_id) {
+            $provider = Provider::where('agency_id', $agencyId)
+                ->find($request->provider_id);
+
+            if (!$provider) {
+                return response()->json([
+                    'error' => 'Provider not found in this agency',
+                ], 404);
+            }
+        }
+
         $user = User::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $agencyId,
+            'organization_id' => $request->organization_id,
+            'provider_id' => $request->provider_id,
             'email' => $request->email,
             'password' => $request->password,
             'first_name' => $request->first_name,
@@ -104,7 +158,10 @@ class AgencyController extends Controller
             'role' => $request->role,
         ]);
 
-        return response()->json(['success' => true, 'data' => $user], 201);
+        return response()->json([
+            'success' => true,
+            'data' => $user->load(['organization', 'provider']),
+        ], 201);
     }
 
     public function updateUser(Request $request, int $id): JsonResponse
@@ -112,20 +169,66 @@ class AgencyController extends Controller
         $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
 
         $request->validate([
-            'role' => 'sometimes|in:admin,staff,readonly',
+            'role' => 'sometimes|in:agency,organization,provider',
             'is_active' => 'sometimes|boolean',
+            'organization_id' => 'sometimes|nullable|integer',
+            'provider_id' => 'sometimes|nullable|integer',
         ]);
 
-        $user->update($request->only(['role', 'is_active']));
-        return response()->json(['success' => true, 'data' => $user]);
+        // Cannot promote to superadmin
+        if ($request->has('role') && $request->role === 'superadmin') {
+            return response()->json([
+                'error' => 'Cannot assign superadmin role',
+            ], 403);
+        }
+
+        $agencyId = $request->user()->agency_id;
+
+        // Validate organization belongs to this agency
+        if ($request->has('organization_id') && $request->organization_id) {
+            $org = Organization::where('agency_id', $agencyId)
+                ->find($request->organization_id);
+
+            if (!$org) {
+                return response()->json([
+                    'error' => 'Organization not found in this agency',
+                ], 404);
+            }
+        }
+
+        // Validate provider belongs to this agency
+        if ($request->has('provider_id') && $request->provider_id) {
+            $provider = Provider::where('agency_id', $agencyId)
+                ->find($request->provider_id);
+
+            if (!$provider) {
+                return response()->json([
+                    'error' => 'Provider not found in this agency',
+                ], 404);
+            }
+        }
+
+        $user->update($request->only(['role', 'is_active', 'organization_id', 'provider_id']));
+
+        return response()->json([
+            'success' => true,
+            'data' => $user->load(['organization', 'provider']),
+        ]);
     }
 
     public function deleteUser(Request $request, int $id): JsonResponse
     {
         $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
 
-        if ($user->role === 'owner') {
-            return response()->json(['error' => 'Cannot delete the owner account'], 403);
+        // Cannot delete superadmin or agency-owner accounts
+        if ($user->isSuperAdmin()) {
+            return response()->json(['error' => 'Cannot delete a superadmin account'], 403);
+        }
+
+        // Prevent agency users from deleting other agency-level users
+        // (only superadmin can do that, and they bypass this check above)
+        if ($user->role === 'agency' && !$request->user()->isSuperAdmin()) {
+            return response()->json(['error' => 'Cannot delete an agency-level account'], 403);
         }
 
         $user->update(['is_active' => false]);

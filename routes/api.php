@@ -92,18 +92,22 @@ Route::prefix('proxy/nppes')->group(function () {
 */
 Route::middleware('auth:sanctum')->group(function () {
 
-    // Agency management
+    // Agency info (all authenticated users can read)
     Route::get('/agency', [AgencyController::class, 'show']);
-    Route::put('/agency', [AgencyController::class, 'update']);
     Route::get('/agency/config', [AgencyController::class, 'getConfig']);
-    Route::put('/agency/config', [AgencyController::class, 'updateConfig']);
 
-    // Agency user management (admin only)
-    Route::prefix('agency/users')->group(function () {
-        Route::get('/', [AgencyController::class, 'listUsers']);
-        Route::post('/', [AgencyController::class, 'inviteUser']);
-        Route::put('/{id}', [AgencyController::class, 'updateUser']);
-        Route::delete('/{id}', [AgencyController::class, 'deleteUser']);
+    // Agency management (agency+ roles only)
+    Route::middleware('role:agency')->group(function () {
+        Route::put('/agency', [AgencyController::class, 'update']);
+        Route::put('/agency/config', [AgencyController::class, 'updateConfig']);
+
+        // User management (agency+ only)
+        Route::prefix('agency/users')->group(function () {
+            Route::get('/', [AgencyController::class, 'listUsers']);
+            Route::post('/', [AgencyController::class, 'inviteUser']);
+            Route::put('/{id}', [AgencyController::class, 'updateUser']);
+            Route::delete('/{id}', [AgencyController::class, 'deleteUser']);
+        });
     });
 
     // Onboarding token management
@@ -162,4 +166,13 @@ Route::middleware('auth:sanctum')->group(function () {
     // Office hours management
     Route::get('/office-hours', [OfficeHourController::class, 'index']);
     Route::put('/office-hours', [OfficeHourController::class, 'upsert']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| SuperAdmin Routes (future cross-agency operations)
+|--------------------------------------------------------------------------
+*/
+Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(function () {
+    // Future: cross-agency management endpoints
 });

@@ -11,7 +11,15 @@ class TenantScope implements Scope
     public function apply(Builder $builder, Model $model): void
     {
         if (auth()->check()) {
-            $builder->where($model->getTable() . '.agency_id', auth()->user()->agency_id);
+            $user = auth()->user();
+
+            // SuperAdmin sees everything — no tenant scoping
+            if ($user->role === 'superadmin') {
+                return;
+            }
+
+            // All other roles are scoped to their agency
+            $builder->where($model->getTable() . '.agency_id', $user->agency_id);
         }
     }
 }
