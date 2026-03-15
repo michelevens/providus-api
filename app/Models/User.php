@@ -12,9 +12,10 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
-    const ROLES = ['superadmin', 'agency', 'organization', 'provider'];
+    const ROLES = ['superadmin', 'owner', 'agency', 'organization', 'provider'];
     const ROLE_HIERARCHY = [
-        'superadmin' => 4,
+        'superadmin' => 5,
+        'owner' => 4,
         'agency' => 3,
         'organization' => 2,
         'provider' => 1,
@@ -67,17 +68,17 @@ class User extends Authenticatable
 
     public function isAgency(): bool
     {
-        return in_array($this->role, ['superadmin', 'agency']);
+        return in_array($this->role, ['superadmin', 'owner', 'agency']);
     }
 
     public function isOrganization(): bool
     {
-        return in_array($this->role, ['superadmin', 'agency', 'organization']);
+        return in_array($this->role, ['superadmin', 'owner', 'agency', 'organization']);
     }
 
     public function isProvider(): bool
     {
-        return in_array($this->role, ['superadmin', 'agency', 'organization', 'provider']);
+        return in_array($this->role, ['superadmin', 'owner', 'agency', 'organization', 'provider']);
     }
 
     /**
@@ -92,7 +93,7 @@ class User extends Authenticatable
 
     public function isOwner(): bool
     {
-        return $this->isSuperAdmin() || $this->role === 'agency';
+        return $this->isSuperAdmin() || in_array($this->role, ['owner', 'agency']);
     }
 
     public function isAdmin(): bool

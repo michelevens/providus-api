@@ -109,7 +109,7 @@ class AgencyController extends Controller
             'email' => 'required|email|unique:users,email',
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'role' => 'required|in:agency,organization,provider',
+            'role' => 'required|in:owner,agency,organization,provider',
             'organization_id' => 'nullable|integer',
             'provider_id' => 'nullable|integer',
         ]);
@@ -203,7 +203,7 @@ class AgencyController extends Controller
         $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
 
         $request->validate([
-            'role' => 'sometimes|in:agency,organization,provider',
+            'role' => 'sometimes|in:owner,agency,organization,provider',
             'is_active' => 'sometimes|boolean',
             'organization_id' => 'sometimes|nullable|integer',
             'provider_id' => 'sometimes|nullable|integer',
@@ -259,10 +259,9 @@ class AgencyController extends Controller
             return response()->json(['error' => 'Cannot delete a superadmin account'], 403);
         }
 
-        // Prevent agency users from deleting other agency-level users
-        // (only superadmin can do that, and they bypass this check above)
-        if ($user->role === 'agency' && !$request->user()->isSuperAdmin()) {
-            return response()->json(['error' => 'Cannot delete an agency-level account'], 403);
+        // Prevent non-superadmin from deleting owner/agency-level users
+        if (in_array($user->role, ['owner', 'agency']) && !$request->user()->isSuperAdmin()) {
+            return response()->json(['error' => 'Cannot delete an owner/agency-level account'], 403);
         }
 
         $user->update(['is_active' => false]);

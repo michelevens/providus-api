@@ -31,9 +31,18 @@ class EnsureAgencyRole
             return $next($request);
         }
 
-        // If specific roles were listed, the user must match one of them
-        if (!empty($roles) && !in_array($user->role, $roles)) {
-            return response()->json(['error' => 'Insufficient permissions'], 403);
+        // If specific roles were listed, the user must have at least the
+        // highest required role level (using the hierarchy, not exact match).
+        if (!empty($roles)) {
+            $minLevel = min(array_map(
+                fn ($r) => User::ROLE_HIERARCHY[$r] ?? 99,
+                $roles
+            ));
+            $userLevel = User::ROLE_HIERARCHY[$user->role] ?? 0;
+
+            if ($userLevel < $minLevel) {
+                return response()->json(['error' => 'Insufficient permissions'], 403);
+            }
         }
 
         return $next($request);
