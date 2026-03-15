@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\V1\ActivityLogController;
+use App\Http\Controllers\Api\V1\AdminController;
 use App\Http\Controllers\Api\V1\AgencyController;
 use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\AuthController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\V1\FollowupController;
 use App\Http\Controllers\Api\V1\ImportController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LicenseController;
+use App\Http\Controllers\Api\V1\MasterDataController;
 use App\Http\Controllers\Api\V1\OfficeHourController;
 use App\Http\Controllers\Api\V1\OnboardController;
 use App\Http\Controllers\Api\V1\OrganizationController;
@@ -259,23 +261,55 @@ Route::middleware('auth:sanctum')->group(function () {
 
 /*
 |--------------------------------------------------------------------------
-| SuperAdmin Routes (future cross-agency operations)
+| SuperAdmin Routes — Platform Administration
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(function () {
-    Route::get('/agencies', function () {
-        $agencies = \App\Models\Agency::withCount(['users', 'organizations', 'providers', 'applications'])
-            ->with('config:id,agency_id,notification_email')
-            ->orderBy('name')
-            ->get();
-        return response()->json(['success' => true, 'data' => $agencies]);
-    });
 
-    Route::get('/agencies/{id}', function (int $id) {
-        $agency = \App\Models\Agency::withCount(['users', 'organizations', 'providers', 'applications', 'licenses', 'tasks'])
-            ->with(['config', 'users:id,agency_id,first_name,last_name,email,role,is_active'])
-            ->findOrFail($id);
-        return response()->json(['success' => true, 'data' => $agency]);
+    // Platform overview
+    Route::get('/stats', [AdminController::class, 'stats']);
+
+    // Agency management
+    Route::get('/agencies', [AdminController::class, 'agencies']);
+    Route::get('/agencies/{id}', [AdminController::class, 'agencyShow']);
+    Route::put('/agencies/{id}', [AdminController::class, 'agencyUpdate']);
+    Route::get('/agencies/{id}/users', [AdminController::class, 'agencyUsers']);
+    Route::post('/agencies/{id}/impersonate', [AdminController::class, 'impersonate']);
+
+    // Platform-wide user management
+    Route::get('/users', [AdminController::class, 'users']);
+    Route::put('/users/{id}', [AdminController::class, 'userUpdate']);
+
+    // Audit log
+    Route::get('/audit-log', [AdminController::class, 'auditLog']);
+
+    // Master Data CRUD
+    Route::prefix('master-data')->group(function () {
+        Route::get('/status', [MasterDataController::class, 'seedStatus']);
+
+        // Payers
+        Route::get('/payers', [MasterDataController::class, 'payers']);
+        Route::post('/payers', [MasterDataController::class, 'storePayer']);
+        Route::put('/payers/{id}', [MasterDataController::class, 'updatePayer']);
+        Route::delete('/payers/{id}', [MasterDataController::class, 'destroyPayer']);
+
+        // Telehealth Policies
+        Route::get('/telehealth-policies', [MasterDataController::class, 'telehealthPolicies']);
+        Route::post('/telehealth-policies', [MasterDataController::class, 'storeTelehealthPolicy']);
+        Route::put('/telehealth-policies/{id}', [MasterDataController::class, 'updateTelehealthPolicy']);
+        Route::delete('/telehealth-policies/{id}', [MasterDataController::class, 'destroyTelehealthPolicy']);
+
+        // Strategy Templates
+        Route::get('/strategy-templates', [MasterDataController::class, 'strategyTemplates']);
+        Route::post('/strategy-templates', [MasterDataController::class, 'storeStrategyTemplate']);
+        Route::put('/strategy-templates/{id}', [MasterDataController::class, 'updateStrategyTemplate']);
+        Route::delete('/strategy-templates/{id}', [MasterDataController::class, 'destroyStrategyTemplate']);
+
+        // Taxonomy Codes
+        Route::get('/taxonomy-codes', [MasterDataController::class, 'taxonomyCodes']);
+        Route::post('/taxonomy-codes', [MasterDataController::class, 'storeTaxonomyCode']);
+        Route::put('/taxonomy-codes/{id}', [MasterDataController::class, 'updateTaxonomyCode']);
+        Route::delete('/taxonomy-codes/{id}', [MasterDataController::class, 'destroyTaxonomyCode']);
     });
 });
 

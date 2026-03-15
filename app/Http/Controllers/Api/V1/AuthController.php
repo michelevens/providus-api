@@ -223,6 +223,11 @@ class AuthController extends Controller
      */
     private function userRelations(User $user): array
     {
+        // Superadmin is platform-level, may not have an agency
+        if ($user->isSuperAdmin()) {
+            return $user->agency_id ? ['agency.config'] : [];
+        }
+
         $relations = ['agency.config'];
 
         if (in_array($user->role, ['organization', 'provider'])) {

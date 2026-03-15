@@ -14,7 +14,13 @@ trait BelongsToAgency
 
         static::creating(function ($model) {
             if (auth()->check() && !$model->agency_id) {
-                $model->agency_id = auth()->user()->agency_id;
+                $user = auth()->user();
+                // SuperAdmin must use X-Agency-Id header to scope creates
+                if ($user->role === 'superadmin') {
+                    $model->agency_id = request()->header('X-Agency-Id') ?? $user->agency_id;
+                } else {
+                    $model->agency_id = $user->agency_id;
+                }
             }
         });
     }
