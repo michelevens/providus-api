@@ -6,15 +6,22 @@ use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\EligibilityController;
+use App\Http\Controllers\Api\V1\ExclusionController;
+use App\Http\Controllers\Api\V1\FacilityController;
+use App\Http\Controllers\Api\V1\FaqController;
 use App\Http\Controllers\Api\V1\FollowupController;
+use App\Http\Controllers\Api\V1\ImportController;
+use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LicenseController;
 use App\Http\Controllers\Api\V1\OfficeHourController;
 use App\Http\Controllers\Api\V1\OnboardController;
 use App\Http\Controllers\Api\V1\OrganizationController;
 use App\Http\Controllers\Api\V1\PayerController;
 use App\Http\Controllers\Api\V1\ProviderController;
+use App\Http\Controllers\Api\V1\ProviderProfileController;
 use App\Http\Controllers\Api\V1\ProxyController;
 use App\Http\Controllers\Api\V1\ReferenceController;
+use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\TestimonialController;
@@ -167,6 +174,84 @@ Route::middleware('auth:sanctum')->group(function () {
     // Office hours management
     Route::get('/office-hours', [OfficeHourController::class, 'index']);
     Route::put('/office-hours', [OfficeHourController::class, 'upsert']);
+
+    // ── Exclusion Screening ──
+    Route::get('/exclusions', [ExclusionController::class, 'index']);
+    Route::get('/exclusions/summary', [ExclusionController::class, 'summary']);
+    Route::post('/exclusions/screen/{providerId}', [ExclusionController::class, 'screen']);
+    Route::post('/exclusions/screen-all', [ExclusionController::class, 'screenAll']);
+
+    // ── Facilities ──
+    Route::apiResource('facilities', FacilityController::class);
+    Route::post('/facilities/from-npi', [FacilityController::class, 'createFromNpi']);
+
+    // ── Billing & Invoicing ──
+    Route::get('/billing/stats', [InvoiceController::class, 'stats']);
+    Route::get('/billing/services', [InvoiceController::class, 'services']);
+    Route::post('/billing/services', [InvoiceController::class, 'storeService']);
+    Route::put('/billing/services/{id}', [InvoiceController::class, 'updateService']);
+    Route::apiResource('invoices', InvoiceController::class);
+    Route::post('/invoices/{id}/payments', [InvoiceController::class, 'addPayment']);
+
+    // ── Provider Profile (education, malpractice, boards, work history, CME, references, documents) ──
+    Route::prefix('providers/{providerId}')->group(function () {
+        Route::get('/profile', [ProviderProfileController::class, 'fullProfile']);
+
+        Route::get('/malpractice', [ProviderProfileController::class, 'malpractice']);
+        Route::post('/malpractice', [ProviderProfileController::class, 'storeMalpractice']);
+        Route::put('/malpractice/{id}', [ProviderProfileController::class, 'updateMalpractice']);
+        Route::delete('/malpractice/{id}', [ProviderProfileController::class, 'destroyMalpractice']);
+
+        Route::get('/education', [ProviderProfileController::class, 'education']);
+        Route::post('/education', [ProviderProfileController::class, 'storeEducation']);
+        Route::put('/education/{id}', [ProviderProfileController::class, 'updateEducation']);
+        Route::delete('/education/{id}', [ProviderProfileController::class, 'destroyEducation']);
+
+        Route::get('/boards', [ProviderProfileController::class, 'boards']);
+        Route::post('/boards', [ProviderProfileController::class, 'storeBoard']);
+        Route::put('/boards/{id}', [ProviderProfileController::class, 'updateBoard']);
+        Route::delete('/boards/{id}', [ProviderProfileController::class, 'destroyBoard']);
+
+        Route::get('/work-history', [ProviderProfileController::class, 'workHistory']);
+        Route::post('/work-history', [ProviderProfileController::class, 'storeWorkHistory']);
+        Route::put('/work-history/{id}', [ProviderProfileController::class, 'updateWorkHistory']);
+        Route::delete('/work-history/{id}', [ProviderProfileController::class, 'destroyWorkHistory']);
+
+        Route::get('/cme', [ProviderProfileController::class, 'cme']);
+        Route::post('/cme', [ProviderProfileController::class, 'storeCme']);
+        Route::put('/cme/{id}', [ProviderProfileController::class, 'updateCme']);
+        Route::delete('/cme/{id}', [ProviderProfileController::class, 'destroyCme']);
+
+        Route::get('/references', [ProviderProfileController::class, 'references']);
+        Route::post('/references', [ProviderProfileController::class, 'storeReference']);
+        Route::put('/references/{id}', [ProviderProfileController::class, 'updateReference']);
+        Route::delete('/references/{id}', [ProviderProfileController::class, 'destroyReference']);
+
+        Route::get('/documents', [ProviderProfileController::class, 'documents']);
+        Route::post('/documents', [ProviderProfileController::class, 'storeDocument']);
+        Route::put('/documents/{id}', [ProviderProfileController::class, 'updateDocument']);
+        Route::delete('/documents/{id}', [ProviderProfileController::class, 'destroyDocument']);
+    });
+
+    // ── Bulk Import ──
+    Route::get('/imports', [ImportController::class, 'index']);
+    Route::post('/imports/preview', [ImportController::class, 'preview']);
+    Route::post('/imports/execute', [ImportController::class, 'execute']);
+
+    // ── Reports & Export ──
+    Route::get('/reports/provider/{providerId}', [ReportController::class, 'providerPacket']);
+    Route::get('/reports/compliance', [ReportController::class, 'complianceReport']);
+    Route::get('/reports/export', [ReportController::class, 'export']);
+
+    // ── FAQ / Knowledge Base ──
+    Route::get('/faqs', [FaqController::class, 'index']);
+    Route::post('/faqs', [FaqController::class, 'store']);
+    Route::put('/faqs/{id}', [FaqController::class, 'update']);
+    Route::delete('/faqs/{id}', [FaqController::class, 'destroy']);
+    Route::post('/faqs/{id}/helpful', [FaqController::class, 'helpful']);
+
+    // ── Licensing Boards (reference) ──
+    Route::get('/licensing-boards', [FaqController::class, 'licensingBoards']);
 });
 
 /*
