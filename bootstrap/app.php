@@ -19,7 +19,6 @@ return Application::configure(basePath: dirname(__DIR__))
             'write' => EnsureWriteAccess::class,
         ]);
 
-        $middleware->statefulApi();
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
