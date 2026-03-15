@@ -54,6 +54,7 @@ Route::prefix('reference')->group(function () {
 */
 Route::prefix('onboard')->group(function () {
     Route::get('/{token}', [OnboardController::class, 'validate_token']);
+    Route::get('/{token}/organizations', [OnboardController::class, 'organizations']);
     Route::post('/{token}', [OnboardController::class, 'submit']);
 });
 

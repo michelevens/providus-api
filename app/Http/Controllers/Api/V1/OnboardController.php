@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\OnboardToken;
+use App\Models\Organization;
 use App\Models\Provider;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -64,6 +65,31 @@ class OnboardController extends Controller
                 'expires_at' => $record->expires_at,
             ],
         ]);
+    }
+
+    // PUBLIC: Search organizations for the token's agency (no auth required)
+    public function organizations(Request $request, string $token): JsonResponse
+    {
+        $record = OnboardToken::where('token', $token)->first();
+
+        if (!$record || !$record->isValid()) {
+            return response()->json(['success' => false, 'error' => 'Invalid or expired token'], 404);
+        }
+
+        $query = Organization::withoutGlobalScopes()
+            ->where('agency_id', $record->agency_id)
+            ->select(['id', 'name', 'npi', 'city', 'state']);
+
+        if ($search = $request->input('search')) {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'ilike', "%{$search}%")
+                  ->orWhere('npi', 'like', "%{$search}%");
+            });
+        }
+
+        $orgs = $query->orderBy('name')->limit(50)->get();
+
+        return response()->json(['success' => true, 'data' => $orgs]);
     }
 
     // PUBLIC: Submit provider onboarding form (no auth required)
