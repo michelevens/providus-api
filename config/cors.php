@@ -7,7 +7,7 @@ return [
     | Cross-Origin Resource Sharing (CORS) Configuration
     |--------------------------------------------------------------------------
     |
-    | Settings for cross-origin resource sharing. Allows the Providus API
+    | Settings for cross-origin resource sharing. Allows the Credentik API
     | to accept requests from the GitHub Pages frontend and localhost dev.
     |
     */
@@ -19,6 +19,7 @@ return [
     'allowed_origins' => array_filter(array_merge(
         [
             'https://michelevens.github.io',
+            'https://app.credentik.com',
         ],
         // Add env-based origins (comma-separated) for custom agency domains
         array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', ''))),
