@@ -42,10 +42,17 @@ class LicenseController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $license = License::findOrFail($id);
-        $license->update($request->only([
+        $data = $request->only([
             'provider_id', 'state', 'license_number', 'license_type', 'status',
             'issue_date', 'expiration_date', 'renewal_date', 'compact_state', 'notes',
-        ]));
+        ]);
+        // Convert empty date strings to null
+        foreach (['issue_date', 'expiration_date', 'renewal_date'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
+        $license->update($data);
         return response()->json(['success' => true, 'data' => $license]);
     }
 
