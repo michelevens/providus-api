@@ -8,6 +8,8 @@ use App\Models\Provider;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class AgencyController extends Controller
 {
@@ -108,7 +110,6 @@ class AgencyController extends Controller
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
             'role' => 'required|in:agency,organization,provider',
-            'password' => 'required|string|min:8',
             'organization_id' => 'nullable|integer',
             'provider_id' => 'nullable|integer',
         ]);
@@ -157,20 +158,43 @@ class AgencyController extends Controller
             }
         }
 
+        $inviteToken = Str::random(64);
+
         $user = User::create([
             'agency_id' => $agencyId,
             'organization_id' => $request->organization_id,
             'provider_id' => $request->provider_id,
             'email' => $request->email,
-            'password' => $request->password,
+            'password' => Str::random(32), // temp password, replaced on invite accept
             'first_name' => $request->first_name,
             'last_name' => $request->last_name,
             'role' => $request->role,
+            'is_active' => false,
+            'invite_token' => hash('sha256', $inviteToken),
+            'invite_expires' => now()->addDays(7),
         ]);
+
+        // Send invitation email
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
+        $inviteUrl = "{$frontendUrl}/#invite/{$inviteToken}";
+        $agencyName = $request->user()->agency->name;
+
+        Mail::raw(
+            "You've been invited to join {$agencyName} on Credentik.\n\n"
+            . "Click the link below to set your password and activate your account:\n{$inviteUrl}\n\n"
+            . "This invitation expires in 7 days.\n\n"
+            . "Role: {$request->role}\n"
+            . "— The Credentik Team",
+            function ($message) use ($user, $agencyName) {
+                $message->to($user->email)
+                    ->subject("You're invited to {$agencyName} on Credentik");
+            }
+        );
 
         return response()->json([
             'success' => true,
             'data' => $user->load(['organization', 'provider']),
+            'invite_url' => $inviteUrl,
         ], 201);
     }
 

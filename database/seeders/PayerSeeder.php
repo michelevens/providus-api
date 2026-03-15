@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\DB;
 class PayerSeeder extends Seeder
 {
     /**
-     * Seed the payers table with the full Providus payer catalog.
+     * Seed the payers table with the full Credentik payer catalog.
      */
     public function run(): void
     {

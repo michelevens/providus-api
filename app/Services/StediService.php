@@ -50,7 +50,7 @@ class StediService
             'payer' => ['id' => $payerId],
             'encounter' => ['serviceTypeCodes' => ['MH']],
             'provider' => [
-                'organizationName' => $config->stedi_org_name ?? 'Providus',
+                'organizationName' => $config->stedi_org_name ?? 'Credentik',
                 'npi' => $config->stedi_npi ?? '1234567890',
             ],
             'subscriber' => [

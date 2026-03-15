@@ -35,6 +35,9 @@ use Illuminate\Support\Facades\Route;
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/forgot-password', [AuthController::class, 'forgotPassword']);
+    Route::post('/reset-password', [AuthController::class, 'resetPassword']);
+    Route::post('/accept-invite', [AuthController::class, 'acceptInvite']);
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -276,10 +279,3 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     });
 });
 
-// TEMPORARY: promote account to superadmin — REMOVE after use
-Route::get('/promote-superadmin', function () {
-    $user = \App\Models\User::where('email', 'admin@ennhealth.com')->first();
-    if (!$user) return response()->json(['error' => 'User not found'], 404);
-    $user->update(['role' => 'superadmin']);
-    return response()->json(['success' => true, 'message' => 'Promoted to superadmin', 'role' => $user->role]);
-});
