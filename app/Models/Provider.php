@@ -7,10 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Provider extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'organization_id', 'user_id', 'legacy_id',

@@ -37,11 +37,17 @@ class TaskController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $task = Task::findOrFail($id);
-        $task->update($request->only([
+        $data = $request->only([
             'title', 'category', 'priority', 'due_date',
             'linked_application_id', 'recurrence', 'notes', 'assigned_to',
             'is_completed', 'completed_at',
-        ]));
+        ]);
+        foreach (['due_date', 'completed_at'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
+        $task->update($data);
         return response()->json(['success' => true, 'data' => $task]);
     }
 

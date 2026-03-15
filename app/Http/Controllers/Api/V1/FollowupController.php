@@ -35,10 +35,16 @@ class FollowupController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $followup = Followup::findOrFail($id);
-        $followup->update($request->only([
+        $data = $request->only([
             'type', 'due_date', 'completed_date', 'method',
             'contact_name', 'contact_phone', 'contact_email', 'outcome', 'next_action',
-        ]));
+        ]);
+        foreach (['due_date', 'completed_date'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
+        $followup->update($data);
         return response()->json(['success' => true, 'data' => $followup]);
     }
 

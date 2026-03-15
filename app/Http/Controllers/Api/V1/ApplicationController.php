@@ -56,13 +56,19 @@ class ApplicationController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $app = Application::findOrFail($id);
-        $app->update($request->only([
+        $data = $request->only([
             'provider_id', 'organization_id', 'payer_id', 'payer_plan_id', 'payer_name',
             'state', 'type', 'wave', 'status', 'portal_url', 'application_ref', 'enrollment_id',
             'submitted_date', 'received_date', 'effective_date', 'denial_reason',
             'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
             'payer_contact_email', 'notes', 'tags',
-        ]));
+        ]);
+        foreach (['submitted_date', 'received_date', 'effective_date'] as $field) {
+            if (array_key_exists($field, $data) && $data[$field] === '') {
+                $data[$field] = null;
+            }
+        }
+        $app->update($data);
         return response()->json(['success' => true, 'data' => $app]);
     }
 

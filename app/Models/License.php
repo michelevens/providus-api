@@ -5,10 +5,11 @@ namespace App\Models;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class License extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'provider_id', 'state', 'license_number', 'license_type',

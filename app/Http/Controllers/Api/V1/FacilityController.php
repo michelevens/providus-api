@@ -72,8 +72,12 @@ class FacilityController extends Controller
     {
         $request->validate(['npi' => 'required|string|size:10']);
 
-        $response = Http::timeout(10)
-            ->get("https://npiregistry.cms.hhs.gov/api/?number={$request->npi}&version=2.1");
+        try {
+            $response = Http::timeout(10)
+                ->get('https://npiregistry.cms.hhs.gov/api/', ['number' => $request->npi, 'version' => '2.1']);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'error' => 'External service unavailable'], 503);
+        }
 
         if (!$response->successful()) {
             return response()->json(['success' => false, 'error' => 'NPI lookup failed'], 422);

@@ -5,10 +5,11 @@ namespace App\Models;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Organization extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'legacy_id', 'name', 'npi', 'tax_id',
