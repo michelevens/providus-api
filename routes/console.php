@@ -6,3 +6,10 @@ use Illuminate\Support\Facades\Artisan;
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
 })->purpose('Display an inspiring quote');
+
+Artisan::command('promote-superadmin {email}', function (string $email) {
+    $user = \App\Models\User::where('email', $email)->firstOrFail();
+    $user->role = 'superadmin';
+    $user->save();
+    $this->info("User {$email} promoted to superadmin (id: {$user->id})");
+})->purpose('Promote a user to superadmin role');
