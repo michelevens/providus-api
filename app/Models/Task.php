@@ -12,7 +12,8 @@ class Task extends Model
 
     protected $fillable = [
         'agency_id', 'title', 'category', 'priority', 'due_date',
-        'linked_application_id', 'recurrence', 'notes',
+        'linked_application_id', 'linkable_type', 'linkable_id',
+        'recurrence', 'notes',
         'is_completed', 'completed_at', 'assigned_to',
     ];
 
@@ -22,6 +23,13 @@ class Task extends Model
         'completed_at' => 'datetime',
     ];
 
+    // Polymorphic link — can link to application, provider, organization, license, payer
+    public function linkable(): \Illuminate\Database\Eloquent\Relations\MorphTo
+    {
+        return $this->morphTo('linkable', 'linkable_type', 'linkable_id');
+    }
+
+    // Legacy relationship (kept for backward compatibility)
     public function application(): BelongsTo { return $this->belongsTo(Application::class, 'linked_application_id'); }
     public function assignee(): BelongsTo { return $this->belongsTo(User::class, 'assigned_to'); }
 
