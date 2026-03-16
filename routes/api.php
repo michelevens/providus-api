@@ -75,7 +75,8 @@ Route::prefix('onboard')->group(function () {
 | Public Agency Routes (by slug, no auth)
 |--------------------------------------------------------------------------
 */
-Route::prefix('public/{slug}')->group(function () {
+Route::prefix('public/{slug}')->middleware('embed.cors')->group(function () {
+    Route::get('/embed-config', [BookingController::class, 'embedConfig']);
     Route::get('/availability', [BookingController::class, 'availability']);
     Route::get('/office-hours', [OfficeHourController::class, 'publicIndex']);
     Route::post('/book', [BookingController::class, 'book']);

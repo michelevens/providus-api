@@ -3,10 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\TestimonialRequest;
 use App\Models\Agency;
 use App\Models\Testimonial;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
 class TestimonialController extends Controller
@@ -48,8 +50,17 @@ class TestimonialController extends Controller
             'patient_first_name' => $request->patient_first_name,
             'patient_last_name' => $request->patient_last_name,
             'patient_email' => $request->patient_email,
-            'status' => 'pending',
+            'status' => 'requested',
+            'requested_at' => now(),
         ]);
+
+        // Send review request email if patient email provided
+        if ($request->patient_email) {
+            $agency = $request->user()->agency;
+            $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
+            $reviewUrl = "{$frontendUrl}/#review/{$testimonial->token}";
+            Mail::to($request->patient_email)->send(new TestimonialRequest($testimonial, $agency, $reviewUrl));
+        }
 
         return response()->json(['success' => true, 'data' => $testimonial], 201);
     }

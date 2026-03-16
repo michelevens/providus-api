@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordReset as PasswordResetMail;
 use App\Models\Agency;
 use App\Models\AgencyConfig;
 use App\Models\User;
@@ -140,13 +141,7 @@ class AuthController extends Controller
         $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
         $resetUrl = "{$frontendUrl}/#reset-password/{$resetToken}";
 
-        Mail::raw(
-            "You requested a password reset for your Credentik account.\n\nClick here to reset your password:\n{$resetUrl}\n\nThis link expires in 2 hours.\n\nIf you didn't request this, ignore this email.",
-            function ($message) use ($user) {
-                $message->to($user->email)
-                    ->subject('Credentik — Reset Your Password');
-            }
-        );
+        Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
 
         return response()->json(['success' => true, 'message' => 'If that email exists, a reset link has been sent.']);
     }

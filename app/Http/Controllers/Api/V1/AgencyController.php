@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\UserInvite;
 use App\Models\Organization;
 use App\Models\Provider;
 use App\Models\User;
@@ -179,17 +180,8 @@ class AgencyController extends Controller
         $inviteUrl = "{$frontendUrl}/#invite/{$inviteToken}";
         $agencyName = $request->user()->agency->name;
 
-        Mail::raw(
-            "You've been invited to join {$agencyName} on Credentik.\n\n"
-            . "Click the link below to set your password and activate your account:\n{$inviteUrl}\n\n"
-            . "This invitation expires in 7 days.\n\n"
-            . "Role: {$request->role}\n"
-            . "— The Credentik Team",
-            function ($message) use ($user, $agencyName) {
-                $message->to($user->email)
-                    ->subject("You're invited to {$agencyName} on Credentik");
-            }
-        );
+        $agency = $request->user()->agency;
+        Mail::to($user->email)->send(new UserInvite($user, $agency, $inviteUrl));
 
         return response()->json([
             'success' => true,

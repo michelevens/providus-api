@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EmbedCors;
 use App\Http\Middleware\EnsureAgencyRole;
 use App\Http\Middleware\EnsureWriteAccess;
 use Illuminate\Foundation\Application;
@@ -19,6 +20,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'role' => EnsureAgencyRole::class,
             'write' => EnsureWriteAccess::class,
+            'embed.cors' => EmbedCors::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Testimonial extends Model
 {
@@ -13,6 +14,7 @@ class Testimonial extends Model
 
     protected $fillable = [
         'agency_id', 'token', 'patient_email', 'patient_name',
+        'patient_first_name', 'patient_last_name',
         'display_name', 'rating', 'text', 'status',
         'requested_at', 'submitted_at', 'reviewed_at',
     ];
@@ -24,6 +26,11 @@ class Testimonial extends Model
         'reviewed_at' => 'datetime',
         'created_at' => 'datetime',
     ];
+
+    public function agency(): BelongsTo
+    {
+        return $this->belongsTo(Agency::class);
+    }
 
     public function scopeApproved($query) { return $query->where('status', 'approved'); }
 }
