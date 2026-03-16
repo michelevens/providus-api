@@ -29,6 +29,7 @@ use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\DocumentController;
+use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use Illuminate\Support\Facades\Route;
 
@@ -282,6 +283,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/reports/provider/{providerId}/pdf', [ReportController::class, 'providerPacketPdf']);
     Route::get('/reports/compliance', [ReportController::class, 'complianceReport']);
     Route::get('/reports/export', [ReportController::class, 'export']);
+
+    // ── AI Features ──
+    Route::post('/ai/extract-document/{documentId}', [AiController::class, 'extractDocument']);
+    Route::post('/ai/draft-email/{applicationId}', [AiController::class, 'draftEmail']);
+    Route::get('/ai/anomalies/{providerId}', [AiController::class, 'detectAnomalies']);
+    Route::get('/ai/predict-timeline/{applicationId}', [AiController::class, 'predictTimeline']);
 
     // ── FAQ / Knowledge Base ──
     Route::get('/faqs', [FaqController::class, 'index']);
