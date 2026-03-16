@@ -10,8 +10,10 @@ use App\Models\License;
 use App\Models\MalpracticePolicy;
 use App\Models\Provider;
 use App\Models\ProviderEducation;
+use App\Services\CredentialingPacketService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 
 class ReportController extends Controller
 {
@@ -38,6 +40,18 @@ class ReportController extends Controller
                     ->with('payer:id,name')->get(),
             ],
         ]);
+    }
+
+    // Download provider credentialing packet as PDF
+    public function providerPacketPdf(Request $request, int $providerId): Response
+    {
+        $agencyId = $request->user()->agency_id;
+        $provider = Provider::where('agency_id', $agencyId)->findOrFail($providerId);
+        $name = str_replace(' ', '_', trim($provider->first_name . '_' . $provider->last_name));
+
+        $pdf = CredentialingPacketService::generate($agencyId, $providerId);
+
+        return $pdf->download("Credentialing_Packet_{$name}_{$provider->npi}.pdf");
     }
 
     // Agency-wide compliance report

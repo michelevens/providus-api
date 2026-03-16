@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\V1\ReferenceController;
 use App\Http\Controllers\Api\V1\ReportController;
 use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
+use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use Illuminate\Support\Facades\Route;
 
@@ -247,10 +248,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/references/{id}', [ProviderProfileController::class, 'updateReference']);
         Route::delete('/references/{id}', [ProviderProfileController::class, 'destroyReference']);
 
-        Route::get('/documents', [ProviderProfileController::class, 'documents']);
+        Route::get('/documents', [DocumentController::class, 'index']);
         Route::post('/documents', [ProviderProfileController::class, 'storeDocument']);
         Route::put('/documents/{id}', [ProviderProfileController::class, 'updateDocument']);
-        Route::delete('/documents/{id}', [ProviderProfileController::class, 'destroyDocument']);
+        Route::delete('/documents/{id}', [DocumentController::class, 'destroy']);
+
+        // File upload/download
+        Route::post('/documents/upload', [DocumentController::class, 'upload']);
+        Route::post('/documents/{id}/replace', [DocumentController::class, 'replace']);
+        Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
     });
 
     // ── Bulk Import ──
@@ -260,6 +266,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Reports & Export ──
     Route::get('/reports/provider/{providerId}', [ReportController::class, 'providerPacket']);
+    Route::get('/reports/provider/{providerId}/pdf', [ReportController::class, 'providerPacketPdf']);
     Route::get('/reports/compliance', [ReportController::class, 'complianceReport']);
     Route::get('/reports/export', [ReportController::class, 'export']);
 
