@@ -37,7 +37,23 @@ class DatabaseSeeder extends Seeder
             EnnHealthDataSeeder::class,
         ]);
 
-        // Promote admin@ennhealth.com to superadmin
+        // Ensure superadmin account exists
+        $superadmin = User::where('email', 'superadmin@credentik.com')->first();
+        if (!$superadmin) {
+            User::create([
+                'email' => 'superadmin@credentik.com',
+                'password' => bcrypt('Credentik2026!'),
+                'first_name' => 'Super',
+                'last_name' => 'Admin',
+                'role' => 'superadmin',
+                'agency_id' => null,
+                'is_active' => true,
+            ]);
+        } elseif ($superadmin->role !== 'superadmin') {
+            $superadmin->update(['role' => 'superadmin']);
+        }
+
+        // Also promote admin@ennhealth.com if it exists
         $admin = User::where('email', 'admin@ennhealth.com')->first();
         if ($admin && $admin->role !== 'superadmin') {
             $admin->update(['role' => 'superadmin']);
