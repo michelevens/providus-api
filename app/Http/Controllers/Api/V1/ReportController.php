@@ -17,10 +17,21 @@ use Illuminate\Http\Response;
 
 class ReportController extends Controller
 {
+    private function resolveAgencyId(Request $request): int
+    {
+        $user = $request->user();
+        $agencyId = $user->agency_id;
+        if (!$agencyId && $user->role === 'superadmin' && $request->header('X-Agency-Id')) {
+            $agencyId = (int) $request->header('X-Agency-Id');
+        }
+        abort_unless($agencyId, 400, 'No agency context. Provide X-Agency-Id header.');
+        return $agencyId;
+    }
+
     // Provider credentialing packet (all data for one provider)
     public function providerPacket(Request $request, int $providerId): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
         $provider = Provider::where('agency_id', $agencyId)
             ->with(['organization:id,name,npi', 'licenses'])
             ->findOrFail($providerId);
@@ -45,7 +56,7 @@ class ReportController extends Controller
     // Download provider credentialing packet as PDF
     public function providerPacketPdf(Request $request, int $providerId): Response
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
         $provider = Provider::where('agency_id', $agencyId)->findOrFail($providerId);
         $name = str_replace(' ', '_', trim($provider->first_name . '_' . $provider->last_name));
 
@@ -57,7 +68,7 @@ class ReportController extends Controller
     // Agency-wide compliance report
     public function complianceReport(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         // Expiring licenses (next 90 days)
         $expiringLicenses = License::where('agency_id', $agencyId)
@@ -109,7 +120,7 @@ class ReportController extends Controller
     public function export(Request $request): JsonResponse
     {
         $request->validate(['type' => 'required|in:providers,organizations,licenses,applications,facilities']);
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         $data = match ($request->type) {
             'providers' => Provider::where('agency_id', $agencyId)

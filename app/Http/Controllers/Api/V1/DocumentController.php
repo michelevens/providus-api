@@ -17,6 +17,17 @@ class DocumentController extends Controller
         return Storage::disk(config('filesystems.default') === 'local' ? 'local' : 's3');
     }
 
+    private function resolveAgencyId(Request $request): int
+    {
+        $user = $request->user();
+        $agencyId = $this->resolveAgencyId($request);
+        if (!$agencyId && $user->role === 'superadmin' && $request->header('X-Agency-Id')) {
+            $agencyId = (int) $request->header('X-Agency-Id');
+        }
+        abort_unless($agencyId, 400, 'No agency context.');
+        return $agencyId;
+    }
+
     /**
      * Upload a file for a provider document.
      * Accepts multipart/form-data with a 'file' field.
@@ -32,7 +43,7 @@ class DocumentController extends Controller
         ]);
 
         $user = $request->user();
-        $agencyId = $user->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         // Verify provider belongs to agency
         Provider::where('agency_id', $agencyId)->findOrFail($providerId);
@@ -75,7 +86,7 @@ class DocumentController extends Controller
         ]);
 
         $user = $request->user();
-        $agencyId = $user->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         $doc = ProviderDocument::where('agency_id', $agencyId)
             ->where('provider_id', $providerId)
@@ -112,7 +123,7 @@ class DocumentController extends Controller
      */
     public function download(Request $request, int $providerId, int $documentId): JsonResponse|StreamedResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         $doc = ProviderDocument::where('agency_id', $agencyId)
             ->where('provider_id', $providerId)
@@ -143,7 +154,7 @@ class DocumentController extends Controller
      */
     public function destroy(Request $request, int $providerId, int $documentId): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
 
         $doc = ProviderDocument::where('agency_id', $agencyId)
             ->where('provider_id', $providerId)
@@ -167,7 +178,7 @@ class DocumentController extends Controller
      */
     public function index(Request $request, int $providerId): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $this->resolveAgencyId($request);
         Provider::where('agency_id', $agencyId)->findOrFail($providerId);
 
         $docs = ProviderDocument::where('agency_id', $agencyId)
