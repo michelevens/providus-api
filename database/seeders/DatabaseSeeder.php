@@ -16,10 +16,24 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            // Global reference data (no tenant scope)
+            StateSeeder::class,
             PayerSeeder::class,
-            TelehealthPolicySeeder::class,
             TaxonomyCodeSeeder::class,
+            TelehealthPolicySeeder::class,
+            DocumentTypeSeeder::class,
+            CptCodeSeeder::class,
+            PlaceOfServiceSeeder::class,
+            BillingModifierSeeder::class,
+            LicenseTypeSeeder::class,
+            BoardCertificationTypeSeeder::class,
+            DenialReasonSeeder::class,
+            InsurancePlanTypeSeeder::class,
+
+            // Default strategy profiles
             StrategyProfileSeeder::class,
+
+            // EnnHealth demo data (tenant-scoped)
             EnnHealthDataSeeder::class,
         ]);
 
