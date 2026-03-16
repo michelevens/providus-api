@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\ActivityLog;
 use App\Models\Application;
 use App\Models\Followup;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -114,6 +115,14 @@ class ApplicationController extends Controller
             'status_to' => $request->new_status,
             'outcome' => $request->notes,
             'created_by' => auth()->id(),
+        ]);
+
+        // Notify of status change
+        NotificationService::send($app->agency_id, 'app_status', "Application status: {$request->new_status}", [
+            'body' => "Changed from {$oldStatus} to {$request->new_status}" . ($request->notes ? " — {$request->notes}" : ''),
+            'link' => "applications/{$app->id}",
+            'linkable_type' => 'application',
+            'linkable_id' => $app->id,
         ]);
 
         // Auto-schedule followup for submitted apps

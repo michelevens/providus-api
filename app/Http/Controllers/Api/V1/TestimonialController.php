@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mail\TestimonialRequest;
 use App\Models\Agency;
 use App\Models\Testimonial;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -115,6 +116,14 @@ class TestimonialController extends Controller
             'display_name' => $request->display_name,
             'rating' => $request->rating,
             'text' => $request->text,
+        ]);
+
+        // Notify agency of new review
+        NotificationService::send($testimonial->agency_id, 'review_submitted', 'New Patient Review', [
+            'body' => "{$request->display_name} left a {$request->rating}-star review",
+            'link' => 'testimonials',
+            'linkable_type' => 'testimonial',
+            'linkable_id' => $testimonial->id,
         ]);
 
         return response()->json(['success' => true, 'data' => $testimonial]);

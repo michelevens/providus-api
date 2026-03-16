@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credentik Embed Widget Demo</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f9fafb;
+            color: #111827;
+            padding: 40px 20px;
+        }
+        .demo-container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+        .subtitle { color: #6b7280; font-size: 15px; margin-bottom: 32px; }
+        .controls {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 32px;
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .control-group { display: flex; flex-direction: column; gap: 4px; }
+        .control-group label { font-size: 13px; font-weight: 600; color: #374151; }
+        .control-group select, .control-group input {
+            padding: 8px 12px; border: 1px solid #d1d5db; border-radius: 8px;
+            font-size: 14px; min-width: 180px;
+        }
+        .control-group button {
+            padding: 8px 20px; background: #2C4A5A; color: #fff; border: none;
+            border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer;
+        }
+        .control-group button:hover { opacity: .9; }
+        .widget-frame {
+            background: #fff;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 32px;
+            min-height: 200px;
+        }
+        .code-block {
+            background: #1f2937; color: #e5e7eb; padding: 16px; border-radius: 8px;
+            font-size: 13px; margin-top: 24px; overflow-x: auto; white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .code-block code { font-family: 'SF Mono', Consolas, monospace; }
+    </style>
+</head>
+<body>
+    <div class="demo-container">
+        <h1>Credentik Embed Widget Demo</h1>
+        <p class="subtitle">Preview how widgets look when embedded on an agency's website.</p>
+
+        <div class="controls">
+            <div class="control-group">
+                <label>Agency Slug</label>
+                <input type="text" id="demo-slug" value="" placeholder="your-agency-slug">
+            </div>
+            <div class="control-group">
+                <label>Widget</label>
+                <select id="demo-widget">
+                    <option value="booking">Booking Form</option>
+                    <option value="testimonials">Testimonials</option>
+                    <option value="eligibility">Insurance Verification</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>Theme</label>
+                <select id="demo-theme">
+                    <option value="light">Light</option>
+                    <option value="dark">Dark</option>
+                </select>
+            </div>
+            <div class="control-group">
+                <label>&nbsp;</label>
+                <button onclick="loadWidget()">Load Widget</button>
+            </div>
+        </div>
+
+        <div class="widget-frame" id="widget-frame">
+            <div id="credentik-widget">
+                <p style="text-align:center;color:#9ca3af;padding:40px;">
+                    Enter your agency slug above and click "Load Widget" to preview.
+                </p>
+            </div>
+        </div>
+
+        <div class="code-block" id="embed-code" style="display:none;">
+            <code id="embed-code-text"></code>
+        </div>
+    </div>
+
+    <script>
+        function loadWidget() {
+            const slug = document.getElementById('demo-slug').value.trim();
+            const widget = document.getElementById('demo-widget').value;
+            const theme = document.getElementById('demo-theme').value;
+
+            if (!slug) {
+                alert('Please enter an agency slug');
+                return;
+            }
+
+            // Remove any existing embed script
+            const existing = document.getElementById('ck-embed-script');
+            if (existing) existing.remove();
+
+            // Clear widget container
+            document.getElementById('credentik-widget').innerHTML = '<p style="text-align:center;color:#9ca3af;padding:40px;">Loading...</p>';
+
+            // Remove injected styles
+            document.querySelectorAll('style').forEach(s => {
+                if (s.textContent.includes('.ck-widget')) s.remove();
+            });
+
+            // Inject the embed script
+            const script = document.createElement('script');
+            script.id = 'ck-embed-script';
+            script.src = '/embed.js';
+            script.setAttribute('data-agency', slug);
+            script.setAttribute('data-widget', widget);
+            script.setAttribute('data-theme', theme);
+            document.body.appendChild(script);
+
+            // Show embed code
+            const origin = window.location.origin;
+            const code = `<div id="credentik-widget"></div>\n<script src="${origin}/embed.js" data-agency="${slug}" data-widget="${widget}" data-theme="${theme}"><\/script>`;
+            document.getElementById('embed-code').style.display = 'block';
+            document.getElementById('embed-code-text').textContent = code;
+        }
+    </script>
+</body>
+</html>

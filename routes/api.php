@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\V1\AgencyController;
 use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BookingController;
+use App\Http\Controllers\Api\V1\CommunicationLogController;
 use App\Http\Controllers\Api\V1\EligibilityController;
 use App\Http\Controllers\Api\V1\ExclusionController;
 use App\Http\Controllers\Api\V1\FacilityController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\Api\V1\ImportController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LicenseController;
 use App\Http\Controllers\Api\V1\MasterDataController;
+use App\Http\Controllers\Api\V1\NotificationController;
 use App\Http\Controllers\Api\V1\OfficeHourController;
 use App\Http\Controllers\Api\V1\OnboardController;
 use App\Http\Controllers\Api\V1\OrganizationController;
@@ -147,6 +149,18 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/activity-logs', [ActivityLogController::class, 'index']);
     Route::post('/activity-logs', [ActivityLogController::class, 'store']);
+
+    // ── Notifications ──
+    Route::get('/notifications', [NotificationController::class, 'index']);
+    Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markRead']);
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllRead']);
+
+    // ── Communication Logs ──
+    Route::get('/communication-logs', [CommunicationLogController::class, 'index']);
+    Route::post('/communication-logs', [CommunicationLogController::class, 'store']);
+    Route::get('/communication-logs/{id}', [CommunicationLogController::class, 'show']);
+    Route::delete('/communication-logs/{id}', [CommunicationLogController::class, 'destroy']);
 
     Route::apiResource('tasks', TaskController::class);
     Route::post('/tasks/{id}/complete', [TaskController::class, 'complete']);

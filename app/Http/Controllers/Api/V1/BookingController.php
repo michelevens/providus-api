@@ -7,6 +7,7 @@ use App\Mail\BookingConfirmation;
 use App\Models\Agency;
 use App\Models\Booking;
 use App\Models\OfficeHour;
+use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -114,6 +115,14 @@ class BookingController extends Controller
         if ($booking->patient_email) {
             Mail::to($booking->patient_email)->send(new BookingConfirmation($booking, $agency));
         }
+
+        // Notify agency of new booking
+        NotificationService::send($agency->id, 'booking_new', 'New Appointment Booked', [
+            'body' => "{$request->patient_first_name} {$request->patient_last_name} booked for {$request->date}",
+            'link' => 'bookings',
+            'linkable_type' => 'booking',
+            'linkable_id' => $booking->id,
+        ]);
 
         return response()->json(['success' => true, 'data' => $booking], 201);
     }
