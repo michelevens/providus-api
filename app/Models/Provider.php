@@ -26,6 +26,8 @@ class Provider extends Model
     public function licenses(): HasMany { return $this->hasMany(License::class); }
     public function applications(): HasMany { return $this->hasMany(Application::class); }
     public function caqhTracking(): HasOne { return $this->hasOne(CaqhTracking::class); }
+    public function deaRegistrations(): HasMany { return $this->hasMany(DeaRegistration::class); }
+    public function licenseVerifications(): HasMany { return $this->hasMany(LicenseVerification::class); }
 
     public function getFullNameAttribute(): string
     {

@@ -139,6 +139,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('providers', ProviderController::class);
     Route::apiResource('licenses', LicenseController::class);
 
+    // ── License Monitoring ──
+    Route::get('/licenses-monitoring/summary', [LicenseController::class, 'monitoringSummary']);
+    Route::get('/licenses-monitoring/expiring', [LicenseController::class, 'expiring']);
+    Route::get('/licenses-monitoring/verifications', [LicenseController::class, 'verifications']);
+    Route::post('/licenses/{id}/verify', [LicenseController::class, 'verify']);
+    Route::post('/licenses-monitoring/verify-all', [LicenseController::class, 'verifyAll']);
+
+    // ── DEA Registrations ──
+    Route::get('/dea-registrations', [LicenseController::class, 'deaIndex']);
+    Route::post('/dea-registrations', [LicenseController::class, 'deaStore']);
+    Route::put('/dea-registrations/{id}', [LicenseController::class, 'deaUpdate']);
+    Route::delete('/dea-registrations/{id}', [LicenseController::class, 'deaDestroy']);
+
     Route::apiResource('applications', ApplicationController::class);
     Route::post('/applications/{id}/transition', [ApplicationController::class, 'transition']);
     Route::get('/applications-stats', [ApplicationController::class, 'stats']);
