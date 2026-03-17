@@ -13,6 +13,7 @@ class ProviderController extends Controller
     {
         $query = Provider::with(['organization', 'licenses']);
         if ($request->has('active')) $query->where('is_active', $request->boolean('active'));
+        if ($request->has('organization_id')) $query->where('organization_id', $request->organization_id);
         return response()->json(['success' => true, 'data' => $query->get()]);
     }
 

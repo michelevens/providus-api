@@ -31,6 +31,9 @@ class LicenseController extends Controller
         if ($request->has('provider_id')) $query->where('provider_id', $request->provider_id);
         if ($request->has('state')) $query->where('state', $request->state);
         if ($request->has('status')) $query->where('status', $request->status);
+        if ($request->has('organization_id')) {
+            $query->whereHas('provider', fn($q) => $q->where('organization_id', $request->organization_id));
+        }
         return response()->json(['success' => true, 'data' => $query->get()]);
     }
 
