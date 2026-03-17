@@ -35,6 +35,9 @@ class DatabaseSeeder extends Seeder
             // Default strategy profiles
             StrategyProfileSeeder::class,
 
+            // Default credentialing service catalog
+            ServiceCatalogSeeder::class,
+
             // EnnHealth demo data (tenant-scoped)
             EnnHealthDataSeeder::class,
         ]);
