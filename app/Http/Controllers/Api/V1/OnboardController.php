@@ -54,7 +54,7 @@ class OnboardController extends Controller
         $record = OnboardToken::where('token', $token)->first();
 
         if (!$record || !$record->isValid()) {
-            return response()->json(['success' => false, 'error' => 'Invalid or expired token'], 404);
+            return response()->json(['success' => false, 'message' => 'Invalid or expired token'], 404);
         }
 
         return response()->json([
@@ -73,7 +73,7 @@ class OnboardController extends Controller
         $record = OnboardToken::where('token', $token)->first();
 
         if (!$record || !$record->isValid()) {
-            return response()->json(['success' => false, 'error' => 'Invalid or expired token'], 404);
+            return response()->json(['success' => false, 'message' => 'Invalid or expired token'], 404);
         }
 
         $query = Organization::withoutGlobalScopes()
@@ -98,7 +98,7 @@ class OnboardController extends Controller
         $record = OnboardToken::where('token', $token)->first();
 
         if (!$record || !$record->isValid()) {
-            return response()->json(['success' => false, 'error' => 'Invalid or expired token'], 404);
+            return response()->json(['success' => false, 'message' => 'Invalid or expired token'], 404);
         }
 
         $request->validate([

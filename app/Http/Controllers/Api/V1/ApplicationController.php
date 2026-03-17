@@ -118,7 +118,7 @@ class ApplicationController extends Controller
 
         if (!$app->canTransitionTo($request->new_status)) {
             return response()->json([
-                'error' => "Cannot transition from '{$oldStatus}' to '{$request->new_status}'",
+                'success' => false, 'message' => "Cannot transition from '{$oldStatus}' to '{$request->new_status}'",
             ], 422);
         }
 

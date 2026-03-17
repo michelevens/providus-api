@@ -130,13 +130,13 @@ class DocumentController extends Controller
             ->findOrFail($documentId);
 
         if (!$doc->file_path) {
-            return response()->json(['success' => false, 'error' => 'No file attached'], 404);
+            return response()->json(['success' => false, 'message' => 'No file attached'], 404);
         }
 
         $disk = Storage::disk($doc->file_disk ?? 's3');
 
         if (!$disk->exists($doc->file_path)) {
-            return response()->json(['success' => false, 'error' => 'File not found in storage'], 404);
+            return response()->json(['success' => false, 'message' => 'File not found in storage'], 404);
         }
 
         // For S3/R2, return a temporary signed URL

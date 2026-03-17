@@ -122,7 +122,7 @@ class AgencyController extends Controller
         if ($request->role === 'organization') {
             if (!$request->organization_id) {
                 return response()->json([
-                    'error' => 'organization_id is required for organization role',
+                    'success' => false, 'message' => 'organization_id is required for organization role',
                 ], 422);
             }
         }
@@ -131,7 +131,7 @@ class AgencyController extends Controller
         if ($request->role === 'provider') {
             if (!$request->provider_id) {
                 return response()->json([
-                    'error' => 'provider_id is required for provider role',
+                    'success' => false, 'message' => 'provider_id is required for provider role',
                 ], 422);
             }
         }
@@ -143,7 +143,7 @@ class AgencyController extends Controller
 
             if (!$org) {
                 return response()->json([
-                    'error' => 'Organization not found in this agency',
+                    'success' => false, 'message' => 'Organization not found in this agency',
                 ], 404);
             }
         }
@@ -155,7 +155,7 @@ class AgencyController extends Controller
 
             if (!$provider) {
                 return response()->json([
-                    'error' => 'Provider not found in this agency',
+                    'success' => false, 'message' => 'Provider not found in this agency',
                 ], 404);
             }
         }
@@ -205,7 +205,7 @@ class AgencyController extends Controller
         // Cannot promote to superadmin
         if ($request->has('role') && $request->role === 'superadmin') {
             return response()->json([
-                'error' => 'Cannot assign superadmin role',
+                'success' => false, 'message' => 'Cannot assign superadmin role',
             ], 403);
         }
 
@@ -218,7 +218,7 @@ class AgencyController extends Controller
 
             if (!$org) {
                 return response()->json([
-                    'error' => 'Organization not found in this agency',
+                    'success' => false, 'message' => 'Organization not found in this agency',
                 ], 404);
             }
         }
@@ -230,7 +230,7 @@ class AgencyController extends Controller
 
             if (!$provider) {
                 return response()->json([
-                    'error' => 'Provider not found in this agency',
+                    'success' => false, 'message' => 'Provider not found in this agency',
                 ], 404);
             }
         }
@@ -249,12 +249,12 @@ class AgencyController extends Controller
 
         // Cannot delete superadmin or agency-owner accounts
         if ($user->isSuperAdmin()) {
-            return response()->json(['error' => 'Cannot delete a superadmin account'], 403);
+            return response()->json(['success' => false, 'message' => 'Cannot delete a superadmin account'], 403);
         }
 
         // Prevent non-superadmin from deleting owner/agency-level users
         if (in_array($user->role, ['owner', 'agency']) && !$request->user()->isSuperAdmin()) {
-            return response()->json(['error' => 'Cannot delete an owner/agency-level account'], 403);
+            return response()->json(['success' => false, 'message' => 'Cannot delete an owner/agency-level account'], 403);
         }
 
         $user->update(['is_active' => false]);
@@ -267,7 +267,7 @@ class AgencyController extends Controller
     public function resetUserPassword(Request $request, int $id): JsonResponse
     {
         if (!$request->user()->isSuperAdmin()) {
-            return response()->json(['error' => 'SuperAdmin access required'], 403);
+            return response()->json(['success' => false, 'message' => 'SuperAdmin access required'], 403);
         }
 
         $user = User::findOrFail($id);
@@ -295,7 +295,7 @@ class AgencyController extends Controller
     public function changeUserEmail(Request $request, int $id): JsonResponse
     {
         if (!$request->user()->isSuperAdmin()) {
-            return response()->json(['error' => 'SuperAdmin access required'], 403);
+            return response()->json(['success' => false, 'message' => 'SuperAdmin access required'], 403);
         }
 
         $request->validate([

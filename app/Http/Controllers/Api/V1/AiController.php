@@ -36,7 +36,7 @@ class AiController extends Controller
         $result = $this->aiService->extractDocument($doc);
 
         if (isset($result['error'])) {
-            return response()->json(['success' => false, 'error' => $result['error']], 422);
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
         return response()->json(['success' => true, 'data' => $result['data'] ?? $result]);
@@ -58,7 +58,7 @@ class AiController extends Controller
         $result = $this->aiService->draftEmail($app, $request->type, $request->context);
 
         if (isset($result['error'])) {
-            return response()->json(['success' => false, 'error' => $result['error']], 422);
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
         return response()->json(['success' => true, 'data' => $result['data'] ?? $result]);
@@ -76,7 +76,7 @@ class AiController extends Controller
         $result = $this->aiService->detectAnomalies($provider, $agencyId);
 
         if (isset($result['error'])) {
-            return response()->json(['success' => false, 'error' => $result['error']], 422);
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
         return response()->json(['success' => true, 'data' => $result['data'] ?? $result]);
@@ -93,7 +93,7 @@ class AiController extends Controller
         $result = $this->aiService->predictTimeline($app, $agencyId);
 
         if (isset($result['error'])) {
-            return response()->json(['success' => false, 'error' => $result['error']], 422);
+            return response()->json(['success' => false, 'message' => $result['error']], 422);
         }
 
         return response()->json(['success' => true, 'data' => $result['data'] ?? $result]);

@@ -29,7 +29,7 @@ class EligibilityController extends Controller
         $config = $agency->config;
 
         if (!$config || !$config->stedi_api_key) {
-            return response()->json(['success' => false, 'error' => 'Eligibility checking not configured for this agency'], 400);
+            return response()->json(['success' => false, 'message' => 'Eligibility checking not configured for this agency'], 400);
         }
 
         $request->validate([
@@ -47,7 +47,7 @@ class EligibilityController extends Controller
             ->count();
 
         if ($monthlyCount >= $config->elig_monthly_limit) {
-            return response()->json(['success' => false, 'error' => 'Monthly eligibility check limit reached'], 429);
+            return response()->json(['success' => false, 'message' => 'Monthly eligibility check limit reached'], 429);
         }
 
         $result = $this->stedi->checkEligibility($config, $request->all());

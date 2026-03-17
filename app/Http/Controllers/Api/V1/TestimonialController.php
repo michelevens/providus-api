@@ -85,7 +85,7 @@ class TestimonialController extends Controller
         $testimonial = Testimonial::where('token', $token)->firstOrFail();
 
         if ($testimonial->text) {
-            return response()->json(['success' => false, 'error' => 'Review already submitted'], 400);
+            return response()->json(['success' => false, 'message' => 'Review already submitted'], 400);
         }
 
         return response()->json([
@@ -103,7 +103,7 @@ class TestimonialController extends Controller
         $testimonial = Testimonial::where('token', $token)->firstOrFail();
 
         if ($testimonial->text) {
-            return response()->json(['success' => false, 'error' => 'Review already submitted'], 400);
+            return response()->json(['success' => false, 'message' => 'Review already submitted'], 400);
         }
 
         $request->validate([

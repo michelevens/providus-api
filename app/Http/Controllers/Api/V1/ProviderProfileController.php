@@ -22,7 +22,7 @@ class ProviderProfileController extends Controller
     {
         $user = $request->user();
         if ($user->role === 'provider' && $user->provider_id != $providerId) {
-            return response()->json(['error' => 'Unauthorized'], 403);
+            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
         }
         return null;
     }

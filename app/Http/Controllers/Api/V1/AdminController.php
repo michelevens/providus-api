@@ -169,7 +169,7 @@ class AdminController extends Controller
 
         // Cannot demote another superadmin
         if ($user->role === 'superadmin' && isset($data['role']) && $data['role'] !== 'superadmin') {
-            return response()->json(['error' => 'Cannot demote a superadmin via API'], 403);
+            return response()->json(['success' => false, 'message' => 'Cannot demote a superadmin via API'], 403);
         }
 
         $user->update($data);
