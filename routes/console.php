@@ -22,6 +22,13 @@ Artisan::command('reset-password {email} {password}', function (string $email, s
     $this->info("Password reset for {$email} (id: {$user->id})");
 })->purpose('Reset a user password');
 
+Artisan::command('change-email {old} {new}', function (string $old, string $new) {
+    $user = \App\Models\User::where('email', $old)->firstOrFail();
+    $user->email = $new;
+    $user->save();
+    $this->info("Email changed from {$old} to {$new} (id: {$user->id})");
+})->purpose('Change a user email address');
+
 /*
 |--------------------------------------------------------------------------
 | Scheduled Tasks
