@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 
 class ServiceCatalog extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'service_catalog';
 
     protected $fillable = [

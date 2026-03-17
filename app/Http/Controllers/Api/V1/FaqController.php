@@ -60,7 +60,7 @@ class FaqController extends Controller
 
     public function helpful(Request $request, int $id): JsonResponse
     {
-        $faq = Faq::findOrFail($id);
+        $faq = Faq::where('agency_id', $request->user()->agency_id)->findOrFail($id);
         $faq->increment('helpful_count');
         return response()->json(['success' => true]);
     }

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\AgencyConfig;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class CaqhService
 {
@@ -48,12 +49,14 @@ class CaqhService
             };
 
             if ($response->failed()) {
-                return ['success' => false, 'error' => "CAQH API returned {$response->status()}: {$response->body()}"];
+                Log::warning('CAQH API request failed', ['action' => $action, 'status' => $response->status(), 'body' => $response->body()]);
+                return ['success' => false, 'error' => "CAQH API request failed with status {$response->status()}"];
             }
 
             return ['success' => true, 'data' => $response->json()];
         } catch (\Throwable $e) {
-            return ['success' => false, 'error' => $e->getMessage()];
+            Log::warning('CAQH API exception', ['action' => $action, 'message' => $e->getMessage()]);
+            return ['success' => false, 'error' => 'CAQH API request failed unexpectedly'];
         }
     }
 }

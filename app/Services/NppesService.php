@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class NppesService
 {
@@ -15,6 +16,12 @@ class NppesService
         }
 
         $response = Http::get(self::BASE_URL . "&number={$npi}");
+
+        if (!$response->successful()) {
+            Log::warning('NPPES API lookup failed', ['npi' => $npi, 'status' => $response->status()]);
+            return null;
+        }
+
         $data = $response->json();
 
         if (($data['result_count'] ?? 0) === 0) return null;
@@ -35,6 +42,12 @@ class NppesService
 
         $url = self::BASE_URL . '&' . http_build_query($query);
         $response = Http::get($url);
+
+        if (!$response->successful()) {
+            Log::warning('NPPES API search failed', ['params' => $query, 'status' => $response->status()]);
+            return [];
+        }
+
         $data = $response->json();
 
         return array_map([$this, 'parseProvider'], $data['results'] ?? []);
@@ -50,6 +63,12 @@ class NppesService
 
         $url = self::BASE_URL . '&' . http_build_query($query);
         $response = Http::get($url);
+
+        if (!$response->successful()) {
+            Log::warning('NPPES API taxonomy search failed', ['keyword' => $keyword, 'state' => $state, 'status' => $response->status()]);
+            return [];
+        }
+
         $data = $response->json();
 
         return array_map([$this, 'parseProvider'], $data['results'] ?? []);
