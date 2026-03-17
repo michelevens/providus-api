@@ -57,7 +57,7 @@ class DatabaseSeeder extends Seeder
 
         // Ensure EnnHealth admin has a known password (raw DB to bypass hashed cast)
         DB::table('users')
-            ->where('email', 'admin@ennhealth.com')
+            ->where('email', 'emichel@ennhealth.com')
             ->update(['password' => Hash::make('EnnHealth2026!')]);
     }
 }
