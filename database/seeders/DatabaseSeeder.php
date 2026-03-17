@@ -53,10 +53,10 @@ class DatabaseSeeder extends Seeder
             $superadmin->update(['role' => 'superadmin']);
         }
 
-        // Also promote admin@ennhealth.com if it exists
+        // Ensure EnnHealth admin has a known password
         $admin = User::where('email', 'admin@ennhealth.com')->first();
-        if ($admin && $admin->role !== 'superadmin') {
-            $admin->update(['role' => 'superadmin']);
+        if ($admin) {
+            $admin->forceFill(['password' => bcrypt('EnnHealth2026!')])->save();
         }
     }
 }
