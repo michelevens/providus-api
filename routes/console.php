@@ -15,6 +15,13 @@ Artisan::command('promote-superadmin {email}', function (string $email) {
     $this->info("User {$email} promoted to superadmin (id: {$user->id})");
 })->purpose('Promote a user to superadmin role');
 
+Artisan::command('reset-password {email} {password}', function (string $email, string $password) {
+    $user = \App\Models\User::where('email', $email)->firstOrFail();
+    $user->password = $password;
+    $user->save();
+    $this->info("Password reset for {$email} (id: {$user->id})");
+})->purpose('Reset a user password');
+
 /*
 |--------------------------------------------------------------------------
 | Scheduled Tasks
