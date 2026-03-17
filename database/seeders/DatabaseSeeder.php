@@ -5,6 +5,8 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
 {
@@ -53,10 +55,9 @@ class DatabaseSeeder extends Seeder
             $superadmin->update(['role' => 'superadmin']);
         }
 
-        // Ensure EnnHealth admin has a known password
-        $admin = User::where('email', 'admin@ennhealth.com')->first();
-        if ($admin) {
-            $admin->forceFill(['password' => bcrypt('EnnHealth2026!')])->save();
-        }
+        // Ensure EnnHealth admin has a known password (raw DB to bypass hashed cast)
+        DB::table('users')
+            ->where('email', 'admin@ennhealth.com')
+            ->update(['password' => Hash::make('EnnHealth2026!')]);
     }
 }
