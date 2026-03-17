@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordReset as PasswordResetMail;
 use App\Mail\UserInvite;
 use App\Models\Organization;
 use App\Models\Provider;
@@ -258,5 +259,57 @@ class AgencyController extends Controller
 
         $user->update(['is_active' => false]);
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * SuperAdmin: send password reset email to a user.
+     */
+    public function resetUserPassword(Request $request, int $id): JsonResponse
+    {
+        if (!$request->user()->isSuperAdmin()) {
+            return response()->json(['error' => 'SuperAdmin access required'], 403);
+        }
+
+        $user = User::findOrFail($id);
+
+        $resetToken = Str::random(64);
+        $user->update([
+            'password_reset_token' => hash('sha256', $resetToken),
+            'password_reset_expires' => now()->addHours(24),
+        ]);
+
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
+        $resetUrl = "{$frontendUrl}/#reset-password/{$resetToken}";
+
+        Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
+
+        return response()->json([
+            'success' => true,
+            'message' => "Password reset email sent to {$user->email}",
+        ]);
+    }
+
+    /**
+     * SuperAdmin: change a user's email address.
+     */
+    public function changeUserEmail(Request $request, int $id): JsonResponse
+    {
+        if (!$request->user()->isSuperAdmin()) {
+            return response()->json(['error' => 'SuperAdmin access required'], 403);
+        }
+
+        $request->validate([
+            'email' => 'required|email|unique:users,email,' . $id,
+        ]);
+
+        $user = User::findOrFail($id);
+        $oldEmail = $user->email;
+        $user->update(['email' => $request->email]);
+
+        return response()->json([
+            'success' => true,
+            'data' => $user->load(['organization', 'provider']),
+            'message' => "Email changed from {$oldEmail} to {$request->email}",
+        ]);
     }
 }

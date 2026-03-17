@@ -125,6 +125,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/', [AgencyController::class, 'inviteUser']);
             Route::put('/{id}', [AgencyController::class, 'updateUser']);
             Route::delete('/{id}', [AgencyController::class, 'deleteUser']);
+            Route::post('/{id}/reset-password', [AgencyController::class, 'resetUserPassword']);
+            Route::put('/{id}/change-email', [AgencyController::class, 'changeUserEmail']);
         });
     });
 
