@@ -6,9 +6,11 @@ use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
+
 class ProviderEducation extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
     protected $table = 'provider_education';
 

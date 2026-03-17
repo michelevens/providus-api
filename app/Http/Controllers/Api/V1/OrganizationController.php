@@ -38,6 +38,18 @@ class OrganizationController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $org = Organization::findOrFail($id);
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'npi' => 'sometimes|nullable|string|size:10',
+            'tax_id' => 'sometimes|nullable|string|max:20',
+            'address_street' => 'sometimes|nullable|string|max:255',
+            'address_city' => 'sometimes|nullable|string|max:100',
+            'address_state' => 'sometimes|nullable|string|max:2',
+            'address_zip' => 'sometimes|nullable|string|max:10',
+            'phone' => 'sometimes|nullable|string|max:20',
+            'email' => 'sometimes|nullable|email|max:200',
+            'taxonomy' => 'sometimes|nullable|string|max:20',
+        ]);
         $org->update($request->only([
             'name', 'npi', 'tax_id', 'address_street', 'address_city',
             'address_state', 'address_zip', 'phone', 'email', 'taxonomy',

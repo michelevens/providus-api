@@ -62,7 +62,20 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $policy = MalpracticePolicy::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $policy->update($request->all());
+        $policy->update($request->validate([
+            'carrier_name' => 'sometimes|string|max:200',
+            'policy_number' => 'sometimes|nullable|string|max:100',
+            'coverage_type' => 'sometimes|nullable|string|max:100',
+            'per_incident_amount' => 'sometimes|nullable|numeric|min:0',
+            'aggregate_amount' => 'sometimes|nullable|numeric|min:0',
+            'effective_date' => 'sometimes|nullable|date',
+            'expiration_date' => 'sometimes|nullable|date',
+            'status' => 'sometimes|nullable|string|max:50',
+            'has_tail_coverage' => 'sometimes|boolean',
+            'has_claims_history' => 'sometimes|boolean',
+            'claims_count' => 'sometimes|nullable|integer|min:0',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $policy]);
     }
 
@@ -103,7 +116,17 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $edu = ProviderEducation::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $edu->update($request->all());
+        $edu->update($request->validate([
+            'institution_name' => 'sometimes|string|max:200',
+            'degree' => 'sometimes|nullable|string|max:100',
+            'field_of_study' => 'sometimes|nullable|string|max:100',
+            'education_type' => 'sometimes|nullable|string|max:50',
+            'start_date' => 'sometimes|nullable|date',
+            'end_date' => 'sometimes|nullable|date',
+            'graduation_date' => 'sometimes|nullable|date',
+            'is_completed' => 'sometimes|boolean',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $edu]);
     }
 
@@ -145,7 +168,17 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $cert = BoardCertification::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $cert->update($request->all());
+        $cert->update($request->validate([
+            'board_name' => 'sometimes|string|max:200',
+            'specialty' => 'sometimes|string|max:200',
+            'certificate_number' => 'sometimes|nullable|string|max:100',
+            'initial_certification_date' => 'sometimes|nullable|date',
+            'expiration_date' => 'sometimes|nullable|date',
+            'recertification_date' => 'sometimes|nullable|date',
+            'status' => 'sometimes|nullable|string|max:50',
+            'is_lifetime' => 'sometimes|boolean',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $cert]);
     }
 
@@ -187,7 +220,20 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $wh = ProviderWorkHistory::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $wh->update($request->all());
+        $wh->update($request->validate([
+            'employer_name' => 'sometimes|string|max:200',
+            'position_title' => 'sometimes|nullable|string|max:200',
+            'department' => 'sometimes|nullable|string|max:100',
+            'start_date' => 'sometimes|nullable|date',
+            'end_date' => 'sometimes|nullable|date',
+            'is_current' => 'sometimes|boolean',
+            'city' => 'sometimes|nullable|string|max:100',
+            'state' => 'sometimes|nullable|string|max:2',
+            'supervisor_name' => 'sometimes|nullable|string|max:200',
+            'supervisor_phone' => 'sometimes|nullable|string|max:20',
+            'reason_for_leaving' => 'sometimes|nullable|string',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $wh]);
     }
 
@@ -228,7 +274,16 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $cme = ProviderCme::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $cme->update($request->all());
+        $cme->update($request->validate([
+            'course_name' => 'sometimes|string|max:200',
+            'provider_org' => 'sometimes|nullable|string|max:200',
+            'credit_hours' => 'sometimes|nullable|numeric|min:0',
+            'credit_type' => 'sometimes|nullable|string|max:50',
+            'completion_date' => 'sometimes|nullable|date',
+            'expiration_date' => 'sometimes|nullable|date',
+            'certificate_number' => 'sometimes|nullable|string|max:100',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $cme]);
     }
 
@@ -269,7 +324,15 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $ref = ProviderReference::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $ref->update($request->all());
+        $ref->update($request->validate([
+            'reference_name' => 'sometimes|string|max:200',
+            'reference_title' => 'sometimes|nullable|string|max:100',
+            'reference_organization' => 'sometimes|nullable|string|max:200',
+            'relationship' => 'sometimes|nullable|string|max:100',
+            'phone' => 'sometimes|nullable|string|max:20',
+            'email' => 'sometimes|nullable|email|max:200',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $ref]);
     }
 
@@ -313,7 +376,15 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $doc = ProviderDocument::where('agency_id', $request->user()->agency_id)
             ->where('provider_id', $providerId)->findOrFail($id);
-        $doc->update($request->all());
+        $doc->update($request->validate([
+            'document_type' => 'sometimes|string|max:100',
+            'document_name' => 'sometimes|string|max:200',
+            'file_url' => 'sometimes|nullable|string',
+            'status' => 'sometimes|nullable|string|max:50',
+            'received_date' => 'sometimes|nullable|date',
+            'expiration_date' => 'sometimes|nullable|date',
+            'notes' => 'sometimes|nullable|string',
+        ]));
         return response()->json(['success' => true, 'data' => $doc]);
     }
 

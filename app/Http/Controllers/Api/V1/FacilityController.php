@@ -29,7 +29,20 @@ class FacilityController extends Controller
         $request->validate([
             'name' => 'required|string|max:200',
             'npi' => 'nullable|string|size:10',
-            'facility_type' => 'nullable|string',
+            'facility_type' => 'nullable|string|max:50',
+            'tax_id' => 'nullable|string|max:20',
+            'street' => 'nullable|string|max:255',
+            'city' => 'nullable|string|max:100',
+            'state' => 'nullable|string|max:2',
+            'zip' => 'nullable|string|max:10',
+            'phone' => 'nullable|string|max:20',
+            'fax' => 'nullable|string|max:20',
+            'email' => 'nullable|email|max:200',
+            'website' => 'nullable|url|max:500',
+            'contact_name' => 'nullable|string|max:200',
+            'contact_phone' => 'nullable|string|max:20',
+            'contact_email' => 'nullable|email|max:200',
+            'notes' => 'nullable|string',
         ]);
 
         $facility = Facility::create([
@@ -53,6 +66,25 @@ class FacilityController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $facility = Facility::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $request->validate([
+            'name' => 'sometimes|string|max:200',
+            'npi' => 'sometimes|nullable|string|size:10',
+            'facility_type' => 'sometimes|nullable|string|max:50',
+            'tax_id' => 'sometimes|nullable|string|max:20',
+            'street' => 'sometimes|nullable|string|max:255',
+            'city' => 'sometimes|nullable|string|max:100',
+            'state' => 'sometimes|nullable|string|max:2',
+            'zip' => 'sometimes|nullable|string|max:10',
+            'phone' => 'sometimes|nullable|string|max:20',
+            'fax' => 'sometimes|nullable|string|max:20',
+            'email' => 'sometimes|nullable|email|max:200',
+            'website' => 'sometimes|nullable|url|max:500',
+            'contact_name' => 'sometimes|nullable|string|max:200',
+            'contact_phone' => 'sometimes|nullable|string|max:20',
+            'contact_email' => 'sometimes|nullable|email|max:200',
+            'is_active' => 'sometimes|boolean',
+            'notes' => 'sometimes|nullable|string',
+        ]);
         $facility->update($request->only([
             'name', 'npi', 'facility_type', 'tax_id', 'street', 'city',
             'state', 'zip', 'phone', 'fax', 'email', 'website',

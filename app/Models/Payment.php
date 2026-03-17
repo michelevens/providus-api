@@ -2,13 +2,15 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Payment extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes, Auditable;
 
     protected $fillable = [
         'agency_id', 'invoice_id', 'amount', 'payment_method',

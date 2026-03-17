@@ -3,12 +3,15 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\ApplicationStatusChange;
 use App\Models\ActivityLog;
 use App\Models\Application;
 use App\Models\Followup;
+use App\Models\User;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class ApplicationController extends Controller
 {
@@ -57,6 +60,30 @@ class ApplicationController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $app = Application::findOrFail($id);
+        $request->validate([
+            'provider_id' => 'sometimes|integer',
+            'organization_id' => 'sometimes|nullable|integer',
+            'payer_id' => 'sometimes|nullable|integer',
+            'payer_plan_id' => 'sometimes|nullable|integer',
+            'payer_name' => 'sometimes|nullable|string|max:255',
+            'state' => 'sometimes|nullable|string|max:2',
+            'type' => 'sometimes|nullable|string|max:50',
+            'wave' => 'sometimes|nullable|string|max:50',
+            'status' => 'sometimes|string|in:not_started,in_progress,submitted,approved,denied,on_hold',
+            'portal_url' => 'sometimes|nullable|url|max:500',
+            'application_ref' => 'sometimes|nullable|string|max:100',
+            'enrollment_id' => 'sometimes|nullable|string|max:100',
+            'submitted_date' => 'sometimes|nullable|date',
+            'received_date' => 'sometimes|nullable|date',
+            'effective_date' => 'sometimes|nullable|date',
+            'denial_reason' => 'sometimes|nullable|string',
+            'est_monthly_revenue' => 'sometimes|nullable|numeric|min:0',
+            'payer_contact_name' => 'sometimes|nullable|string|max:200',
+            'payer_contact_phone' => 'sometimes|nullable|string|max:20',
+            'payer_contact_email' => 'sometimes|nullable|email|max:200',
+            'notes' => 'sometimes|nullable|string',
+            'tags' => 'sometimes|nullable|array',
+        ]);
         $data = $request->only([
             'provider_id', 'organization_id', 'payer_id', 'payer_plan_id', 'payer_name',
             'state', 'type', 'wave', 'status', 'portal_url', 'application_ref', 'enrollment_id',
@@ -124,6 +151,25 @@ class ApplicationController extends Controller
             'linkable_type' => 'application',
             'linkable_id' => $app->id,
         ]);
+
+        // Email notification for status change
+        $admins = User::where('agency_id', $app->agency_id)
+            ->whereIn('role', ['owner', 'agency'])
+            ->where('is_active', true)
+            ->get();
+        foreach ($admins as $admin) {
+            try {
+                Mail::to($admin->email)->send(new ApplicationStatusChange(
+                    $app,
+                    $app->provider?->full_name ?? 'Unknown',
+                    $app->payer?->name ?? ($app->payer_name ?? 'Unknown'),
+                    $oldStatus,
+                    $request->new_status,
+                ));
+            } catch (\Throwable $e) {
+                \Log::warning("Status change email failed: {$e->getMessage()}");
+            }
+        }
 
         // Auto-schedule followup for submitted apps
         if ($request->new_status === 'submitted') {

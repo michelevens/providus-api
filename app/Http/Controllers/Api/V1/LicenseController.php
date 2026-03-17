@@ -58,6 +58,18 @@ class LicenseController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $license = License::findOrFail($id);
+        $request->validate([
+            'provider_id' => 'sometimes|integer',
+            'state' => 'sometimes|nullable|string|max:2',
+            'license_number' => 'sometimes|nullable|string|max:50',
+            'license_type' => 'sometimes|nullable|string|max:50',
+            'status' => 'sometimes|string|in:active,expired,pending,revoked,inactive',
+            'issue_date' => 'sometimes|nullable|date',
+            'expiration_date' => 'sometimes|nullable|date',
+            'renewal_date' => 'sometimes|nullable|date',
+            'compact_state' => 'sometimes|nullable|boolean',
+            'notes' => 'sometimes|nullable|string',
+        ]);
         $data = $request->only([
             'provider_id', 'state', 'license_number', 'license_type', 'status',
             'issue_date', 'expiration_date', 'renewal_date', 'compact_state', 'notes',
@@ -159,6 +171,16 @@ class LicenseController extends Controller
         $dea = DeaRegistration::withoutGlobalScopes()
             ->where('agency_id', $agencyId)->findOrFail($id);
 
+        $request->validate([
+            'dea_number' => 'sometimes|string|max:20',
+            'schedules' => 'sometimes|nullable|array',
+            'state' => 'sometimes|nullable|string|max:2',
+            'business_activity' => 'sometimes|nullable|string|max:100',
+            'drug_category' => 'sometimes|nullable|string|max:50',
+            'status' => 'sometimes|in:active,expired,revoked,surrendered',
+            'expiration_date' => 'sometimes|nullable|date',
+            'notes' => 'sometimes|nullable|string|max:2000',
+        ]);
         $data = $request->only([
             'dea_number', 'schedules', 'state', 'business_activity',
             'drug_category', 'status', 'expiration_date', 'notes',

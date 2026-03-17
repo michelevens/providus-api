@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\InvoiceReminder;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\Payment;
 use App\Models\ServiceCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class InvoiceController extends Controller
 {
@@ -98,6 +100,23 @@ class InvoiceController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $request->validate([
+            'status' => 'sometimes|string|in:draft,sent,paid,overdue,cancelled,partial',
+            'client_name' => 'sometimes|string|max:255',
+            'client_email' => 'sometimes|nullable|email|max:200',
+            'client_address' => 'sometimes|nullable|string|max:500',
+            'issue_date' => 'sometimes|nullable|date',
+            'due_date' => 'sometimes|nullable|date',
+            'tax_rate' => 'sometimes|nullable|numeric|min:0|max:100',
+            'discount_amount' => 'sometimes|nullable|numeric|min:0',
+            'notes' => 'sometimes|nullable|string',
+            'terms' => 'sometimes|nullable|string',
+            'items' => 'sometimes|array',
+            'items.*.description' => 'required_with:items|string|max:255',
+            'items.*.quantity' => 'required_with:items|numeric|min:0',
+            'items.*.unit_price' => 'required_with:items|numeric|min:0',
+            'items.*.service_catalog_id' => 'nullable|integer',
+        ]);
         $invoice->update($request->only([
             'status', 'client_name', 'client_email', 'client_address',
             'issue_date', 'due_date', 'tax_rate', 'discount_amount', 'notes', 'terms',
@@ -210,7 +229,28 @@ class InvoiceController extends Controller
     public function updateService(Request $request, int $id): JsonResponse
     {
         $service = ServiceCatalog::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'code' => 'sometimes|nullable|string|max:50',
+            'description' => 'sometimes|nullable|string',
+            'category' => 'sometimes|nullable|string|max:100',
+            'default_price' => 'sometimes|nullable|numeric|min:0',
+            'is_active' => 'sometimes|boolean',
+        ]);
         $service->update($request->only('name', 'code', 'description', 'category', 'default_price', 'is_active'));
         return response()->json(['success' => true, 'data' => $service]);
+    }
+
+    public function sendReminder(Request $request, int $id): JsonResponse
+    {
+        $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+
+        if (!$invoice->client_email) {
+            return response()->json(['success' => false, 'message' => 'No client email on this invoice'], 422);
+        }
+
+        Mail::to($invoice->client_email)->send(new InvoiceReminder($invoice));
+
+        return response()->json(['success' => true, 'message' => 'Reminder sent']);
     }
 }

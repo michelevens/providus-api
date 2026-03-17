@@ -24,5 +24,8 @@ Artisan::command('promote-superadmin {email}', function (string $email) {
 // Daily at 7am UTC — check license expirations and send alerts
 Schedule::command('licenses:check-expirations')->dailyAt('07:00');
 
+// Daily at 8am UTC — send license expiration email reminders (30/60/90 day)
+Schedule::command('notifications:license-expiry')->dailyAt('08:00');
+
 // Weekly on Monday at 3am UTC — bulk verify licenses against NPPES
 Schedule::command('licenses:verify')->weeklyOn(1, '03:00');

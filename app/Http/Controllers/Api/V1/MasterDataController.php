@@ -42,6 +42,17 @@ class MasterDataController extends Controller
     public function updatePayer(Request $request, int $id): JsonResponse
     {
         $payer = Payer::findOrFail($id);
+        $request->validate([
+            'slug' => 'sometimes|string|max:50',
+            'name' => 'sometimes|string|max:255',
+            'category' => 'sometimes|nullable|in:national,bcbs,regional,medicaid,medicare,specialty',
+            'region' => 'sometimes|nullable|string|max:100',
+            'parent_org' => 'sometimes|nullable|string|max:255',
+            'stedi_id' => 'sometimes|nullable|string|max:50',
+            'states' => 'sometimes|nullable|array',
+            'avg_cred_days' => 'sometimes|nullable|integer|min:0',
+            'credentialing_url' => 'sometimes|nullable|url|max:500',
+        ]);
         $payer->update($request->only([
             'slug', 'name', 'category', 'region', 'parent_org',
             'stedi_id', 'states', 'avg_cred_days', 'credentialing_url',
@@ -84,6 +95,15 @@ class MasterDataController extends Controller
     public function updateTelehealthPolicy(Request $request, int $id): JsonResponse
     {
         $policy = TelehealthPolicy::findOrFail($id);
+        $request->validate([
+            'practice_authority' => 'sometimes|nullable|string|max:30',
+            'prescriptive_authority' => 'sometimes|nullable|string|max:30',
+            'telehealth_parity' => 'sometimes|boolean',
+            'controlled_substances' => 'sometimes|nullable|string|max:30',
+            'informed_consent' => 'sometimes|nullable|string|max:30',
+            'compact_state' => 'sometimes|boolean',
+            'readiness_score' => 'sometimes|nullable|integer|min:0|max:100',
+        ]);
         $policy->update($request->only([
             'practice_authority', 'prescriptive_authority', 'telehealth_parity',
             'controlled_substances', 'informed_consent', 'compact_state', 'readiness_score',
@@ -124,6 +144,12 @@ class MasterDataController extends Controller
     public function updateStrategyTemplate(Request $request, int $id): JsonResponse
     {
         $template = StrategyProfile::whereNull('agency_id')->findOrFail($id);
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'target_states' => 'sometimes|nullable|array',
+            'wave_rules' => 'sometimes|nullable|array',
+            'revenue_threshold' => 'sometimes|nullable|numeric|min:0',
+        ]);
         $template->update($request->only([
             'name', 'target_states', 'wave_rules', 'revenue_threshold',
         ]));
@@ -165,6 +191,12 @@ class MasterDataController extends Controller
 
     public function updateTaxonomyCode(Request $request, int $id): JsonResponse
     {
+        $request->validate([
+            'code' => 'sometimes|string|max:20',
+            'classification' => 'sometimes|string|max:255',
+            'specialization' => 'sometimes|nullable|string|max:255',
+            'description' => 'sometimes|nullable|string',
+        ]);
         DB::table('taxonomy_codes')->where('id', $id)->update(array_merge(
             $request->only(['code', 'classification', 'specialization', 'description']),
             ['updated_at' => now()]

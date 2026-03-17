@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Provider extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, SoftDeletes, Auditable;
 
     protected $fillable = [
         'agency_id', 'organization_id', 'user_id', 'legacy_id',

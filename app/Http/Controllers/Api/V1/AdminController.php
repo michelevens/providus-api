@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Agency;
 use App\Models\AgencyConfig;
 use App\Models\Application;
+use App\Models\AuditLog;
 use App\Models\License;
 use App\Models\Provider;
 use App\Models\User;
@@ -83,6 +84,13 @@ class AdminController extends Controller
     {
         $agency = Agency::findOrFail($id);
 
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'plan_tier' => 'sometimes|string|in:free,basic,professional,enterprise',
+            'is_active' => 'sometimes|boolean',
+            'primary_color' => 'sometimes|nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
+            'accent_color' => 'sometimes|nullable|string|regex:/^#[0-9A-Fa-f]{6}$/',
+        ]);
         $agency->update($request->only([
             'name', 'plan_tier', 'is_active',
             'primary_color', 'accent_color',
@@ -153,6 +161,10 @@ class AdminController extends Controller
     {
         $user = User::findOrFail($id);
 
+        $request->validate([
+            'is_active' => 'sometimes|boolean',
+            'role' => 'sometimes|string|in:owner,agency,organization,provider,superadmin',
+        ]);
         $data = $request->only(['is_active', 'role']);
 
         // Cannot demote another superadmin
@@ -165,7 +177,7 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $user]);
     }
 
-    // ── Audit Log ─────────────────────────────────────────────
+    // ── Activity Log ─────────────────────────────────────────────
 
     public function auditLog(Request $request): JsonResponse
     {
@@ -181,6 +193,39 @@ class AdminController extends Controller
         return response()->json([
             'success' => true,
             'data' => $query->orderBy('created_at', 'desc')->limit(100)->get(),
+        ]);
+    }
+
+    // ── Audit Logs (model-level change tracking) ──────────────
+
+    public function auditLogs(Request $request): JsonResponse
+    {
+        $request->validate([
+            'agency_id' => 'nullable|integer',
+            'user_id' => 'nullable|integer',
+            'action' => 'nullable|string|in:created,updated,deleted,restored',
+            'auditable_type' => 'nullable|string',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+        ]);
+
+        $query = AuditLog::query();
+
+        if (!$request->user()->isSuperAdmin()) {
+            $query->where('agency_id', $request->user()->agency_id);
+        } elseif ($agencyId = $request->input('agency_id')) {
+            $query->where('agency_id', $agencyId);
+        }
+
+        if ($userId = $request->input('user_id')) $query->where('user_id', $userId);
+        if ($action = $request->input('action')) $query->where('action', $action);
+        if ($type = $request->input('auditable_type')) $query->where('auditable_type', $type);
+        if ($from = $request->input('from')) $query->where('created_at', '>=', $from);
+        if ($to = $request->input('to')) $query->where('created_at', '<=', $to);
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->orderByDesc('created_at')->paginate(50),
         ]);
     }
 }

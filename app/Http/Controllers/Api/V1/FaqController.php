@@ -34,7 +34,9 @@ class FaqController extends Controller
         $request->validate([
             'question' => 'required|string|max:500',
             'answer' => 'required|string',
-            'category' => 'nullable|string',
+            'category' => 'nullable|string|max:100',
+            'sort_order' => 'nullable|integer|min:0',
+            'is_published' => 'sometimes|boolean',
         ]);
 
         $faq = Faq::create([
@@ -48,6 +50,13 @@ class FaqController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $faq = Faq::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $request->validate([
+            'question' => 'sometimes|string|max:500',
+            'answer' => 'sometimes|string',
+            'category' => 'sometimes|nullable|string|max:100',
+            'sort_order' => 'sometimes|nullable|integer|min:0',
+            'is_published' => 'sometimes|boolean',
+        ]);
         $faq->update($request->only('question', 'answer', 'category', 'sort_order', 'is_published'));
         return response()->json(['success' => true, 'data' => $faq]);
     }

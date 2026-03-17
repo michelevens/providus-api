@@ -37,6 +37,18 @@ class TaskController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $task = Task::findOrFail($id);
+        $request->validate([
+            'title' => 'sometimes|string|max:500',
+            'category' => 'sometimes|nullable|string|max:50',
+            'priority' => 'sometimes|in:low,medium,high,urgent',
+            'due_date' => 'sometimes|nullable|date',
+            'linked_application_id' => 'sometimes|nullable|integer',
+            'recurrence' => 'sometimes|nullable|in:daily,weekly,biweekly,monthly,quarterly',
+            'notes' => 'sometimes|nullable|string',
+            'assigned_to' => 'sometimes|nullable|integer|exists:users,id',
+            'is_completed' => 'sometimes|boolean',
+            'completed_at' => 'sometimes|nullable|date',
+        ]);
         $data = $request->only([
             'title', 'category', 'priority', 'due_date',
             'linked_application_id', 'recurrence', 'notes', 'assigned_to',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Application extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, SoftDeletes, Auditable;
 
     const STATUSES = [
         'not_started', 'submitted', 'in_review', 'pending_info',

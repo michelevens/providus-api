@@ -128,6 +128,9 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/{id}/reset-password', [AgencyController::class, 'resetUserPassword']);
             Route::put('/{id}/change-email', [AgencyController::class, 'changeUserEmail']);
         });
+
+        // Audit logs (agency-scoped)
+        Route::get('/audit-logs', [AdminController::class, 'auditLogs']);
     });
 
     // Onboarding token management
@@ -229,6 +232,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/billing/services/{id}', [InvoiceController::class, 'updateService']);
     Route::apiResource('invoices', InvoiceController::class);
     Route::post('/invoices/{id}/payments', [InvoiceController::class, 'addPayment']);
+    Route::post('/invoices/{id}/send-reminder', [InvoiceController::class, 'sendReminder']);
 
     // ── Provider Profile (education, malpractice, boards, work history, CME, references, documents) ──
     Route::prefix('providers/{providerId}')->group(function () {
@@ -324,8 +328,10 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     Route::get('/users', [AdminController::class, 'users']);
     Route::put('/users/{id}', [AdminController::class, 'userUpdate']);
 
-    // Audit log
+    // Audit log (activity log)
     Route::get('/audit-log', [AdminController::class, 'auditLog']);
+    // Audit logs (model-level change tracking)
+    Route::get('/audit-logs', [AdminController::class, 'auditLogs']);
 
     // Master Data CRUD
     Route::prefix('master-data')->group(function () {

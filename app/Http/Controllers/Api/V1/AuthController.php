@@ -24,7 +24,7 @@ class AuthController extends Controller
         $request->validate([
             'agency_name' => 'required|string|max:255',
             'email' => 'required|email|unique:users,email',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).+$/'],
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
         ]);
@@ -153,7 +153,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'token' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).+$/'],
         ]);
 
         $user = User::where('password_reset_token', hash('sha256', $request->token))
@@ -182,7 +182,7 @@ class AuthController extends Controller
     {
         $request->validate([
             'token' => 'required|string',
-            'password' => 'required|string|min:8|confirmed',
+            'password' => ['required', 'string', 'min:8', 'confirmed', 'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^a-zA-Z\d]).+$/'],
         ]);
 
         $user = User::where('invite_token', hash('sha256', $request->token))

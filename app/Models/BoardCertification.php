@@ -6,9 +6,11 @@ use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+use Illuminate\Database\Eloquent\SoftDeletes;
+
 class BoardCertification extends Model
 {
-    use BelongsToAgency;
+    use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'provider_id', 'board_name', 'specialty',

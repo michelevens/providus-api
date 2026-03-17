@@ -34,6 +34,14 @@ class StrategyProfileController extends Controller
     public function update(Request $request, int $id): JsonResponse
     {
         $strategy = StrategyProfile::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $request->validate([
+            'name' => 'sometimes|string|max:255',
+            'description' => 'sometimes|nullable|string',
+            'target_states' => 'sometimes|nullable|array',
+            'wave_rules' => 'sometimes|nullable|array',
+            'revenue_threshold' => 'sometimes|nullable|numeric|min:0',
+            'auto_wave_assignment' => 'sometimes|boolean',
+        ]);
         $strategy->update($request->only([
             'name', 'description', 'target_states', 'wave_rules',
             'revenue_threshold', 'auto_wave_assignment',
