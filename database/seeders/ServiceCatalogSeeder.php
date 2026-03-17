@@ -25,6 +25,7 @@ class ServiceCatalogSeeder extends Seeder
             ['name' => 'Compliance Audit', 'code' => 'AUDIT', 'category' => 'consulting', 'default_price' => 750.00, 'description' => 'Credentialing file audit and compliance review'],
             ['name' => 'Privileging Application', 'code' => 'PRIV', 'category' => 'credentialing', 'default_price' => 300.00, 'description' => 'Hospital or facility privileging application'],
             ['name' => 'Monthly Maintenance', 'code' => 'MAINT', 'category' => 'other', 'default_price' => 150.00, 'description' => 'Ongoing monthly credentialing maintenance and monitoring'],
+            ['name' => 'Yearly Maintenance', 'code' => 'MAINT-YR', 'category' => 'other', 'default_price' => 1500.00, 'description' => 'Annual credentialing maintenance and monitoring package'],
         ];
 
         foreach ($services as $svc) {
