@@ -371,6 +371,64 @@ class ContractController extends Controller
             'linkable_id' => $contract->id,
         ]);
 
+        // Send executed contract confirmation to all parties
+        $contract->load(['items', 'agency:id,name,email,phone']);
+        $agency = $contract->agency;
+        $viewUrl = config('app.frontend_url', env('FRONTEND_URL')) . '/#contract/' . $contract->token;
+        $acceptedDate = now()->format('F j, Y');
+        $itemsHtml = $contract->items->map(fn($i) =>
+            "<tr><td style='padding:8px 12px;border-bottom:1px solid #f1f5f9;'>{$i->description}</td>" .
+            "<td style='padding:8px;text-align:center;border-bottom:1px solid #f1f5f9;'>{$i->quantity}</td>" .
+            "<td style='padding:8px;text-align:right;border-bottom:1px solid #f1f5f9;'>$" . number_format($i->unit_price, 2) . "</td>" .
+            "<td style='padding:8px 12px;text-align:right;border-bottom:1px solid #f1f5f9;font-weight:600;'>$" . number_format($i->total, 2) . "</td></tr>"
+        )->join('');
+
+        $emailHtml = "
+            <div style='font-family:sans-serif;max-width:640px;margin:0 auto;'>
+                <div style='background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:20px;text-align:center;margin-bottom:24px;'>
+                    <h2 style='margin:0 0 8px;color:#16a34a;'>Contract Executed</h2>
+                    <p style='margin:0;color:#475569;'>Contract <strong>{$contract->contract_number}</strong> has been fully executed.</p>
+                </div>
+                <div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:20px;margin-bottom:16px;'>
+                    <p style='margin:0 0 8px;'><strong>Contract:</strong> {$contract->contract_number} — {$contract->title}</p>
+                    <p style='margin:0 0 8px;'><strong>Total:</strong> \${$contract->total}</p>
+                    <p style='margin:0 0 8px;'><strong>Accepted by:</strong> {$request->name}" . ($request->input('title') ? " ({$request->input('title')})" : '') . "</p>
+                    <p style='margin:0;'><strong>Date:</strong> {$acceptedDate}</p>
+                </div>
+                <table style='width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;'>
+                    <thead><tr style='background:#f1f5f9;'>
+                        <th style='text-align:left;padding:8px 12px;'>Description</th>
+                        <th style='text-align:center;padding:8px;'>Qty</th>
+                        <th style='text-align:right;padding:8px;'>Rate</th>
+                        <th style='text-align:right;padding:8px 12px;'>Total</th>
+                    </tr></thead>
+                    <tbody>{$itemsHtml}</tbody>
+                    <tfoot><tr><td colspan='3' style='text-align:right;padding:10px 12px;font-weight:700;'>Total</td><td style='text-align:right;padding:10px 12px;font-weight:800;font-size:15px;'>$" . number_format($contract->total, 2) . "</td></tr></tfoot>
+                </table>
+                <div style='text-align:center;'>
+                    <a href='{$viewUrl}' style='display:inline-block;padding:12px 24px;background:#2563eb;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;'>View Contract</a>
+                </div>
+                <p style='color:#94a3b8;font-size:12px;margin-top:24px;text-align:center;'>Sent by {$agency->name} via Credentik</p>
+            </div>";
+
+        // Email both the client and the agency
+        $recipients = array_filter([
+            $request->email,
+            $agency->email ?? null,
+        ]);
+
+        foreach ($recipients as $to) {
+            try {
+                Mail::send([], [], function ($message) use ($to, $contract, $agency, $emailHtml) {
+                    $message->to($to)
+                        ->subject("Executed: {$contract->title} ({$contract->contract_number})")
+                        ->html($emailHtml);
+                });
+            } catch (\Exception $e) {
+                Log::warning("Contract execution email to {$to} failed: " . $e->getMessage());
+            }
+        }
+
         return response()->json(['success' => true, 'message' => 'Contract accepted successfully.']);
     }
 }
