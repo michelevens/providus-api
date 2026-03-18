@@ -7,6 +7,7 @@ use App\Models\Contract;
 use App\Models\ContractItem;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\Notification;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -130,6 +131,10 @@ class ContractController extends Controller
             'terms_and_conditions' => 'sometimes|nullable|string',
             'notes' => 'sometimes|nullable|string',
             'description' => 'sometimes|nullable|string',
+            'accepted_at' => 'sometimes|nullable|date',
+            'accepted_by_name' => 'sometimes|nullable|string|max:200',
+            'accepted_by_email' => 'sometimes|nullable|email|max:200',
+            'accepted_by_title' => 'sometimes|nullable|string|max:200',
             'items' => 'sometimes|array',
             'items.*.description' => 'required_with:items|string',
             'items.*.quantity' => 'required_with:items|numeric|min:0',
@@ -141,6 +146,7 @@ class ContractController extends Controller
             'effective_date', 'expiration_date', 'auto_renew', 'renewal_terms',
             'billing_frequency', 'payment_terms', 'tax_rate', 'discount_amount',
             'terms_and_conditions', 'notes', 'description',
+            'accepted_at', 'accepted_by_name', 'accepted_by_email', 'accepted_by_title',
         ]));
 
         if ($request->has('items')) {
@@ -311,6 +317,18 @@ class ContractController extends Controller
 
         if (!$contract->viewed_at) {
             $contract->update(['viewed_at' => now(), 'status' => 'viewed']);
+
+            // Notify agency that client viewed the contract
+            Notification::create([
+                'agency_id' => $contract->agency_id,
+                'type' => 'contract_viewed',
+                'title' => 'Contract Viewed',
+                'body' => ($contract->client_name ?: 'Client') . ' viewed contract ' . $contract->contract_number,
+                'icon' => 'eye',
+                'link' => '/contracts/' . $contract->id,
+                'linkable_type' => Contract::class,
+                'linkable_id' => $contract->id,
+            ]);
         }
 
         return response()->json(['success' => true, 'data' => $contract]);
@@ -339,6 +357,18 @@ class ContractController extends Controller
             'accepted_by_email' => $request->email,
             'accepted_by_title' => $request->input('title', ''),
             'accepted_ip' => $request->ip(),
+        ]);
+
+        // Notify agency that contract was accepted
+        Notification::create([
+            'agency_id' => $contract->agency_id,
+            'type' => 'contract_accepted',
+            'title' => 'Contract Accepted',
+            'body' => $request->name . ($request->input('title') ? ' (' . $request->input('title') . ')' : '') . ' accepted contract ' . $contract->contract_number,
+            'icon' => 'check-circle',
+            'link' => '/contracts/' . $contract->id,
+            'linkable_type' => Contract::class,
+            'linkable_id' => $contract->id,
         ]);
 
         return response()->json(['success' => true, 'message' => 'Contract accepted successfully.']);
