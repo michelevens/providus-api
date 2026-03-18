@@ -201,7 +201,7 @@ class InvoiceController extends Controller
     // Service catalog CRUD
     public function services(Request $request): JsonResponse
     {
-        $services = ServiceCatalog::where(function ($q) use ($request) {
+        $services = ServiceCatalog::withoutGlobalScopes()->where(function ($q) use ($request) {
             $q->where('agency_id', $request->user()->agency_id)->orWhereNull('agency_id');
         })->orderBy('name')->get();
 
