@@ -40,4 +40,15 @@ return [
         'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'),
     ],
 
+    'stripe' => [
+        'secret' => env('STRIPE_SECRET_KEY'),
+        'public' => env('STRIPE_PUBLIC_KEY'),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET'),
+        'plans' => [
+            'starter' => env('STRIPE_PRICE_STARTER'),
+            'professional' => env('STRIPE_PRICE_PROFESSIONAL'),
+            'enterprise' => env('STRIPE_PRICE_ENTERPRISE'),
+        ],
+    ],
+
 ];

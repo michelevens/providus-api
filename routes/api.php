@@ -30,6 +30,8 @@ use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
+use App\Http\Controllers\Api\V1\StripeWebhookController;
+use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use Illuminate\Support\Facades\Route;
 
@@ -102,6 +104,13 @@ Route::prefix('proxy/nppes')->group(function () {
     Route::get('/lookup/{npi}', [ProxyController::class, 'nppesLookup']);
     Route::get('/search', [ProxyController::class, 'nppesSearch']);
 });
+
+/*
+|--------------------------------------------------------------------------
+| Stripe Webhook (no auth — verified by signature)
+|--------------------------------------------------------------------------
+*/
+Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle']);
 
 /*
 |--------------------------------------------------------------------------
@@ -305,6 +314,16 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Licensing Boards (reference) ──
     Route::get('/licensing-boards', [FaqController::class, 'licensingBoards']);
+
+    // ── Subscription & Billing (Stripe) ──
+    Route::prefix('subscription')->group(function () {
+        Route::get('/status', [SubscriptionController::class, 'status']);
+        Route::get('/plans', [SubscriptionController::class, 'plans']);
+        Route::post('/checkout', [SubscriptionController::class, 'checkout']);
+        Route::post('/portal', [SubscriptionController::class, 'portal']);
+        Route::post('/cancel', [SubscriptionController::class, 'cancel']);
+        Route::post('/resume', [SubscriptionController::class, 'resume']);
+    });
 });
 
 /*

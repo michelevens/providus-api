@@ -17,12 +17,43 @@ class Agency extends Model
         'phone', 'email', 'website', 'taxonomy',
         'logo_url', 'primary_color', 'accent_color',
         'plan_tier', 'is_active', 'allowed_domains', 'embed_theme',
+        'stripe_customer_id', 'stripe_subscription_id', 'stripe_price_id',
+        'subscription_status', 'trial_ends_at', 'subscription_ends_at',
     ];
 
     protected $casts = [
         'is_active' => 'boolean',
         'allowed_domains' => 'array',
+        'trial_ends_at' => 'datetime',
+        'subscription_ends_at' => 'datetime',
     ];
+
+    public function isOnTrial(): bool
+    {
+        return $this->subscription_status === 'trialing' && $this->trial_ends_at?->isFuture();
+    }
+
+    public function isSubscribed(): bool
+    {
+        return in_array($this->subscription_status, ['active', 'trialing']);
+    }
+
+    public function hasExpired(): bool
+    {
+        if ($this->subscription_status === 'trialing') return $this->trial_ends_at?->isPast() ?? false;
+        return $this->subscription_status === 'canceled' && $this->subscription_ends_at?->isPast();
+    }
+
+    public const PLAN_LIMITS = [
+        'starter' => ['providers' => 5, 'users' => 3, 'applications' => 50],
+        'professional' => ['providers' => 25, 'users' => 10, 'applications' => 500],
+        'enterprise' => ['providers' => -1, 'users' => -1, 'applications' => -1],
+    ];
+
+    public function planLimit(string $resource): int
+    {
+        return self::PLAN_LIMITS[$this->plan_tier][$resource] ?? 0;
+    }
 
     public function config(): HasOne { return $this->hasOne(AgencyConfig::class); }
     public function users(): HasMany { return $this->hasMany(User::class); }
