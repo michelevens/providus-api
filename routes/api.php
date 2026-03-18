@@ -30,6 +30,7 @@ use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
+use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\TestimonialController;
@@ -103,6 +104,16 @@ Route::prefix('public/testimonial')->group(function () {
 Route::prefix('proxy/nppes')->group(function () {
     Route::get('/lookup/{npi}', [ProxyController::class, 'nppesLookup']);
     Route::get('/search', [ProxyController::class, 'nppesSearch']);
+});
+
+/*
+|--------------------------------------------------------------------------
+| Public Contract Viewing (token-based, no auth)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('contracts/view')->group(function () {
+    Route::get('/{token}', [ContractController::class, 'showByToken']);
+    Route::post('/{token}/accept', [ContractController::class, 'acceptByToken']);
 });
 
 /*
@@ -314,6 +325,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Licensing Boards (reference) ──
     Route::get('/licensing-boards', [FaqController::class, 'licensingBoards']);
+
+    // ── Contracts & Agreements ──
+    Route::get('/contracts/stats', [ContractController::class, 'stats']);
+    Route::apiResource('contracts', ContractController::class);
+    Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
+    Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate']);
+    Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);
 
     // ── Subscription & Billing (Stripe) ──
     Route::prefix('subscription')->group(function () {
