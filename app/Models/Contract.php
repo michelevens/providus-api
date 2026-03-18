@@ -24,7 +24,7 @@ class Contract extends Model
         'billing_frequency', 'payment_terms',
         'terms_and_conditions', 'notes',
         'sent_at', 'viewed_at',
-        'accepted_at', 'accepted_by_name', 'accepted_by_email', 'accepted_ip',
+        'accepted_at', 'accepted_by_name', 'accepted_by_email', 'accepted_by_title', 'accepted_ip',
         'terminated_at', 'terminated_reason',
         'created_by',
     ];

@@ -321,6 +321,7 @@ class ContractController extends Controller
         $request->validate([
             'name' => 'required|string|max:200',
             'email' => 'required|email|max:200',
+            'title' => 'nullable|string|max:200',
         ]);
 
         $contract = Contract::withoutGlobalScopes()
@@ -336,6 +337,7 @@ class ContractController extends Controller
             'accepted_at' => now(),
             'accepted_by_name' => $request->name,
             'accepted_by_email' => $request->email,
+            'accepted_by_title' => $request->input('title', ''),
             'accepted_ip' => $request->ip(),
         ]);
 
