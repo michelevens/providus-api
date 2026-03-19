@@ -156,6 +156,8 @@ class FundingController extends Controller
                 'sam_gov' => $scraper->scrapeSamGov(),
                 'nih' => $scraper->scrapeNihReporter(),
                 'usaspending' => $scraper->scrapeUsaSpending(),
+                'samhsa' => $scraper->scrapeSamhsa(),
+                'propublica', 'foundation' => $scraper->scrapeProPublica990s(),
                 default => ['error' => 'Unknown source'],
             };
             $results = [$result];

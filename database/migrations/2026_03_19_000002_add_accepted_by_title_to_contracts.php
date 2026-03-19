@@ -8,9 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('contracts', function (Blueprint $table) {
-            $table->string('accepted_by_title')->nullable()->after('accepted_by_email');
-        });
+        if (!Schema::hasColumn('contracts', 'accepted_by_title')) {
+            Schema::table('contracts', function (Blueprint $table) {
+                $table->string('accepted_by_title')->nullable()->after('accepted_by_email');
+            });
+        }
     }
 
     public function down(): void

@@ -31,6 +31,8 @@ class FundingScraperService
         $results['sam_gov'] = $this->scrapeSamGov();
         $results['nih'] = $this->scrapeNihReporter();
         $results['usaspending'] = $this->scrapeUsaSpending();
+        $results['samhsa'] = $this->scrapeSamhsa();
+        $results['propublica'] = $this->scrapeProPublica990s();
         return $results;
     }
 
@@ -293,6 +295,140 @@ class FundingScraperService
         }
 
         return ['source' => 'usaspending', 'imported' => $imported];
+    }
+
+    /**
+     * SAMHSA.gov — scrape their grant announcements page.
+     * No API available, so we pull their RSS/listing page.
+     */
+    public function scrapeSamhsa(): array
+    {
+        $imported = 0;
+
+        try {
+            // SAMHSA publishes grant announcements on their site
+            $response = Http::timeout(30)->get('https://www.samhsa.gov/grants/grants-dashboard');
+
+            if (!$response->successful()) {
+                // Fallback: search Grants.gov specifically for SAMHSA
+                $response = Http::timeout(30)->post('https://apply07.grants.gov/grantsws/rest/opportunities/search/', [
+                    'keyword' => 'SAMHSA',
+                    'oppStatuses' => 'forecasted|posted',
+                    'sortBy' => 'closeDateAsc',
+                    'rows' => 50,
+                ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    foreach ($data['oppHits'] ?? [] as $opp) {
+                        $imported += $this->upsertOpportunity([
+                            'source' => 'samhsa',
+                            'external_id' => 'samhsa-' . ($opp['id'] ?? Str::random(12)),
+                            'title' => $opp['title'] ?? 'Untitled',
+                            'description' => Str::limit($opp['synopsis'] ?? '', 1000),
+                            'agency_source' => 'SAMHSA',
+                            'cfda_number' => $opp['cfdaList'] ?? null,
+                            'funding_type' => $this->mapFundingType($opp['oppCategory'] ?? ''),
+                            'amount_display' => $this->formatAmount($opp['awardCeiling'] ?? null, $opp['awardFloor'] ?? null),
+                            'amount_min' => $opp['awardFloor'] ?? null,
+                            'amount_max' => $opp['awardCeiling'] ?? null,
+                            'open_date' => $this->parseDate($opp['openDate'] ?? null),
+                            'close_date' => $this->parseDate($opp['closeDate'] ?? null),
+                            'status' => 'open',
+                            'url' => "https://www.grants.gov/search-results-detail/{$opp['id']}",
+                            'category' => $this->categorize($opp['title'] ?? '', $opp['synopsis'] ?? ''),
+                            'keywords' => $this->extractKeywords($opp['title'] ?? '', $opp['synopsis'] ?? ''),
+                            'raw_data' => $opp,
+                        ]);
+                    }
+                }
+
+                return ['source' => 'samhsa', 'imported' => $imported];
+            }
+
+            // Parse the SAMHSA grants dashboard HTML for grant listings
+            $html = $response->body();
+            preg_match_all('/<a[^>]*href="([^"]*grant[^"]*)"[^>]*>([^<]+)<\/a>/i', $html, $matches, PREG_SET_ORDER);
+
+            foreach ($matches as $match) {
+                $url = $match[1];
+                $title = trim($match[2]);
+                if (!$this->isRelevant($title, '')) continue;
+                if (strlen($title) < 10) continue;
+
+                $imported += $this->upsertOpportunity([
+                    'source' => 'samhsa',
+                    'external_id' => 'samhsa-' . md5($url),
+                    'title' => $title,
+                    'description' => 'SAMHSA grant opportunity — visit link for full details.',
+                    'agency_source' => 'SAMHSA',
+                    'funding_type' => 'grant',
+                    'status' => 'open',
+                    'url' => str_starts_with($url, 'http') ? $url : "https://www.samhsa.gov{$url}",
+                    'category' => $this->categorize($title, ''),
+                    'keywords' => $this->extractKeywords($title, ''),
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('SAMHSA scrape error', ['error' => $e->getMessage()]);
+        }
+
+        return ['source' => 'samhsa', 'imported' => $imported];
+    }
+
+    /**
+     * ProPublica Nonprofit Explorer — foundation 990 data.
+     * API: https://projects.propublica.org/nonprofits/api
+     * Free, no key needed.
+     * Finds foundations that fund mental health.
+     */
+    public function scrapeProPublica990s(): array
+    {
+        $imported = 0;
+        $searchTerms = ['mental health foundation', 'behavioral health fund', 'psychiatric foundation', 'substance abuse foundation'];
+
+        foreach ($searchTerms as $keyword) {
+            try {
+                $response = Http::timeout(30)->get('https://projects.propublica.org/nonprofits/api/v2/search.json', [
+                    'q' => $keyword,
+                    'ntee[id]' => 'F', // Mental Health & Crisis Intervention NTEE code
+                ]);
+
+                if (!$response->successful()) {
+                    Log::warning("ProPublica search failed for '{$keyword}'", ['status' => $response->status()]);
+                    continue;
+                }
+
+                $data = $response->json();
+                $orgs = $data['organizations'] ?? [];
+
+                foreach ($orgs as $org) {
+                    if (!$org['name'] || !($org['total_revenue'] ?? 0)) continue;
+
+                    $revenue = $org['total_revenue'] ?? 0;
+                    if ($revenue < 50000) continue; // Skip tiny orgs
+
+                    $imported += $this->upsertOpportunity([
+                        'source' => 'foundation',
+                        'external_id' => 'pp-' . ($org['ein'] ?? Str::random(12)),
+                        'title' => $org['name'],
+                        'description' => "Foundation with " . ($revenue > 0 ? '$' . number_format($revenue) : 'undisclosed') . " in revenue. NTEE: {$org['ntee_code']} — {$org['city']}, {$org['state']}. Check their website or 990 filings for grant programs.",
+                        'agency_source' => $org['name'],
+                        'funding_type' => 'grant',
+                        'amount_display' => $revenue > 1000000 ? '$' . round($revenue / 1000000, 1) . 'M revenue' : '$' . round($revenue / 1000) . 'K revenue',
+                        'status' => 'open',
+                        'url' => "https://projects.propublica.org/nonprofits/organizations/{$org['ein']}",
+                        'category' => 'mental_health',
+                        'keywords' => ['foundation', 'mental health', $org['state'] ?? ''],
+                        'raw_data' => $org,
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::error("ProPublica scrape error for '{$keyword}'", ['error' => $e->getMessage()]);
+            }
+        }
+
+        return ['source' => 'propublica', 'imported' => $imported];
     }
 
     /**
