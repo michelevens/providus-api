@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\ExclusionController;
 use App\Http\Controllers\Api\V1\FacilityController;
 use App\Http\Controllers\Api\V1\FaqController;
 use App\Http\Controllers\Api\V1\FollowupController;
+use App\Http\Controllers\Api\V1\FundingController;
 use App\Http\Controllers\Api\V1\ImportController;
 use App\Http\Controllers\Api\V1\InvoiceController;
 use App\Http\Controllers\Api\V1\LicenseController;
@@ -333,6 +334,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
     Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate']);
     Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);
+
+    // ── Funding Hub ──
+    Route::prefix('funding')->group(function () {
+        Route::get('/opportunities', [FundingController::class, 'opportunities']);
+        Route::get('/summary', [FundingController::class, 'summary']);
+        Route::get('/intelligence', [FundingController::class, 'intelligence']);
+        Route::post('/scrape', [FundingController::class, 'scrape'])->middleware('throttle:5,1');
+        Route::get('/applications', [FundingController::class, 'applications']);
+        Route::post('/applications', [FundingController::class, 'storeApplication']);
+        Route::put('/applications/{fundingApplication}', [FundingController::class, 'updateApplication']);
+        Route::delete('/applications/{fundingApplication}', [FundingController::class, 'destroyApplication']);
+    });
 
     // ── Subscription & Billing (Stripe) ──
     Route::prefix('subscription')->group(function () {

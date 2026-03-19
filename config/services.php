@@ -40,6 +40,11 @@ return [
         'model' => env('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'),
     ],
 
+    'funding' => [
+        'grants_gov_api_key' => env('GRANTS_GOV_API_KEY'),
+        'sam_gov_api_key' => env('SAM_GOV_API_KEY'),
+    ],
+
     'stripe' => [
         'secret' => env('STRIPE_SECRET_KEY'),
         'public' => env('STRIPE_PUBLIC_KEY'),

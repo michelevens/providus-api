@@ -43,3 +43,6 @@ Schedule::command('notifications:license-expiry')->dailyAt('08:00');
 
 // Weekly on Monday at 3am UTC — bulk verify licenses against NPPES
 Schedule::command('licenses:verify')->weeklyOn(1, '03:00');
+
+// Daily at 6am UTC — scrape mental health funding opportunities
+Schedule::command('funding:scrape')->dailyAt('06:00');
