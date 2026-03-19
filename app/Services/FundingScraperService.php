@@ -78,13 +78,12 @@ class FundingScraperService
                 $opportunities = $data['oppHits'] ?? [];
 
                 foreach ($opportunities as $opp) {
-                    if (!$this->isRelevant($opp['title'] ?? '', $opp['synopsis'] ?? '')) continue;
-
+                    // Skip isRelevant check — keyword search already filters
                     $imported += $this->upsertOpportunity([
                         'source' => 'grants_gov',
-                        'external_id' => $opp['id'] ?? $opp['oppNumber'] ?? Str::random(12),
+                        'external_id' => (string) ($opp['id'] ?? $opp['oppNumber'] ?? Str::random(12)),
                         'title' => $opp['title'] ?? 'Untitled',
-                        'description' => Str::limit($opp['synopsis'] ?? '', 1000),
+                        'description' => Str::limit($opp['synopsis'] ?? "Federal grant opportunity for: {$keyword}", 1000),
                         'agency_source' => $opp['agency'] ?? $opp['agencyCode'] ?? null,
                         'cfda_number' => $opp['cfdaList'] ?? $opp['cfdaNumber'] ?? null,
                         'funding_type' => $this->mapFundingType($opp['oppCategory'] ?? ''),
@@ -126,7 +125,7 @@ class FundingScraperService
 
         foreach ($searchTerms as $keyword) {
             try {
-                $response = Http::timeout(30)->get('https://api.sam.gov/opportunities/v2/search', [
+                $response = Http::timeout(15)->get('https://api.sam.gov/opportunities/v2/search', [
                     'api_key' => $apiKey,
                     'q' => $keyword,
                     'postedFrom' => now()->subMonths(3)->format('m/d/Y'),
@@ -391,7 +390,6 @@ class FundingScraperService
             try {
                 $response = Http::timeout(30)->get('https://projects.propublica.org/nonprofits/api/v2/search.json', [
                     'q' => $keyword,
-                    'ntee[id]' => 'F', // Mental Health & Crisis Intervention NTEE code
                 ]);
 
                 if (!$response->successful()) {
