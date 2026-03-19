@@ -216,7 +216,7 @@ class FundingScraperService
                     'amount_max' => $project['award_amount'] ?? null,
                     'amount_display' => $project['award_amount'] ? '$' . number_format($project['award_amount']) : null,
                     'open_date' => $this->parseDate($project['project_start_date'] ?? null),
-                    'close_date' => $this->parseDate($project['project_end_date'] ?? null),
+                    'close_date' => null, // project_end_date is project duration, not application deadline
                     'status' => 'open',
                     'url' => "https://reporter.nih.gov/project-details/{$project['appl_id']}",
                     'category' => 'mental_health',
