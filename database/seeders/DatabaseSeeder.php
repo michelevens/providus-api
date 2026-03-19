@@ -40,6 +40,9 @@ class DatabaseSeeder extends Seeder
 
             // EnnHealth demo data (tenant-scoped)
             EnnHealthDataSeeder::class,
+
+            // Demo user accounts for all role levels
+            DemoUserSeeder::class,
         ]);
 
         // Ensure superadmin account exists

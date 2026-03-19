@@ -214,6 +214,83 @@ class AuthController extends Controller
     }
 
     /**
+     * Seed demo users for testing — creates or updates demo accounts with known passwords.
+     */
+    public function seedDemoUsers(Request $request): JsonResponse
+    {
+        $agency = Agency::where('slug', 'ennhealth-psychiatry')->first();
+        if (!$agency) {
+            return response()->json(['success' => false, 'message' => 'Demo agency not found'], 404);
+        }
+
+        $org = \App\Models\Organization::where('agency_id', $agency->id)->first();
+        $provider = \App\Models\Provider::where('agency_id', $agency->id)->first();
+
+        $demoPassword = 'Demo2026!';
+
+        $accounts = [
+            [
+                'email' => 'owner@demo.credentik.com',
+                'first_name' => 'Dana',
+                'last_name' => 'Owner',
+                'role' => 'owner',
+                'agency_id' => $agency->id,
+                'organization_id' => null,
+                'provider_id' => null,
+            ],
+            [
+                'email' => 'agency@demo.credentik.com',
+                'first_name' => 'Alex',
+                'last_name' => 'Agency',
+                'role' => 'agency',
+                'agency_id' => $agency->id,
+                'organization_id' => null,
+                'provider_id' => null,
+            ],
+            [
+                'email' => 'org@demo.credentik.com',
+                'first_name' => 'Olivia',
+                'last_name' => 'Org',
+                'role' => 'organization',
+                'agency_id' => $agency->id,
+                'organization_id' => $org?->id,
+                'provider_id' => null,
+            ],
+            [
+                'email' => 'provider@demo.credentik.com',
+                'first_name' => 'Pat',
+                'last_name' => 'Provider',
+                'role' => 'provider',
+                'agency_id' => $agency->id,
+                'organization_id' => null,
+                'provider_id' => $provider?->id,
+            ],
+        ];
+
+        $results = [];
+        foreach ($accounts as $data) {
+            $user = User::updateOrCreate(
+                ['email' => $data['email']],
+                array_merge($data, [
+                    'password' => $demoPassword,
+                    'is_active' => true,
+                    'invite_token' => null,
+                    'invite_expires' => null,
+                    'email_verified_at' => now(),
+                ])
+            );
+            $results[] = "{$user->email} ({$user->role}) — " . ($user->wasRecentlyCreated ? 'created' : 'updated');
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Demo users seeded',
+            'accounts' => $results,
+            'password' => $demoPassword,
+        ]);
+    }
+
+    /**
      * Determine which relationships to eager-load based on user role.
      */
     private function userRelations(User $user): array
