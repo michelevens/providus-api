@@ -338,6 +338,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Funding Hub ──
     Route::prefix('funding')->group(function () {
         Route::get('/opportunities', [FundingController::class, 'opportunities']);
+        Route::get('/opportunities/{fundingOpportunity}', [FundingController::class, 'show']);
         Route::get('/summary', [FundingController::class, 'summary']);
         Route::get('/intelligence', [FundingController::class, 'intelligence']);
         Route::post('/scrape', [FundingController::class, 'scrape'])->middleware('throttle:5,1');

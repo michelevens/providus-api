@@ -65,6 +65,38 @@ class FundingController extends Controller
     }
 
     /**
+     * Get a single opportunity with full details.
+     */
+    public function show(FundingOpportunity $fundingOpportunity): JsonResponse
+    {
+        // Find related opportunities (same agency or category)
+        $related = FundingOpportunity::open()
+            ->where('id', '!=', $fundingOpportunity->id)
+            ->where(function ($q) use ($fundingOpportunity) {
+                $q->where('agency_source', $fundingOpportunity->agency_source)
+                  ->orWhere('category', $fundingOpportunity->category);
+            })
+            ->limit(5)
+            ->get(['id', 'title', 'source', 'agency_source', 'amount_display', 'close_date']);
+
+        // Find past awards for this program from USASpending data
+        $pastAwards = [];
+        if ($fundingOpportunity->cfda_number) {
+            $pastAwards = FundingOpportunity::where('source', 'usaspending')
+                ->where('cfda_number', 'like', "%{$fundingOpportunity->cfda_number}%")
+                ->limit(10)
+                ->get(['title', 'agency_source', 'amount_display', 'amount_max', 'open_date']);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $fundingOpportunity,
+            'related' => $related,
+            'past_awards' => $pastAwards,
+        ]);
+    }
+
+    /**
      * Get summary stats for the dashboard.
      */
     public function summary(Request $request): JsonResponse
