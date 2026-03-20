@@ -82,6 +82,11 @@ class AgencyController extends Controller
             'notification_email' => 'nullable|email',
             'provider_name' => 'nullable|string|max:255',
             'elig_monthly_limit' => 'nullable|integer|min:0',
+            'waves' => 'nullable|array',
+            'waves.*.id' => 'required|integer',
+            'waves.*.label' => 'required|string|max:50',
+            'waves.*.short' => 'nullable|string|max:10',
+            'waves.*.color' => 'nullable|string|max:20',
         ]);
 
         $config = $request->user()->agency->config;

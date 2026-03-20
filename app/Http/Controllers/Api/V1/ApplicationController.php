@@ -49,7 +49,7 @@ class ApplicationController extends Controller
             'payer_id' => 'required|exists:payers,id',
             'payer_plan_id' => 'nullable|exists:payer_plans,id',
             'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
-            'type' => 'in:individual,group,both', 'wave' => 'integer|min:1|max:5',
+            'type' => 'in:individual,group,both', 'wave' => 'integer|min:1|max:20',
             'status' => 'in:not_started,submitted,in_review,pending_info,approved,denied,withdrawn',
             'portal_url' => 'nullable|string', 'application_ref' => 'nullable|string',
             'enrollment_id' => 'nullable|string',
