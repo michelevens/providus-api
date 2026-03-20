@@ -2,34 +2,33 @@
 
 namespace App\Mail;
 
-use App\Models\License;
+use App\Models\Agency;
+use App\Models\Contract;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class LicenseExpirationReminder extends Mailable
+class ContractTerminated extends Mailable
 {
     use Queueable, SerializesModels;
 
     public function __construct(
-        public License $license,
-        public string $providerName,
-        public int $daysUntilExpiry,
+        public Contract $contract,
+        public Agency $agency,
+        public ?string $reason = null,
     ) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "License Expiring Soon: {$this->providerName}",
+            subject: "Contract Terminated — {$this->contract->title}",
         );
     }
 
     public function content(): Content
     {
-        return new Content(
-            view: 'emails.license-expiring',
-        );
+        return new Content(view: 'emails.contract-terminated');
     }
 }

@@ -2,36 +2,34 @@
 
 namespace App\Mail;
 
-use App\Models\Application;
+use App\Models\Agency;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class ApplicationStatusChange extends Mailable
+class DocumentExpiring extends Mailable
 {
     use Queueable, SerializesModels;
 
     public function __construct(
-        public Application $application,
+        public Agency $agency,
         public string $providerName,
-        public string $payerName,
-        public string $oldStatus,
-        public string $newStatus,
+        public string $documentName,
+        public string $expirationDate,
+        public int $daysUntilExpiry,
     ) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "Application Status Update: {$this->providerName} — {$this->payerName}",
+            subject: "Document Expiring: {$this->documentName} — {$this->providerName}",
         );
     }
 
     public function content(): Content
     {
-        return new Content(
-            view: 'emails.application-status-change',
-        );
+        return new Content(view: 'emails.document-expiring');
     }
 }

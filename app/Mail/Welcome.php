@@ -2,34 +2,32 @@
 
 namespace App\Mail;
 
-use App\Models\License;
+use App\Models\Agency;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
 
-class LicenseExpirationReminder extends Mailable
+class Welcome extends Mailable
 {
     use Queueable, SerializesModels;
 
     public function __construct(
-        public License $license,
-        public string $providerName,
-        public int $daysUntilExpiry,
+        public User $user,
+        public Agency $agency,
     ) {}
 
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "License Expiring Soon: {$this->providerName}",
+            subject: "Welcome to {$this->agency->name} on Credentik",
         );
     }
 
     public function content(): Content
     {
-        return new Content(
-            view: 'emails.license-expiring',
-        );
+        return new Content(view: 'emails.welcome');
     }
 }
