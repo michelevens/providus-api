@@ -76,9 +76,9 @@ Route::prefix('reference')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::prefix('onboard')->group(function () {
-    Route::get('/{token}', [OnboardController::class, 'validate_token']);
-    Route::get('/{token}/organizations', [OnboardController::class, 'organizations']);
-    Route::post('/{token}', [OnboardController::class, 'submit']);
+    Route::get('/{token}', [OnboardController::class, 'validate_token'])->where('token', '[A-Za-z0-9]{20,}');
+    Route::get('/{token}/organizations', [OnboardController::class, 'organizations'])->where('token', '[A-Za-z0-9]{20,}');
+    Route::post('/{token}', [OnboardController::class, 'submit'])->where('token', '[A-Za-z0-9]{20,}');
 });
 
 /*
