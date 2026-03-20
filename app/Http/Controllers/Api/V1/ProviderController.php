@@ -33,31 +33,65 @@ class ProviderController extends Controller
             }
         }
 
-        $data = $request->validate([
-            'organization_id' => 'nullable|exists:organizations,id',
-            'first_name' => 'required|string|max:100', 'last_name' => 'required|string|max:100',
-            'credentials' => 'nullable|string|max:100', 'npi' => 'nullable|string|size:10',
-            'taxonomy' => 'nullable|string|max:20', 'specialty' => 'nullable|string|max:100',
-            'email' => 'nullable|email', 'phone' => 'nullable|string|max:20',
-            'caqh_id' => 'nullable|string|max:20', 'is_active' => 'boolean',
-        ]);
+        $data = $request->validate(self::validationRules());
 
         return response()->json(['success' => true, 'data' => Provider::create($data)], 201);
     }
 
     public function show(int $id): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => Provider::with(['organization', 'licenses', 'caqhTracking'])->findOrFail($id)]);
+        return response()->json(['success' => true, 'data' => Provider::with(['organization', 'licenses', 'caqhTracking', 'deaRegistrations'])->findOrFail($id)]);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
         $provider = Provider::findOrFail($id);
-        $provider->update($request->only([
-            'organization_id', 'first_name', 'last_name', 'credentials', 'npi',
-            'taxonomy', 'specialty', 'email', 'phone', 'caqh_id', 'is_active',
-        ]));
+        $rules = collect(self::validationRules())->map(fn($r) => str_replace('required|', 'sometimes|', $r))->all();
+        $data = $request->validate($rules);
+        $provider->update($data);
         return response()->json(['success' => true, 'data' => $provider]);
+    }
+
+    private static function validationRules(): array
+    {
+        return [
+            'organization_id' => 'nullable|exists:organizations,id',
+            'first_name' => 'required|string|max:100',
+            'last_name' => 'required|string|max:100',
+            'date_of_birth' => 'nullable|date',
+            'ssn_last4' => 'nullable|string|size:4',
+            'gender' => 'nullable|string|in:male,female,non-binary,other,prefer_not_to_say',
+            'credentials' => 'nullable|string|max:100',
+            'npi' => 'nullable|string|size:10',
+            'taxonomy' => 'nullable|string|max:20',
+            'specialty' => 'nullable|string|max:100',
+            'email' => 'nullable|email',
+            'phone' => 'nullable|string|max:20',
+            'address_street' => 'nullable|string|max:255',
+            'address_city' => 'nullable|string|max:100',
+            'address_state' => 'nullable|string|max:2',
+            'address_zip' => 'nullable|string|max:10',
+            'caqh_id' => 'nullable|string|max:20',
+            // NP Collaborative Practice
+            'supervising_physician' => 'nullable|string|max:255',
+            'supervising_physician_npi' => 'nullable|string|size:10',
+            'collaborative_agreement_status' => 'nullable|string|in:active,expired,not_required,pending',
+            'collaborative_agreement_expiry' => 'nullable|date',
+            // Scope of Practice
+            'practice_authority' => 'nullable|string|in:full,reduced,restricted',
+            'prescriptive_authority' => 'nullable|boolean',
+            'controlled_substance_authority' => 'nullable|boolean',
+            'cs_schedule_authority' => 'nullable|string|max:50',
+            // Professional IDs
+            'state_of_primary_license' => 'nullable|string|max:2',
+            'medicaid_id' => 'nullable|string|max:30',
+            'medicare_ptan' => 'nullable|string|max:30',
+            'languages_spoken' => 'nullable|string|max:500',
+            'bio' => 'nullable|string|max:2000',
+            // Status
+            'is_active' => 'nullable|boolean',
+            'onboarding_status' => 'nullable|string|in:pending,in_progress,complete',
+        ];
     }
 
     public function destroy(int $id): JsonResponse

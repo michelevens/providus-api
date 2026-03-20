@@ -93,6 +93,7 @@ class OnboardController extends Controller
     }
 
     // PUBLIC: Submit provider onboarding form (no auth required)
+    // Supports full submission or step-by-step via 'step' parameter
     public function submit(Request $request, string $token): JsonResponse
     {
         $record = OnboardToken::where('token', $token)->first();
@@ -101,34 +102,113 @@ class OnboardController extends Controller
             return response()->json(['success' => false, 'message' => 'Invalid or expired token'], 404);
         }
 
-        $request->validate([
-            'first_name' => 'required|string|max:100',
-            'last_name' => 'required|string|max:100',
-            'credentials' => 'nullable|string|max:50',
-            'npi' => 'nullable|string|size:10',
-            'taxonomy' => 'nullable|string|max:20',
-            'specialty' => 'nullable|string|max:100',
-            'email' => 'required|email',
-            'phone' => 'nullable|string|max:20',
-            'caqh_id' => 'nullable|string|max:20',
-            'organization_id' => 'nullable|integer|exists:organizations,id',
-        ]);
+        $step = $request->input('step', 'complete');
 
-        $provider = Provider::withoutGlobalScopes()->create([
+        // Step-based validation
+        $rules = match ($step) {
+            'personal' => [
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'date_of_birth' => 'nullable|date',
+                'gender' => 'nullable|string|in:male,female,non-binary,other,prefer_not_to_say',
+                'email' => 'required|email',
+                'phone' => 'nullable|string|max:20',
+                'address_street' => 'nullable|string|max:255',
+                'address_city' => 'nullable|string|max:100',
+                'address_state' => 'nullable|string|max:2',
+                'address_zip' => 'nullable|string|max:10',
+                'organization_id' => 'nullable|integer|exists:organizations,id',
+            ],
+            'credentials' => [
+                'credentials' => 'nullable|string|max:100',
+                'npi' => 'nullable|string|size:10',
+                'taxonomy' => 'nullable|string|max:20',
+                'specialty' => 'nullable|string|max:100',
+                'caqh_id' => 'nullable|string|max:20',
+                'state_of_primary_license' => 'nullable|string|max:2',
+                'medicaid_id' => 'nullable|string|max:30',
+                'medicare_ptan' => 'nullable|string|max:30',
+            ],
+            'practice' => [
+                'supervising_physician' => 'nullable|string|max:255',
+                'supervising_physician_npi' => 'nullable|string|size:10',
+                'collaborative_agreement_status' => 'nullable|string|in:active,expired,not_required,pending',
+                'collaborative_agreement_expiry' => 'nullable|date',
+                'practice_authority' => 'nullable|string|in:full,reduced,restricted',
+                'prescriptive_authority' => 'nullable|boolean',
+                'controlled_substance_authority' => 'nullable|boolean',
+                'cs_schedule_authority' => 'nullable|string|max:50',
+            ],
+            'bio' => [
+                'languages_spoken' => 'nullable|string|max:500',
+                'bio' => 'nullable|string|max:2000',
+            ],
+            default => [ // 'complete' — all fields at once (backward compatible)
+                'first_name' => 'required|string|max:100',
+                'last_name' => 'required|string|max:100',
+                'credentials' => 'nullable|string|max:100',
+                'npi' => 'nullable|string|size:10',
+                'taxonomy' => 'nullable|string|max:20',
+                'specialty' => 'nullable|string|max:100',
+                'email' => 'required|email',
+                'phone' => 'nullable|string|max:20',
+                'caqh_id' => 'nullable|string|max:20',
+                'organization_id' => 'nullable|integer|exists:organizations,id',
+                'date_of_birth' => 'nullable|date',
+                'gender' => 'nullable|string',
+                'address_street' => 'nullable|string|max:255',
+                'address_city' => 'nullable|string|max:100',
+                'address_state' => 'nullable|string|max:2',
+                'address_zip' => 'nullable|string|max:10',
+                'supervising_physician' => 'nullable|string|max:255',
+                'supervising_physician_npi' => 'nullable|string|size:10',
+                'collaborative_agreement_status' => 'nullable|string',
+                'collaborative_agreement_expiry' => 'nullable|date',
+                'practice_authority' => 'nullable|string',
+                'prescriptive_authority' => 'nullable|boolean',
+                'controlled_substance_authority' => 'nullable|boolean',
+                'cs_schedule_authority' => 'nullable|string|max:50',
+                'state_of_primary_license' => 'nullable|string|max:2',
+                'medicaid_id' => 'nullable|string|max:30',
+                'medicare_ptan' => 'nullable|string|max:30',
+                'languages_spoken' => 'nullable|string|max:500',
+                'bio' => 'nullable|string|max:2000',
+            ],
+        };
+
+        $data = $request->validate($rules);
+
+        // Check if provider already exists for this token (step-based resume)
+        $existingProvider = Provider::withoutGlobalScopes()
+            ->where('agency_id', $record->agency_id)
+            ->where('email', $record->provider_email)
+            ->first();
+
+        if ($existingProvider && $step !== 'complete') {
+            // Update existing provider with new step data
+            $existingProvider->update($data);
+            if ($step === 'bio' || $request->boolean('finalize')) {
+                $existingProvider->update([
+                    'onboarding_status' => 'complete',
+                    'onboarding_completed_at' => now(),
+                ]);
+                $record->update(['used_at' => now()]);
+            } else {
+                $existingProvider->update(['onboarding_status' => 'in_progress']);
+            }
+            return response()->json(['success' => true, 'data' => $existingProvider, 'step' => $step]);
+        }
+
+        // Create new provider
+        $provider = Provider::withoutGlobalScopes()->create(array_merge($data, [
             'agency_id' => $record->agency_id,
-            'organization_id' => $request->organization_id,
-            'first_name' => $request->first_name,
-            'last_name' => $request->last_name,
-            'credentials' => $request->credentials,
-            'npi' => $request->npi,
-            'taxonomy' => $request->taxonomy,
-            'specialty' => $request->specialty,
-            'email' => $request->email,
-            'phone' => $request->phone,
-            'caqh_id' => $request->caqh_id,
-        ]);
+            'onboarding_status' => $step === 'complete' ? 'complete' : 'in_progress',
+            'onboarding_completed_at' => $step === 'complete' ? now() : null,
+        ]));
 
-        $record->update(['used_at' => now()]);
+        if ($step === 'complete') {
+            $record->update(['used_at' => now()]);
+        }
 
         return response()->json(['success' => true, 'data' => $provider], 201);
     }
