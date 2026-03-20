@@ -226,7 +226,10 @@ class AuthController extends Controller
         $org = \App\Models\Organization::where('agency_id', $agency->id)->first();
         $provider = \App\Models\Provider::where('agency_id', $agency->id)->first();
 
-        $demoPassword = 'Demo2026!';
+        $demoPassword = env('DEMO_USER_PASSWORD');
+        if (!$demoPassword) {
+            return response()->json(['success' => false, 'message' => 'DEMO_USER_PASSWORD env var is not set'], 500);
+        }
 
         $accounts = [
             [
@@ -286,7 +289,6 @@ class AuthController extends Controller
             'success' => true,
             'message' => 'Demo users seeded',
             'accounts' => $results,
-            'password' => $demoPassword,
         ]);
     }
 

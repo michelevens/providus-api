@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class DatabaseSeeder extends Seeder
@@ -45,25 +44,30 @@ class DatabaseSeeder extends Seeder
             DemoUserSeeder::class,
         ]);
 
-        // Ensure superadmin account exists
-        $superadmin = User::where('email', 'superadmin@credentik.com')->first();
-        if (!$superadmin) {
-            User::create([
-                'email' => 'superadmin@credentik.com',
-                'password' => bcrypt('Credentik2026!'),
-                'first_name' => 'Super',
-                'last_name' => 'Admin',
-                'role' => 'superadmin',
-                'agency_id' => null,
-                'is_active' => true,
-            ]);
-        } elseif ($superadmin->role !== 'superadmin') {
-            $superadmin->update(['role' => 'superadmin']);
-        }
+        // Ensure superadmin accounts exist — always syncs password from SUPERADMIN_PASSWORD env var
+        $saPassword = env('SUPERADMIN_PASSWORD');
+        if (!$saPassword) {
+            $this->command->error('SUPERADMIN_PASSWORD env var is required for superadmins. Skipping.');
+        } else {
+            $superadmins = [
+                ['email' => 'superadmin@credentik.com', 'first_name' => 'Super', 'last_name' => 'Admin'],
+                ['email' => 'contact+credentiksuper1@ennhealth.com', 'first_name' => 'Super', 'last_name' => 'Admin 1'],
+                ['email' => 'contact+credentiksuper2@ennhealth.com', 'first_name' => 'Super', 'last_name' => 'Admin 2'],
+            ];
 
-        // Ensure EnnHealth admin has a known password (raw DB to bypass hashed cast)
-        DB::table('users')
-            ->where('email', 'emichel@ennhealth.com')
-            ->update(['password' => Hash::make('EnnHealth2026!')]);
+            foreach ($superadmins as $sa) {
+                User::updateOrCreate(
+                    ['email' => $sa['email']],
+                    [
+                        'password' => Hash::make($saPassword),
+                        'first_name' => $sa['first_name'],
+                        'last_name' => $sa['last_name'],
+                        'role' => 'superadmin',
+                        'agency_id' => null,
+                        'is_active' => true,
+                    ]
+                );
+            }
+        }
     }
 }

@@ -14,11 +14,15 @@ return new class extends Migration {
             $table->foreignId('agency_id')->nullable()->change();
         });
 
-        // Create superadmin if not exists
+        // Create superadmin if not exists — password from SUPERADMIN_PASSWORD env var
         if (!User::where('email', 'superadmin@credentik.com')->exists()) {
+            $password = env('SUPERADMIN_PASSWORD');
+            if (!$password) {
+                throw new \RuntimeException('SUPERADMIN_PASSWORD env var is required to create the superadmin account.');
+            }
             User::create([
                 'email' => 'superadmin@credentik.com',
-                'password' => Hash::make('Credentik2026!'),
+                'password' => Hash::make($password),
                 'first_name' => 'Super',
                 'last_name' => 'Admin',
                 'role' => 'superadmin',

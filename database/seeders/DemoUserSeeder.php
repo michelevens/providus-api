@@ -33,10 +33,15 @@ class DemoUserSeeder extends Seeder
             $providerId = $provider?->id;
         }
 
+        $demoPassword = env('DEMO_USER_PASSWORD');
+        if (!$demoPassword) {
+            $this->command->error('DEMO_USER_PASSWORD env var is required. Skipping demo user seeding.');
+            return;
+        }
+
         $demoUsers = [
             [
                 'email' => 'owner@demo.credentik.com',
-                'password' => 'Demo2026!',
                 'first_name' => 'Dana',
                 'last_name' => 'Owner',
                 'role' => 'owner',
@@ -44,7 +49,6 @@ class DemoUserSeeder extends Seeder
             ],
             [
                 'email' => 'agency@demo.credentik.com',
-                'password' => 'Demo2026!',
                 'first_name' => 'Alex',
                 'last_name' => 'Agency',
                 'role' => 'agency',
@@ -52,7 +56,6 @@ class DemoUserSeeder extends Seeder
             ],
             [
                 'email' => 'org@demo.credentik.com',
-                'password' => 'Demo2026!',
                 'first_name' => 'Olivia',
                 'last_name' => 'Org',
                 'role' => 'organization',
@@ -61,7 +64,6 @@ class DemoUserSeeder extends Seeder
             ],
             [
                 'email' => 'provider@demo.credentik.com',
-                'password' => 'Demo2026!',
                 'first_name' => 'Pat',
                 'last_name' => 'Provider',
                 'role' => 'provider',
@@ -71,25 +73,22 @@ class DemoUserSeeder extends Seeder
         ];
 
         foreach ($demoUsers as $userData) {
-            $password = $userData['password'];
-            unset($userData['password']);
-
             $user = User::where('email', $userData['email'])->first();
             if ($user) {
                 $user->update(array_merge($userData, [
-                    'password' => Hash::make($password),
+                    'password' => Hash::make($demoPassword),
                     'is_active' => true,
                 ]));
                 $this->command->info("Updated: {$userData['email']} ({$userData['role']})");
             } else {
                 User::create(array_merge($userData, [
-                    'password' => Hash::make($password),
+                    'password' => Hash::make($demoPassword),
                     'is_active' => true,
                 ]));
                 $this->command->info("Created: {$userData['email']} ({$userData['role']})");
             }
         }
 
-        $this->command->info('Demo users ready! Password for all: Demo2026!');
+        $this->command->info('Demo users ready.');
     }
 }

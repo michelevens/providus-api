@@ -48,7 +48,6 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:3,1');
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::post('/accept-invite', [AuthController::class, 'acceptInvite'])->middleware('throttle:5,1');
-    Route::post('/seed-demo', [AuthController::class, 'seedDemoUsers'])->middleware('throttle:3,1');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -368,6 +367,9 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
 
     // Platform overview
     Route::get('/stats', [AdminController::class, 'stats']);
+
+    // Demo user seeding (superadmin only)
+    Route::post('/seed-demo', [AuthController::class, 'seedDemoUsers'])->middleware('throttle:3,1');
 
     // Agency management
     Route::get('/agencies', [AdminController::class, 'agencies']);

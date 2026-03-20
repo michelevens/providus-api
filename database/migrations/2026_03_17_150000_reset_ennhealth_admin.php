@@ -2,19 +2,15 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 
 return new class extends Migration
 {
     public function up(): void
     {
-        // Change email and reset password for EnnHealth admin (user id 1)
+        // Change email for EnnHealth admin — password must be reset via forgot-password flow
         DB::table('users')
             ->where('email', 'admin@ennhealth.com')
-            ->update([
-                'email' => 'emichel@ennhealth.com',
-                'password' => Hash::make('EnnHealth2026!'),
-            ]);
+            ->update(['email' => 'emichel@ennhealth.com']);
     }
 
     public function down(): void
