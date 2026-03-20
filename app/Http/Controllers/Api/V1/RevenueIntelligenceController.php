@@ -85,7 +85,7 @@ class RevenueIntelligenceController extends Controller
             ->selectRaw('COUNT(CASE WHEN applications.status IN (\'approved\', \'credentialed\') THEN 1 END) as approved_count')
             ->selectRaw('COUNT(applications.id) as total_apps')
             ->selectRaw('COALESCE(SUM(CASE WHEN applications.status IN (\'approved\', \'credentialed\') THEN applications.est_monthly_revenue END), 0) as monthly_revenue')
-            ->selectRaw('AVG(CASE WHEN applications.status IN (\'approved\', \'credentialed\') AND applications.effective_date IS NOT NULL THEN EXTRACT(DAY FROM (applications.effective_date - applications.created_at::date)) END) as avg_days')
+            ->selectRaw('AVG(CASE WHEN applications.status IN (\'approved\', \'credentialed\') AND applications.effective_date IS NOT NULL THEN (applications.effective_date - applications.created_at::date) END) as avg_days')
             ->leftJoin('applications', 'providers.id', '=', 'applications.provider_id')
             ->groupBy('providers.id', 'providers.first_name', 'providers.last_name', 'providers.credentials', 'providers.npi')
             ->orderByRaw('COALESCE(SUM(CASE WHEN applications.status IN (\'approved\', \'credentialed\') THEN applications.est_monthly_revenue END), 0) DESC')
