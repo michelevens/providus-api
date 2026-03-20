@@ -46,7 +46,7 @@ class RevenueIntelligenceController extends Controller
         // Time-to-credential (avg days from created_at to effective_date for approved apps)
         $avgCredDays = Application::whereIn('status', ['approved', 'credentialed'])
             ->whereNotNull('effective_date')
-            ->select(DB::raw('AVG(EXTRACT(DAY FROM (effective_date - created_at::date))) as avg_days'))
+            ->select(DB::raw('AVG((effective_date - created_at::date)) as avg_days'))
             ->value('avg_days');
 
         // Collection rate
@@ -119,7 +119,7 @@ class RevenueIntelligenceController extends Controller
             ->selectRaw('COUNT(CASE WHEN status IN (\'approved\', \'credentialed\') THEN 1 END) as approved_count')
             ->selectRaw('COUNT(CASE WHEN status = \'denied\' THEN 1 END) as denied_count')
             ->selectRaw('COALESCE(SUM(CASE WHEN status IN (\'approved\', \'credentialed\') THEN est_monthly_revenue END), 0) as monthly_revenue')
-            ->selectRaw('AVG(CASE WHEN status IN (\'approved\', \'credentialed\') AND effective_date IS NOT NULL THEN EXTRACT(DAY FROM (effective_date - created_at::date)) END) as avg_days')
+            ->selectRaw('AVG(CASE WHEN status IN (\'approved\', \'credentialed\') AND effective_date IS NOT NULL THEN (effective_date - created_at::date) END) as avg_days')
             ->groupBy('payer_id')
             ->orderByRaw('COALESCE(SUM(CASE WHEN status IN (\'approved\', \'credentialed\') THEN est_monthly_revenue END), 0) DESC')
             ->get()
@@ -150,7 +150,7 @@ class RevenueIntelligenceController extends Controller
             ->selectRaw('COUNT(*) as total_apps')
             ->selectRaw('COUNT(CASE WHEN status IN (\'approved\', \'credentialed\') THEN 1 END) as approved_count')
             ->selectRaw('COALESCE(SUM(CASE WHEN status IN (\'approved\', \'credentialed\') THEN est_monthly_revenue END), 0) as monthly_revenue')
-            ->selectRaw('AVG(CASE WHEN status IN (\'approved\', \'credentialed\') AND effective_date IS NOT NULL THEN EXTRACT(DAY FROM (effective_date - created_at::date)) END) as avg_days')
+            ->selectRaw('AVG(CASE WHEN status IN (\'approved\', \'credentialed\') AND effective_date IS NOT NULL THEN (effective_date - created_at::date) END) as avg_days')
             ->whereNotNull('state')
             ->groupBy('state')
             ->orderByRaw('COALESCE(SUM(CASE WHEN status IN (\'approved\', \'credentialed\') THEN est_monthly_revenue END), 0) DESC')
@@ -178,11 +178,11 @@ class RevenueIntelligenceController extends Controller
             ->select('payer_id')
             ->selectRaw('MAX(payer_name) as payer_name')
             ->selectRaw('COUNT(*) as count')
-            ->selectRaw('AVG(EXTRACT(DAY FROM (effective_date - created_at::date))) as avg_days')
-            ->selectRaw('MIN(EXTRACT(DAY FROM (effective_date - created_at::date))) as min_days')
-            ->selectRaw('MAX(EXTRACT(DAY FROM (effective_date - created_at::date))) as max_days')
+            ->selectRaw('AVG((effective_date - created_at::date)) as avg_days')
+            ->selectRaw('MIN((effective_date - created_at::date)) as min_days')
+            ->selectRaw('MAX((effective_date - created_at::date)) as max_days')
             ->groupBy('payer_id')
-            ->orderByRaw('AVG(EXTRACT(DAY FROM (effective_date - created_at::date))) ASC')
+            ->orderByRaw('AVG((effective_date - created_at::date)) ASC')
             ->get()
             ->map(fn($p) => [
                 'payer_id' => $p->payer_id,
@@ -198,7 +198,7 @@ class RevenueIntelligenceController extends Controller
             ->whereNotNull('effective_date')
             ->selectRaw("TO_CHAR(effective_date, 'YYYY-MM') as month")
             ->selectRaw('COUNT(*) as count')
-            ->selectRaw('AVG(EXTRACT(DAY FROM (effective_date - created_at::date))) as avg_days')
+            ->selectRaw('AVG((effective_date - created_at::date)) as avg_days')
             ->groupByRaw("TO_CHAR(effective_date, 'YYYY-MM')")
             ->orderByRaw("TO_CHAR(effective_date, 'YYYY-MM') DESC")
             ->limit(12)
@@ -212,10 +212,10 @@ class RevenueIntelligenceController extends Controller
         // Revenue lost from delays (apps taking >90 days to credential)
         $delayedApps = Application::whereIn('status', ['approved', 'credentialed'])
             ->whereNotNull('effective_date')
-            ->whereRaw('EXTRACT(DAY FROM (effective_date - created_at::date)) > 90')
+            ->whereRaw('(effective_date - created_at::date) > 90')
             ->selectRaw('COUNT(*) as count')
             ->selectRaw('SUM(est_monthly_revenue) as monthly_revenue')
-            ->selectRaw('AVG(EXTRACT(DAY FROM (effective_date - created_at::date))) as avg_days')
+            ->selectRaw('AVG((effective_date - created_at::date)) as avg_days')
             ->first();
 
         $delayedMonths = max(0, round(((float) ($delayedApps->avg_days ?? 0) - 90) / 30, 1));
