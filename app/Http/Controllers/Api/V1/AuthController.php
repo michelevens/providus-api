@@ -86,6 +86,17 @@ class AuthController extends Controller
             ]);
         }
 
+        // If 2FA is enabled, return a challenge instead of a token
+        if ($user->two_factor_enabled && $user->two_factor_secret) {
+            $loginToken = hash('sha256', $user->email . now()->format('Y-m-d-H'));
+            return response()->json([
+                'success' => true,
+                'two_factor_required' => true,
+                'user_id' => $user->id,
+                'login_token' => $loginToken,
+            ]);
+        }
+
         $user->update(['last_login_at' => now()]);
         $token = $user->createToken('auth-token')->plainTextToken;
 

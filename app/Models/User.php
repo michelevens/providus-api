@@ -28,9 +28,11 @@ class User extends Authenticatable
         'invite_token', 'invite_expires',
         'password_reset_token', 'password_reset_expires',
         'email_verified_at',
+        'two_factor_enabled', 'two_factor_secret',
+        'two_factor_recovery_codes', 'two_factor_confirmed_at',
     ];
 
-    protected $hidden = ['password', 'remember_token'];
+    protected $hidden = ['password', 'remember_token', 'two_factor_secret', 'two_factor_recovery_codes'];
 
     protected function casts(): array
     {
@@ -39,6 +41,8 @@ class User extends Authenticatable
             'last_login_at' => 'datetime',
             'password' => 'hashed',
             'is_active' => 'boolean',
+            'two_factor_enabled' => 'boolean',
+            'two_factor_confirmed_at' => 'datetime',
         ];
     }
 

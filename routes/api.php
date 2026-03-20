@@ -34,7 +34,9 @@ use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
+use App\Http\Controllers\Api\V1\RevenueIntelligenceController;
 use App\Http\Controllers\Api\V1\TestimonialController;
+use App\Http\Controllers\Api\V1\TwoFactorController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -48,6 +50,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->middleware('throttle:3,1');
     Route::post('/reset-password', [AuthController::class, 'resetPassword'])->middleware('throttle:5,1');
     Route::post('/accept-invite', [AuthController::class, 'acceptInvite'])->middleware('throttle:5,1');
+    Route::post('/verify-2fa', [TwoFactorController::class, 'verifyLogin'])->middleware('throttle:5,1');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -345,6 +348,25 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/applications', [FundingController::class, 'storeApplication']);
         Route::put('/applications/{fundingApplication}', [FundingController::class, 'updateApplication']);
         Route::delete('/applications/{fundingApplication}', [FundingController::class, 'destroyApplication']);
+    });
+
+    // ── Revenue Intelligence ──
+    Route::prefix('revenue')->group(function () {
+        Route::get('/dashboard', [RevenueIntelligenceController::class, 'dashboard']);
+        Route::get('/by-provider', [RevenueIntelligenceController::class, 'byProvider']);
+        Route::get('/by-payer', [RevenueIntelligenceController::class, 'byPayer']);
+        Route::get('/by-state', [RevenueIntelligenceController::class, 'byState']);
+        Route::get('/time-to-credential', [RevenueIntelligenceController::class, 'timeToCredential']);
+    });
+
+    // ── Two-Factor Authentication ──
+    Route::prefix('2fa')->group(function () {
+        Route::get('/status', [TwoFactorController::class, 'status']);
+        Route::post('/enable', [TwoFactorController::class, 'enable']);
+        Route::post('/verify', [TwoFactorController::class, 'verify']);
+        Route::post('/disable', [TwoFactorController::class, 'disable']);
+        Route::get('/recovery-codes', [TwoFactorController::class, 'recoveryCodes']);
+        Route::post('/regenerate-recovery', [TwoFactorController::class, 'regenerateRecoveryCodes']);
     });
 
     // ── Subscription & Billing (Stripe) ──
