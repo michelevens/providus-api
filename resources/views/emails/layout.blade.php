@@ -12,102 +12,163 @@
     ];
     $primaryColor = $agency->primary_color ?? '#0891b2';
     $accentColor = $agency->accent_color ?? '#06b6d4';
+    $headerType = $headerType ?? 'default';
+    $headerColors = [
+        'default' => ['from' => $primaryColor, 'to' => '#065f46'],
+        'success' => ['from' => '#059669', 'to' => '#047857'],
+        'danger'  => ['from' => '#dc2626', 'to' => '#991b1b'],
+        'warning' => ['from' => '#d97706', 'to' => '#b45309'],
+        'info'    => ['from' => '#2563eb', 'to' => '#1d4ed8'],
+    ];
+    $hc = $headerColors[$headerType] ?? $headerColors['default'];
 @endphp
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="color-scheme" content="light dark">
+    <meta name="supported-color-schemes" content="light dark">
     <title>@yield('title', 'Credentik')</title>
     <!--[if mso]>
-    <style>table,td,div{font-family:Arial,sans-serif!important;}</style>
+    <noscript>
+        <xml>
+            <o:OfficeDocumentSettings>
+                <o:PixelsPerInch>96</o:PixelsPerInch>
+            </o:OfficeDocumentSettings>
+        </xml>
+    </noscript>
+    <style>
+        table { border-collapse: collapse; }
+        td, th { font-family: Arial, sans-serif !important; }
+        a { text-decoration: none; }
+    </style>
     <![endif]-->
     <style>
-        body { margin:0; padding:0; background:#f4f4f5; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif; }
-        .wrapper { max-width:600px; margin:24px auto; }
-        .card { background:#ffffff; border-radius:8px; overflow:hidden; box-shadow:0 1px 3px rgba(0,0,0,.08),0 1px 2px rgba(0,0,0,.06); }
-        .header { background:{{ $primaryColor }}; padding:24px 32px; }
-        .header h1 { color:#ffffff; font-size:20px; margin:0; font-weight:700; letter-spacing:-0.3px; }
-        .header p { color:rgba(255,255,255,.8); font-size:13px; margin:4px 0 0; }
-        .content { padding:32px; color:#374151; font-size:15px; line-height:1.65; }
-        .content h2 { color:#111827; margin:0 0 16px; font-size:20px; font-weight:700; }
-        .content p { margin:0 0 12px; }
+        /* Reset */
+        body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+        table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+        img { -ms-interpolation-mode: bicubic; border: 0; height: auto; line-height: 100%; outline: none; text-decoration: none; }
+        body { margin: 0; padding: 0; width: 100% !important; height: 100% !important; }
 
-        /* Buttons */
-        .btn { display:inline-block; padding:12px 28px; border-radius:6px; text-decoration:none; font-weight:600; font-size:14px; margin:16px 0; }
-        .btn-primary { background:{{ $primaryColor }}; color:#ffffff !important; }
-        .btn-success { background:#059669; color:#ffffff !important; }
-        .btn-danger { background:#dc2626; color:#ffffff !important; }
-        .btn-outline { background:transparent; color:{{ $primaryColor }} !important; border:2px solid {{ $primaryColor }}; }
-
-        /* Callout Boxes */
-        .info-box { background:#ecfeff; border-left:4px solid {{ $primaryColor }}; padding:14px 16px; border-radius:0 6px 6px 0; margin:16px 0; font-size:14px; color:#164e63; }
-        .success-box { background:#ecfdf5; border-left:4px solid #10b981; padding:14px 16px; border-radius:0 6px 6px 0; margin:16px 0; font-size:14px; color:#065f46; }
-        .alert-box { background:#fffbeb; border-left:4px solid #f59e0b; padding:14px 16px; border-radius:0 6px 6px 0; margin:16px 0; font-size:14px; color:#92400e; }
-        .danger-box { background:#fef2f2; border-left:4px solid #ef4444; padding:14px 16px; border-radius:0 6px 6px 0; margin:16px 0; font-size:14px; color:#991b1b; }
-
-        /* Detail Rows */
-        .details { margin:16px 0; background:#f9fafb; border-radius:8px; overflow:hidden; border:1px solid #f3f4f6; }
-        .detail-row { display:flex; justify-content:space-between; align-items:center; padding:10px 16px; border-bottom:1px solid #f3f4f6; font-size:14px; }
-        .detail-row:last-child { border-bottom:none; }
-        .detail-label { color:#6b7280; }
-        .detail-value { font-weight:600; color:#111827; text-align:right; }
-
-        /* Status Badges */
-        .badge { display:inline-block; padding:4px 12px; border-radius:999px; font-size:12px; font-weight:600; letter-spacing:0.3px; text-transform:uppercase; }
-
-        /* Divider */
-        .divider { border:none; border-top:1px solid #e5e7eb; margin:24px 0; }
-
-        /* Footer */
-        .footer { background:#f9fafb; padding:20px 32px; text-align:center; color:#9ca3af; font-size:12px; border-top:1px solid #e5e7eb; line-height:1.6; }
-        .footer a { color:{{ $primaryColor }}; text-decoration:none; }
-        .footer .powered { margin-top:12px; font-size:11px; color:#d1d5db; }
-        .footer .powered a { color:#d1d5db; text-decoration:underline; }
+        /* Dark mode */
+        @media (prefers-color-scheme: dark) {
+            .email-bg { background-color: #1a1a2e !important; }
+            .card-bg { background-color: #16213e !important; }
+            .card-border { border-color: #2a2a4a !important; }
+            .text-dark { color: #e2e8f0 !important; }
+            .text-body { color: #cbd5e1 !important; }
+            .text-muted { color: #94a3b8 !important; }
+            .text-light { color: #64748b !important; }
+            .details-bg { background-color: #1e293b !important; }
+            .details-border { border-color: #334155 !important; }
+            .detail-border { border-color: #334155 !important; }
+            .footer-bg { background-color: #0f172a !important; }
+            .footer-border { border-color: #1e293b !important; }
+            .callout-info { background-color: #164e63 !important; border-color: #0891b2 !important; }
+            .callout-success { background-color: #064e3b !important; border-color: #10b981 !important; }
+            .callout-warning { background-color: #78350f !important; border-color: #f59e0b !important; }
+            .callout-danger { background-color: #7f1d1d !important; border-color: #ef4444 !important; }
+        }
 
         /* Mobile */
-        @media only screen and (max-width:640px) {
-            .wrapper { margin:0 !important; }
-            .card { border-radius:0 !important; }
-            .header, .content, .footer { padding-left:20px !important; padding-right:20px !important; }
+        @media only screen and (max-width: 600px) {
+            .email-container { width: 100% !important; max-width: 100% !important; }
+            .content-padding { padding: 24px 20px !important; }
+            .header-padding { padding: 28px 20px !important; }
+            .footer-padding { padding: 20px !important; }
+            .detail-table { width: 100% !important; }
+            .btn-full { display: block !important; width: 100% !important; text-align: center !important; }
         }
     </style>
 </head>
-<body>
-<div class="wrapper">
-    <div class="card">
-        {{-- Header --}}
-        <div class="header">
-            @if(!empty($agency->logo_url))
-                <img src="{{ $agency->logo_url }}" alt="{{ $agency->name }}" style="max-height:36px;margin-bottom:8px;display:block;">
-            @endif
-            <h1>{{ $agency->name ?? 'Credentik' }}</h1>
-            <p>Credentialing & Licensing Platform</p>
-        </div>
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
 
-        {{-- Content --}}
-        <div class="content">
-            @yield('content')
-        </div>
-
-        {{-- Footer --}}
-        <div class="footer">
-            @hasSection('footer')
-                @yield('footer')
-            @else
-                <p style="margin:0;">&copy; {{ date('Y') }} {{ $agency->name ?? 'Credentik' }}. All rights reserved.</p>
-                @if(!empty($agency->phone))
-                    <p style="margin:4px 0 0;">{{ $agency->phone }}</p>
-                @endif
-                @if(!empty($agency->address_city))
-                    <p style="margin:4px 0 0;">{{ $agency->address_city }}, {{ $agency->address_state }} {{ $agency->address_zip }}</p>
-                @endif
-                <p class="powered">
-                    Powered by <a href="https://credentik.com">Credentik</a>
-                </p>
-            @endif
-        </div>
+    {{-- Preheader text (hidden preview text) --}}
+    @hasSection('preheader')
+    <div style="display:none;font-size:1px;color:#f1f5f9;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;">
+        @yield('preheader')
     </div>
-</div>
+    @endif
+
+    {{-- Full-width background --}}
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color:#f1f5f9;" class="email-bg">
+        <tr>
+            <td align="center" style="padding:24px 16px;">
+
+                {{-- Email Container --}}
+                <table role="presentation" cellpadding="0" cellspacing="0" width="580" style="max-width:580px;width:100%;border-radius:12px;overflow:hidden;box-shadow:0 4px 6px -1px rgba(0,0,0,0.07),0 2px 4px -2px rgba(0,0,0,0.05);" class="email-container">
+
+                    {{-- Header with gradient --}}
+                    <tr>
+                        <td style="background:{{ $hc['from'] }};background:linear-gradient(135deg, {{ $hc['from'] }} 0%, {{ $hc['to'] }} 100%);padding:32px 32px 28px;" class="header-padding">
+                            <!--[if mso]>
+                            <v:rect xmlns:v="urn:schemas-microsoft-com:vml" fill="true" stroke="false" style="width:580px;">
+                                <v:fill type="gradient" color="{{ $hc['from'] }}" color2="{{ $hc['to'] }}" angle="135"/>
+                                <v:textbox inset="32px,32px,32px,28px">
+                            <![endif]-->
+                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                                @if(!empty($agency->logo_url))
+                                <tr>
+                                    <td style="padding-bottom:12px;">
+                                        <img src="{{ $agency->logo_url }}" alt="{{ $agency->name }}" height="36" style="height:36px;max-width:180px;display:block;">
+                                    </td>
+                                </tr>
+                                @endif
+                                <tr>
+                                    <td style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.3px;line-height:1.2;">
+                                        {{ $agency->name ?? 'Credentik' }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="font-size:13px;color:rgba(255,255,255,0.75);padding-top:4px;letter-spacing:0.2px;">
+                                        Credentialing &amp; Licensing Platform
+                                    </td>
+                                </tr>
+                            </table>
+                            <!--[if mso]></v:textbox></v:rect><![endif]-->
+                        </td>
+                    </tr>
+
+                    {{-- Content --}}
+                    <tr>
+                        <td style="background-color:#ffffff;padding:36px 32px;" class="card-bg content-padding">
+                            @yield('content')
+                        </td>
+                    </tr>
+
+                    {{-- Footer --}}
+                    <tr>
+                        <td style="background-color:#f8fafc;border-top:1px solid #e2e8f0;padding:24px 32px;" class="footer-bg footer-border footer-padding">
+                            <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="center" style="font-size:12px;color:#94a3b8;line-height:1.6;" class="text-light">
+                                        @hasSection('footer')
+                                            @yield('footer')
+                                        @else
+                                            <p style="margin:0;font-weight:600;color:#64748b;" class="text-muted">&copy; {{ date('Y') }} {{ $agency->name ?? 'Credentik' }}</p>
+                                            @if(!empty($agency->phone))
+                                                <p style="margin:4px 0 0;">{{ $agency->phone }}</p>
+                                            @endif
+                                            @if(!empty($agency->address_city))
+                                                <p style="margin:4px 0 0;">{{ $agency->address_city }}, {{ $agency->address_state }} {{ $agency->address_zip }}</p>
+                                            @endif
+                                            <p style="margin:12px 0 0;font-size:11px;color:#cbd5e1;">
+                                                Powered by <a href="https://credentik.com" style="color:{{ $primaryColor }};text-decoration:none;font-weight:500;">Credentik</a>
+                                            </p>
+                                        @endif
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                </table>
+                {{-- End Email Container --}}
+
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
