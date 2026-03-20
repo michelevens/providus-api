@@ -118,6 +118,19 @@ class AgencyController extends Controller
 
         $agencyId = $request->user()->agency_id;
 
+        // Enforce user plan limit
+        $agency = \App\Models\Agency::find($agencyId);
+        if ($agency && !$request->user()->isSuperAdmin()) {
+            $limit = $agency->planLimit('users');
+            if ($limit !== -1 && $agency->users()->count() >= $limit) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "User limit reached ({$limit}) for your " . ucfirst($agency->plan_tier) . " plan. Please upgrade.",
+                    'error_code' => 'plan_limit_reached',
+                ], 403);
+            }
+        }
+
         // Organization role requires organization_id
         if ($request->role === 'organization') {
             if (!$request->organization_id) {

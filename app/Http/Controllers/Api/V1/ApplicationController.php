@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Mail\ApplicationStatusChange;
 use App\Models\ActivityLog;
+use App\Models\Agency;
 use App\Models\Application;
 use App\Models\Followup;
 use App\Models\User;
@@ -29,6 +30,19 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        // Enforce plan limit
+        $agency = Agency::find($request->user()->agency_id);
+        if ($agency && !$request->user()->isSuperAdmin()) {
+            $limit = $agency->planLimit('applications');
+            if ($limit !== -1 && $agency->applications()->count() >= $limit) {
+                return response()->json([
+                    'success' => false,
+                    'message' => "Application limit reached ({$limit}) for your " . ucfirst($agency->plan_tier) . " plan. Please upgrade.",
+                    'error_code' => 'plan_limit_reached',
+                ], 403);
+            }
+        }
+
         $data = $request->validate([
             'provider_id' => 'required|exists:providers,id',
             'organization_id' => 'nullable|exists:organizations,id',

@@ -35,14 +35,21 @@ Artisan::command('change-email {old} {new}', function (string $old, string $new)
 |--------------------------------------------------------------------------
 */
 
-// Daily at 7am UTC — check license expirations and send alerts
-Schedule::command('licenses:check-expirations')->dailyAt('07:00');
+// ── License & Credential Monitoring ──
+Schedule::command('licenses:check-expirations')->dailyAt('07:00');        // License alerts
+Schedule::command('notifications:license-expiry')->dailyAt('08:00');      // License email reminders (30/60/90 day)
+Schedule::command('documents:check-expirations')->dailyAt('07:30');       // DEA, board cert, malpractice COI alerts
+Schedule::command('licenses:verify')->weeklyOn(1, '03:00');               // Bulk NPPES verification
 
-// Daily at 8am UTC — send license expiration email reminders (30/60/90 day)
-Schedule::command('notifications:license-expiry')->dailyAt('08:00');
+// ── Follow-up & Task Reminders ──
+Schedule::command('followups:send-reminders')->dailyAt('08:30');          // Overdue + upcoming (3 day) follow-ups
+Schedule::command('tasks:send-reminders')->dailyAt('09:00');              // Overdue + due-today tasks
 
-// Weekly on Monday at 3am UTC — bulk verify licenses against NPPES
-Schedule::command('licenses:verify')->weeklyOn(1, '03:00');
+// ── Application Monitoring ──
+Schedule::command('applications:escalate-stale --days=30')->dailyAt('09:30'); // Flag apps with no activity in 30 days
 
-// Daily at 6am UTC — scrape mental health funding opportunities
-Schedule::command('funding:scrape')->dailyAt('06:00');
+// ── Exclusion Screening ──
+Schedule::command('exclusions:screen-all')->monthlyOn(1, '02:00');        // Monthly OIG/SAM screening
+
+// ── Funding ──
+Schedule::command('funding:scrape')->dailyAt('06:00');                    // Scrape funding opportunities
