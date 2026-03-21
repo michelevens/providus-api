@@ -34,6 +34,7 @@ use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
+use App\Http\Controllers\Api\V1\OrganizationContactController;
 use App\Http\Controllers\Api\V1\RevenueIntelligenceController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use App\Http\Controllers\Api\V1\TwoFactorController;
@@ -168,6 +169,14 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('organizations', OrganizationController::class);
     Route::apiResource('providers', ProviderController::class);
     Route::apiResource('licenses', LicenseController::class);
+
+    // ── Organization Contacts ──
+    Route::prefix('organizations/{organizationId}/contacts')->group(function () {
+        Route::get('/', [OrganizationContactController::class, 'index']);
+        Route::post('/', [OrganizationContactController::class, 'store']);
+        Route::put('/{id}', [OrganizationContactController::class, 'update']);
+        Route::delete('/{id}', [OrganizationContactController::class, 'destroy']);
+    });
 
     // ── License Monitoring ──
     Route::get('/licenses-monitoring/summary', [LicenseController::class, 'monitoringSummary']);

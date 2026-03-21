@@ -20,4 +20,5 @@ class Organization extends Model
 
     public function providers(): HasMany { return $this->hasMany(Provider::class); }
     public function applications(): HasMany { return $this->hasMany(Application::class); }
+    public function contacts(): HasMany { return $this->hasMany(OrganizationContact::class); }
 }
