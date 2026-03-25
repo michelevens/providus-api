@@ -189,6 +189,7 @@ class AgencyController extends Controller
             'first_name' => $request->first_name,
             'last_name' => $request->last_name,
             'role' => $request->role,
+            'ui_role' => $request->ui_role ?? $request->role,
             'is_active' => false,
             'invite_token' => hash('sha256', $inviteToken),
             'invite_expires' => now()->addDays(7),
@@ -215,6 +216,7 @@ class AgencyController extends Controller
 
         $request->validate([
             'role' => 'sometimes|in:owner,agency,organization,provider',
+            'ui_role' => 'sometimes|nullable|string|max:50',
             'is_active' => 'sometimes|boolean',
             'organization_id' => 'sometimes|nullable|integer',
             'provider_id' => 'sometimes|nullable|integer',
@@ -253,7 +255,7 @@ class AgencyController extends Controller
             }
         }
 
-        $user->update($request->only(['role', 'is_active', 'organization_id', 'provider_id']));
+        $user->update($request->only(['role', 'ui_role', 'is_active', 'organization_id', 'provider_id']));
 
         return response()->json([
             'success' => true,

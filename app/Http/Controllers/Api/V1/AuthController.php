@@ -172,10 +172,10 @@ class AuthController extends Controller
 
         // Define demo account profiles
         $demoProfiles = [
-            'agency@demo.credentik.com' => ['first_name' => 'Alex', 'last_name' => 'Agency', 'role' => 'agency'],
-            'staff@demo.credentik.com' => ['first_name' => 'Sam', 'last_name' => 'Staff', 'role' => 'agency'],
-            'org@demo.credentik.com' => ['first_name' => 'Olivia', 'last_name' => 'Org', 'role' => 'organization'],
-            'provider@demo.credentik.com' => ['first_name' => 'Pat', 'last_name' => 'Provider', 'role' => 'provider'],
+            'agency@demo.credentik.com' => ['first_name' => 'Alex', 'last_name' => 'Agency', 'role' => 'agency', 'ui_role' => 'agency'],
+            'staff@demo.credentik.com' => ['first_name' => 'Sam', 'last_name' => 'Staff', 'role' => 'agency', 'ui_role' => 'staff'],
+            'org@demo.credentik.com' => ['first_name' => 'Olivia', 'last_name' => 'Org', 'role' => 'organization', 'ui_role' => 'organization'],
+            'provider@demo.credentik.com' => ['first_name' => 'Pat', 'last_name' => 'Provider', 'role' => 'provider', 'ui_role' => 'provider'],
         ];
 
         $profile = $demoProfiles[$request->email] ?? ['first_name' => 'Demo', 'last_name' => 'User', 'role' => 'agency'];

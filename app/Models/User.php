@@ -24,7 +24,7 @@ class User extends Authenticatable
     protected $fillable = [
         'agency_id', 'organization_id', 'provider_id',
         'email', 'password', 'first_name', 'last_name',
-        'role', 'is_active', 'last_login_at',
+        'role', 'ui_role', 'is_active', 'last_login_at',
         'invite_token', 'invite_expires',
         'password_reset_token', 'password_reset_expires',
         'email_verified_at',
