@@ -3,72 +3,111 @@
 namespace Database\Seeders;
 
 use App\Models\Agency;
+use App\Models\AgencyConfig;
+use App\Models\Organization;
+use App\Models\Provider;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class DemoUserSeeder extends Seeder
 {
     public function run(): void
     {
-        // Find EnnHealth agency for scoped demo users
-        $agency = Agency::where('slug', 'ennhealth-psychiatry')->first();
-        if (!$agency) {
-            $this->command->warn('EnnHealth agency not found — creating demo accounts without agency scope.');
-        }
+        $demoPassword = env('DEMO_USER_PASSWORD', 'Demo@2026!');
 
-        $agencyId = $agency?->id;
-
-        // Find first organization under this agency (for org-level user)
-        $orgId = null;
-        if ($agencyId) {
-            $org = \App\Models\Organization::where('agency_id', $agencyId)->first();
-            $orgId = $org?->id;
-        }
-
-        // Find first provider under this agency (for provider-level user)
-        $providerId = null;
-        if ($agencyId) {
-            $provider = \App\Models\Provider::where('agency_id', $agencyId)->first();
-            $providerId = $provider?->id;
-        }
-
-        $demoPassword = env('DEMO_USER_PASSWORD');
-        if (!$demoPassword) {
-            $this->command->error('DEMO_USER_PASSWORD env var is required. Skipping demo user seeding.');
-            return;
-        }
-
-        $demoUsers = [
+        // ── Create or find the Demo Agency (separate from real agencies) ──
+        $agency = Agency::firstOrCreate(
+            ['slug' => 'demo-agency'],
             [
-                'email' => 'owner@demo.credentik.com',
-                'first_name' => 'Dana',
-                'last_name' => 'Owner',
-                'role' => 'owner',
-                'agency_id' => $agencyId,
-            ],
+                'uuid' => (string) Str::uuid(),
+                'name' => 'Demo Credentialing Agency',
+                'slug' => 'demo-agency',
+                'npi' => '1234567890',
+                'tax_id' => '12-3456789',
+                'address_street' => '100 Demo Boulevard, Suite 200',
+                'address_city' => 'Orlando',
+                'address_state' => 'FL',
+                'address_zip' => '32801',
+                'phone' => '(555) 123-4567',
+                'email' => 'demo@credentik.com',
+                'taxonomy' => '2084P0800X',
+                'plan_tier' => 'professional',
+                'is_active' => true,
+            ]
+        );
+        $this->command->info("Demo agency: {$agency->name} (id={$agency->id})");
+
+        // Create agency config if not exists
+        AgencyConfig::firstOrCreate(['agency_id' => $agency->id]);
+
+        // ── Create Demo Organization ──
+        $org = Organization::firstOrCreate(
+            ['agency_id' => $agency->id, 'name' => 'Demo Psychiatry Group'],
+            [
+                'npi' => '1234567891',
+                'tax_id' => '12-3456790',
+                'phone' => '(555) 234-5678',
+                'email' => 'office@demopsych.com',
+                'address_street' => '200 Mental Health Ave',
+                'address_city' => 'Orlando',
+                'address_state' => 'FL',
+                'address_zip' => '32801',
+                'taxonomy' => '2084P0800X',
+            ]
+        );
+        $this->command->info("Demo org: {$org->name} (id={$org->id})");
+
+        // ── Create Demo Provider ──
+        $provider = Provider::firstOrCreate(
+            ['agency_id' => $agency->id, 'npi' => '1122334455'],
+            [
+                'organization_id' => $org->id,
+                'first_name' => 'Sarah',
+                'last_name' => 'Demo',
+                'credentials' => 'DNP, PMHNP-BC',
+                'specialty' => 'Psychiatric Mental Health',
+                'taxonomy_code' => '363LP0808X',
+                'email' => 'sarah.demo@demopsych.com',
+                'phone' => '(555) 345-6789',
+                'state' => 'FL',
+                'active' => true,
+            ]
+        );
+        $this->command->info("Demo provider: {$provider->first_name} {$provider->last_name} (id={$provider->id})");
+
+        // ── Create Demo Users ──
+        $demoUsers = [
             [
                 'email' => 'agency@demo.credentik.com',
                 'first_name' => 'Alex',
                 'last_name' => 'Agency',
                 'role' => 'agency',
-                'agency_id' => $agencyId,
+                'agency_id' => $agency->id,
+            ],
+            [
+                'email' => 'staff@demo.credentik.com',
+                'first_name' => 'Sam',
+                'last_name' => 'Staff',
+                'role' => 'agency',  // Backend role is agency; frontend treats as staff via ui_role
+                'agency_id' => $agency->id,
             ],
             [
                 'email' => 'org@demo.credentik.com',
                 'first_name' => 'Olivia',
                 'last_name' => 'Org',
                 'role' => 'organization',
-                'agency_id' => $agencyId,
-                'organization_id' => $orgId,
+                'agency_id' => $agency->id,
+                'organization_id' => $org->id,
             ],
             [
                 'email' => 'provider@demo.credentik.com',
                 'first_name' => 'Pat',
                 'last_name' => 'Provider',
                 'role' => 'provider',
-                'agency_id' => $agencyId,
-                'provider_id' => $providerId,
+                'agency_id' => $agency->id,
+                'provider_id' => $provider->id,
             ],
         ];
 
@@ -89,6 +128,11 @@ class DemoUserSeeder extends Seeder
             }
         }
 
-        $this->command->info('Demo users ready.');
+        $this->command->info('');
+        $this->command->info('Demo accounts ready! Login at app.credentik.com');
+        $this->command->info('  Agency:   agency@demo.credentik.com');
+        $this->command->info('  Staff:    staff@demo.credentik.com');
+        $this->command->info('  Org:      org@demo.credentik.com');
+        $this->command->info('  Provider: provider@demo.credentik.com');
     }
 }
