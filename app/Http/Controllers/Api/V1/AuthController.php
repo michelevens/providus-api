@@ -131,6 +131,45 @@ class AuthController extends Controller
     }
 
     /**
+     * Demo login — passwordless auth for demo accounts only.
+     * Only works for @demo.credentik.com email addresses.
+     */
+    public function demoLogin(Request $request): JsonResponse
+    {
+        $request->validate(['email' => 'required|email']);
+
+        // Only allow demo domain
+        if (!str_ends_with($request->email, '@demo.credentik.com')) {
+            return response()->json([
+                'message' => 'Demo login is only available for demo accounts.',
+            ], 403);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Demo account not found. Please contact support.',
+            ], 404);
+        }
+
+        if (!$user->is_active) {
+            return response()->json([
+                'message' => 'This demo account has been deactivated.',
+            ], 403);
+        }
+
+        $user->update(['last_login_at' => now()]);
+        $token = $user->createToken('demo-token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'token' => $token,
+            'user' => $user->load($this->userRelations($user)),
+        ]);
+    }
+
+    /**
      * Request password reset — sends reset token via email.
      */
     public function forgotPassword(Request $request): JsonResponse
