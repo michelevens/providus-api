@@ -190,15 +190,17 @@ class AuthController extends Controller
                 'first_name' => $profile['first_name'],
                 'last_name' => $profile['last_name'],
                 'role' => $profile['role'],
+                'ui_role' => $profile['ui_role'] ?? $profile['role'],
                 'agency_id' => $demoAgency->id,
                 'password' => Hash::make('Demo@2026!'),
                 'is_active' => true,
             ]);
         } else {
-            // Reassign to demo agency if currently on a real agency
-            if ($user->agency_id !== $demoAgency->id) {
-                $user->update(['agency_id' => $demoAgency->id]);
-            }
+            // Always update demo user profile and reassign to demo agency
+            $user->update([
+                'agency_id' => $demoAgency->id,
+                'ui_role' => $profile['ui_role'] ?? $profile['role'],
+            ]);
         }
 
         if (!$user->is_active) {
