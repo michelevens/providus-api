@@ -133,6 +133,7 @@ class AuthController extends Controller
     /**
      * Demo login — passwordless auth for demo accounts only.
      * Only works for @demo.credentik.com email addresses.
+     * Auto-creates demo accounts if they don't exist.
      */
     public function demoLogin(Request $request): JsonResponse
     {
@@ -145,12 +146,59 @@ class AuthController extends Controller
             ], 403);
         }
 
+        // Ensure demo agency exists
+        $demoAgency = Agency::firstOrCreate(
+            ['slug' => 'demo-agency'],
+            [
+                'uuid' => (string) \Illuminate\Support\Str::uuid(),
+                'name' => 'Demo Credentialing Agency',
+                'slug' => 'demo-agency',
+                'npi' => '1234567890',
+                'tax_id' => '12-3456789',
+                'address_street' => '100 Demo Boulevard, Suite 200',
+                'address_city' => 'Orlando',
+                'address_state' => 'FL',
+                'address_zip' => '32801',
+                'phone' => '(555) 123-4567',
+                'email' => 'demo@credentik.com',
+                'taxonomy' => '2084P0800X',
+                'plan_tier' => 'professional',
+                'is_active' => true,
+            ]
+        );
+
+        // Ensure agency config exists
+        \App\Models\AgencyConfig::firstOrCreate(['agency_id' => $demoAgency->id]);
+
+        // Define demo account profiles
+        $demoProfiles = [
+            'agency@demo.credentik.com' => ['first_name' => 'Alex', 'last_name' => 'Agency', 'role' => 'agency'],
+            'staff@demo.credentik.com' => ['first_name' => 'Sam', 'last_name' => 'Staff', 'role' => 'agency'],
+            'org@demo.credentik.com' => ['first_name' => 'Olivia', 'last_name' => 'Org', 'role' => 'organization'],
+            'provider@demo.credentik.com' => ['first_name' => 'Pat', 'last_name' => 'Provider', 'role' => 'provider'],
+        ];
+
+        $profile = $demoProfiles[$request->email] ?? ['first_name' => 'Demo', 'last_name' => 'User', 'role' => 'agency'];
+
+        // Find or create the user
         $user = User::where('email', $request->email)->first();
 
         if (!$user) {
-            return response()->json([
-                'message' => 'Demo account not found. Please contact support.',
-            ], 404);
+            // Auto-create demo account
+            $user = User::create([
+                'email' => $request->email,
+                'first_name' => $profile['first_name'],
+                'last_name' => $profile['last_name'],
+                'role' => $profile['role'],
+                'agency_id' => $demoAgency->id,
+                'password' => Hash::make('Demo@2026!'),
+                'is_active' => true,
+            ]);
+        } else {
+            // Reassign to demo agency if currently on a real agency
+            if ($user->agency_id !== $demoAgency->id) {
+                $user->update(['agency_id' => $demoAgency->id]);
+            }
         }
 
         if (!$user->is_active) {
