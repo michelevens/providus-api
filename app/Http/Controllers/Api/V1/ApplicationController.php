@@ -46,8 +46,8 @@ class ApplicationController extends Controller
         $data = $request->validate([
             'provider_id' => 'required|exists:providers,id',
             'organization_id' => 'nullable|exists:organizations,id',
-            'payer_id' => 'required|exists:payers,id',
-            'payer_plan_id' => 'nullable|exists:payer_plans,id',
+            'payer_id' => 'nullable|integer',
+            'payer_plan_id' => 'nullable|integer',
             'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
             'type' => 'in:individual,group,both', 'wave' => 'integer|min:1|max:20',
             'status' => 'in:not_started,submitted,in_review,pending_info,approved,denied,withdrawn',
