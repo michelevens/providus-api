@@ -30,6 +30,7 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        \Log::info('ApplicationController::store called', ['input' => $request->all()]);
         // Sanitize empty strings to null
         $input = $request->all();
         foreach ($input as $key => $val) {
