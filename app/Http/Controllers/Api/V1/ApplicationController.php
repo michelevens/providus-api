@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Api\V1;
 use App\Http\Controllers\Controller;
 use App\Mail\ApplicationStatusChange;
 use App\Models\ActivityLog;
-use App\Models\Agency;
 use App\Models\Application;
 use App\Models\Followup;
 use App\Models\User;
@@ -30,29 +29,25 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        $data = collect($request->all())->map(fn($v) => $v === '' ? null : $v)->toArray();
+        $data = $request->validate([
+            'provider_id' => 'required|exists:providers,id',
+            'organization_id' => 'nullable|exists:organizations,id',
+            'payer_id' => 'nullable|integer',
+            'payer_plan_id' => 'nullable|integer',
+            'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
+            'type' => 'nullable|in:individual,group,both', 'wave' => 'nullable|integer|min:1|max:20',
+            'status' => 'nullable|string|max:50',
+            'portal_url' => 'nullable|string', 'application_ref' => 'nullable|string',
+            'enrollment_id' => 'nullable|string',
+            'submitted_date' => 'nullable|date', 'received_date' => 'nullable|date',
+            'effective_date' => 'nullable|date', 'denial_reason' => 'nullable|string',
+            'est_monthly_revenue' => 'nullable|numeric',
+            'payer_contact_name' => 'nullable|string', 'payer_contact_phone' => 'nullable|string',
+            'payer_contact_email' => 'nullable|email', 'notes' => 'nullable|string',
+            'tags' => 'nullable|array',
+        ]);
 
-        $app = new Application();
-        $app->provider_id = $data['provider_id'] ?? null;
-        $app->organization_id = $data['organization_id'] ?? null;
-        $app->payer_id = $data['payer_id'] ?? null;
-        $app->payer_name = $data['payer_name'] ?? null;
-        $app->state = $data['state'] ?? null;
-        $app->type = $data['type'] ?? null;
-        $app->wave = $data['wave'] ?? null;
-        $app->status = $data['status'] ?? 'new';
-        $app->notes = $data['notes'] ?? null;
-        $app->submitted_date = $data['submitted_date'] ?? null;
-        $app->effective_date = $data['effective_date'] ?? null;
-        $app->enrollment_id = $data['enrollment_id'] ?? null;
-        $app->application_ref = $data['application_ref'] ?? null;
-        $app->est_monthly_revenue = $data['est_monthly_revenue'] ?? null;
-        $app->payer_contact_name = $data['payer_contact_name'] ?? null;
-        $app->payer_contact_phone = $data['payer_contact_phone'] ?? null;
-        $app->payer_contact_email = $data['payer_contact_email'] ?? null;
-        $app->save();
-
-        return response()->json(['success' => true, 'data' => $app], 201);
+        return response()->json(['success' => true, 'data' => Application::create($data)], 201);
     }
 
     public function show(int $id): JsonResponse
@@ -75,7 +70,7 @@ class ApplicationController extends Controller
             'state' => 'sometimes|nullable|string|max:2',
             'type' => 'sometimes|nullable|string|max:50',
             'wave' => 'sometimes|nullable|string|max:50',
-            'status' => 'sometimes|nullable|string|in:new,not_started,gathering_docs,submitted,in_review,pending_info,pending,approved,credentialed,denied,rejected,withdrawn,on_hold',
+            'status' => 'sometimes|nullable|string|max:50',
             'portal_url' => 'sometimes|nullable|url|max:500',
             'application_ref' => 'sometimes|nullable|string|max:100',
             'enrollment_id' => 'sometimes|nullable|string|max:100',
