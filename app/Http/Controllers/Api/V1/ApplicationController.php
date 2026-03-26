@@ -29,6 +29,9 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        // Minimal test — if this still 503s, the issue is outside this controller
+        return response()->json(['success' => true, 'debug' => 'store_reached', 'input' => $request->all()], 201);
+
         $data = $request->validate([
             'provider_id' => 'required|exists:providers,id',
             'organization_id' => 'nullable|exists:organizations,id',
