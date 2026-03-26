@@ -43,7 +43,17 @@ class ApplicationController extends Controller
             return response()->json(['success' => false, 'message' => 'provider_id and state are required'], 422);
         }
 
-        return response()->json(['success' => true, 'data' => Application::create($data)], 201);
+        try {
+            $app = Application::create($data);
+            return response()->json(['success' => true, 'data' => $app], 201);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'error' => $e->getMessage(),
+                'file' => basename($e->getFile()) . ':' . $e->getLine(),
+                'class' => get_class($e),
+            ], 500);
+        }
     }
 
     public function show(int $id): JsonResponse
