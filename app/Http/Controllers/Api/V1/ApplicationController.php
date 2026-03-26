@@ -36,6 +36,7 @@ class ApplicationController extends Controller
             'submitted_date', 'received_date', 'effective_date', 'denial_reason',
             'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
             'payer_contact_email', 'notes', 'tags', 'document_checklist',
+            'assigned_to', 'facility_id',
         ]);
         // Sanitize empty strings to null
         foreach ($data as $k => $v) { if ($v === '') $data[$k] = null; }
@@ -103,7 +104,7 @@ class ApplicationController extends Controller
             'state', 'type', 'wave', 'status', 'portal_url', 'application_ref', 'enrollment_id',
             'submitted_date', 'received_date', 'effective_date', 'denial_reason',
             'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
-            'payer_contact_email', 'notes', 'tags',
+            'payer_contact_email', 'notes', 'tags', 'assigned_to', 'facility_id',
         ]);
         foreach (['submitted_date', 'received_date', 'effective_date'] as $field) {
             if (array_key_exists($field, $data) && $data[$field] === '') {

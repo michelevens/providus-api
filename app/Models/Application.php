@@ -35,6 +35,7 @@ class Application extends Model
         'submitted_date', 'received_date', 'effective_date', 'denial_reason',
         'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
         'payer_contact_email', 'notes', 'tags', 'document_checklist',
+        'assigned_to', 'facility_id',
     ];
 
     protected $casts = [
