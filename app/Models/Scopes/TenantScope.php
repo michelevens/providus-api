@@ -18,8 +18,12 @@ class TenantScope implements Scope
                 $overrideAgencyId = request()->header('X-Agency-Id');
                 if ($overrideAgencyId) {
                     $builder->where($model->getTable() . '.agency_id', (int) $overrideAgencyId);
+                } elseif (request()->is('api/admin/*')) {
+                    // Admin endpoints: see everything (no filter)
+                } else {
+                    // Normal endpoints: scope to superadmin's own agency
+                    $builder->where($model->getTable() . '.agency_id', $user->agency_id);
                 }
-                // No header = see everything
                 return;
             }
 
