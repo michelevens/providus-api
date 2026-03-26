@@ -50,7 +50,9 @@ class ApplicationController extends Controller
         // JSON encode array fields for raw insert
         if (isset($data['tags']) && is_array($data['tags'])) $data['tags'] = json_encode($data['tags']);
         if (isset($data['document_checklist']) && is_array($data['document_checklist'])) $data['document_checklist'] = json_encode($data['document_checklist']);
-        // Remove payer_id if empty (column will be nullable after migration)
+        // Ensure payer_id column is nullable (fixes constraint issue)
+        try { \DB::statement('ALTER TABLE applications ALTER COLUMN payer_id DROP NOT NULL'); } catch (\Throwable $e) {}
+        try { \DB::statement('ALTER TABLE applications DROP CONSTRAINT IF EXISTS applications_payer_id_foreign'); } catch (\Throwable $e) {}
         if (empty($data['payer_id'])) unset($data['payer_id']);
         try {
             $id = \DB::table('applications')->insertGetId($data);
