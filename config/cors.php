@@ -20,6 +20,8 @@ return [
         [
             'https://michelevens.github.io',
             'https://app.credentik.com',
+            'https://credentik.com',
+            'https://www.credentik.com',
         ],
         // Add env-based origins (comma-separated) for custom agency domains
         array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', ''))),
