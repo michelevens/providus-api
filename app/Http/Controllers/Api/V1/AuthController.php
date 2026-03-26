@@ -270,7 +270,7 @@ class AuthController extends Controller
             'password_reset_expires' => now()->addHours(2),
         ]);
 
-        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://credentik.com'));
         $resetUrl = "{$frontendUrl}/#reset-password/{$resetToken}";
 
         Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));

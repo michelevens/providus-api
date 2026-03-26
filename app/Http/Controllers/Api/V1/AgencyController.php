@@ -359,7 +359,7 @@ class AgencyController extends Controller
     public function updateBranding(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'logoUrl'       => 'nullable|string|max:500',
+            'logoUrl'       => 'nullable|string|max:500000',
             'primaryColor'  => 'nullable|string|max:7',
             'accentColor'   => 'nullable|string|max:7',
             'companyName'   => 'nullable|string|max:255',
