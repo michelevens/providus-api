@@ -43,17 +43,13 @@ class ApplicationController extends Controller
             return response()->json(['success' => false, 'message' => 'provider_id and state are required'], 422);
         }
 
-        try {
-            $app = Application::create($data);
-            return response()->json(['success' => true, 'data' => $app], 201);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'success' => false,
-                'error' => $e->getMessage(),
-                'file' => basename($e->getFile()) . ':' . $e->getLine(),
-                'class' => get_class($e),
-            ], 500);
-        }
+        // Use raw DB insert to avoid Eloquent boot/trait overhead that crashes PHP
+        $data['agency_id'] = $request->user()->agency_id;
+        $data['created_at'] = now();
+        $data['updated_at'] = now();
+        $id = \DB::table('applications')->insertGetId($data);
+        $app = \DB::table('applications')->where('id', $id)->first();
+        return response()->json(['success' => true, 'data' => $app], 201);
     }
 
     public function show(int $id): JsonResponse
