@@ -64,7 +64,12 @@ class ApplicationController extends Controller
             'tags' => 'nullable|array',
         ]);
 
-        return response()->json(['success' => true, 'data' => Application::create($data)], 201);
+        try {
+            $app = Application::create($data);
+            return response()->json(['success' => true, 'data' => $app], 201);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage(), 'trace' => $e->getFile() . ':' . $e->getLine()], 500);
+        }
     }
 
     public function show(int $id): JsonResponse
