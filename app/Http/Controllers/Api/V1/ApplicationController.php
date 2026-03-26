@@ -29,26 +29,19 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        // Minimal test — if this still 503s, the issue is outside this controller
-        return response()->json(['success' => true, 'debug' => 'store_reached', 'input' => $request->all()], 201);
-
-        $data = $request->validate([
-            'provider_id' => 'required|exists:providers,id',
-            'organization_id' => 'nullable|exists:organizations,id',
-            'payer_id' => 'nullable|integer',
-            'payer_plan_id' => 'nullable|integer',
-            'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
-            'type' => 'nullable|in:individual,group,both', 'wave' => 'nullable|integer|min:1|max:20',
-            'status' => 'nullable|string|max:50',
-            'portal_url' => 'nullable|string', 'application_ref' => 'nullable|string',
-            'enrollment_id' => 'nullable|string',
-            'submitted_date' => 'nullable|date', 'received_date' => 'nullable|date',
-            'effective_date' => 'nullable|date', 'denial_reason' => 'nullable|string',
-            'est_monthly_revenue' => 'nullable|numeric',
-            'payer_contact_name' => 'nullable|string', 'payer_contact_phone' => 'nullable|string',
-            'payer_contact_email' => 'nullable|email', 'notes' => 'nullable|string',
-            'tags' => 'nullable|array',
+        $data = $request->only([
+            'provider_id', 'organization_id', 'payer_id', 'payer_plan_id',
+            'payer_name', 'state', 'type', 'wave', 'status',
+            'portal_url', 'application_ref', 'enrollment_id',
+            'submitted_date', 'received_date', 'effective_date', 'denial_reason',
+            'est_monthly_revenue', 'payer_contact_name', 'payer_contact_phone',
+            'payer_contact_email', 'notes', 'tags', 'document_checklist',
         ]);
+        // Sanitize empty strings to null
+        foreach ($data as $k => $v) { if ($v === '') $data[$k] = null; }
+        if (empty($data['provider_id']) || empty($data['state'])) {
+            return response()->json(['success' => false, 'message' => 'provider_id and state are required'], 422);
+        }
 
         return response()->json(['success' => true, 'data' => Application::create($data)], 201);
     }
