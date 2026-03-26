@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\V1\StrategyProfileController;
 use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
+use App\Http\Controllers\Api\V1\BillingServiceController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -378,6 +379,28 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
     Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate']);
     Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);
+
+    // ── Billing Services Management ──
+    Route::get('/billing-clients/stats', [BillingServiceController::class, 'clientStats']);
+    Route::get('/billing-clients', [BillingServiceController::class, 'clients']);
+    Route::get('/billing-clients/{id}', [BillingServiceController::class, 'showClient']);
+    Route::post('/billing-clients', [BillingServiceController::class, 'storeClient']);
+    Route::put('/billing-clients/{id}', [BillingServiceController::class, 'updateClient']);
+    Route::delete('/billing-clients/{id}', [BillingServiceController::class, 'destroyClient']);
+
+    Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);
+    Route::post('/billing-tasks', [BillingServiceController::class, 'storeTask']);
+    Route::put('/billing-tasks/{id}', [BillingServiceController::class, 'updateTask']);
+    Route::delete('/billing-tasks/{id}', [BillingServiceController::class, 'destroyTask']);
+
+    Route::get('/billing-activities', [BillingServiceController::class, 'activities']);
+    Route::post('/billing-activities', [BillingServiceController::class, 'storeActivity']);
+    Route::put('/billing-activities/{id}', [BillingServiceController::class, 'updateActivity']);
+    Route::delete('/billing-activities/{id}', [BillingServiceController::class, 'destroyActivity']);
+
+    Route::get('/billing-financials', [BillingServiceController::class, 'financials']);
+    Route::post('/billing-financials', [BillingServiceController::class, 'storeFinancial']);
+    Route::put('/billing-financials/{id}', [BillingServiceController::class, 'updateFinancial']);
 
     // ── Funding Hub ──
     Route::prefix('funding')->group(function () {
