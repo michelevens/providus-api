@@ -16,6 +16,7 @@ class Agency extends Model
         'address_street', 'address_city', 'address_state', 'address_zip',
         'phone', 'email', 'website', 'taxonomy',
         'logo_url', 'primary_color', 'accent_color',
+        'company_display_name', 'email_footer', 'custom_domain',
         'plan_tier', 'is_active', 'allowed_domains', 'embed_theme',
         'stripe_customer_id', 'stripe_subscription_id', 'stripe_price_id',
         'subscription_status', 'trial_ends_at', 'subscription_ends_at',

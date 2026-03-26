@@ -332,4 +332,51 @@ class AgencyController extends Controller
             'message' => "Email changed from {$oldEmail} to {$request->email}",
         ]);
     }
+
+    /**
+     * Get agency branding configuration.
+     */
+    public function branding(Request $request): JsonResponse
+    {
+        $agency = $request->user()->agency;
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'logoUrl'            => $agency->logo_url,
+                'primaryColor'       => $agency->primary_color,
+                'accentColor'        => $agency->accent_color,
+                'companyName'        => $agency->company_display_name ?? $agency->name,
+                'emailFooter'        => $agency->email_footer,
+                'customDomain'       => $agency->custom_domain,
+            ],
+        ]);
+    }
+
+    /**
+     * Update agency branding configuration.
+     */
+    public function updateBranding(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'logoUrl'       => 'nullable|string|max:500',
+            'primaryColor'  => 'nullable|string|max:7',
+            'accentColor'   => 'nullable|string|max:7',
+            'companyName'   => 'nullable|string|max:255',
+            'emailFooter'   => 'nullable|string|max:1000',
+            'customDomain'  => 'nullable|string|max:255',
+        ]);
+
+        $agency = $request->user()->agency;
+        $agency->update([
+            'logo_url'             => $data['logoUrl'] ?? $agency->logo_url,
+            'primary_color'        => $data['primaryColor'] ?? $agency->primary_color,
+            'accent_color'         => $data['accentColor'] ?? $agency->accent_color,
+            'company_display_name' => $data['companyName'] ?? $agency->company_display_name,
+            'email_footer'         => $data['emailFooter'] ?? $agency->email_footer,
+            'custom_domain'        => $data['customDomain'] ?? $agency->custom_domain,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $agency->fresh()]);
+    }
 }

@@ -38,6 +38,10 @@ use App\Http\Controllers\Api\V1\OrganizationContactController;
 use App\Http\Controllers\Api\V1\RevenueIntelligenceController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use App\Http\Controllers\Api\V1\TwoFactorController;
+use App\Http\Controllers\Api\V1\ShareLinkController;
+use App\Http\Controllers\Api\V1\NotificationSendController;
+use App\Http\Controllers\Api\V1\ApiKeyController;
+use App\Http\Controllers\Api\V1\WebhookController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -82,6 +86,13 @@ Route::prefix('onboard')->group(function () {
     Route::get('/{token}/organizations', [OnboardController::class, 'organizations'])->where('token', '[A-Za-z0-9]{20,}');
     Route::post('/{token}', [OnboardController::class, 'submit'])->where('token', '[A-Za-z0-9]{20,}');
 });
+
+/*
+|--------------------------------------------------------------------------
+| Public Share Link (no auth)
+|--------------------------------------------------------------------------
+*/
+Route::get('/share/{token}', [ShareLinkController::class, 'show']);
 
 /*
 |--------------------------------------------------------------------------
@@ -258,6 +269,25 @@ Route::middleware('auth:sanctum')->group(function () {
     // ── Facilities ──
     Route::apiResource('facilities', FacilityController::class);
     Route::post('/facilities/from-npi', [FacilityController::class, 'createFromNpi']);
+
+    // ── Share Links ──
+    Route::post('/providers/{providerId}/share', [ShareLinkController::class, 'store']);
+
+    // ── Notification Sending (Resend) ──
+    Route::post('/notifications/send', [NotificationSendController::class, 'send']);
+    Route::post('/notifications/test', [NotificationSendController::class, 'test']);
+    Route::get('/notifications/log', [NotificationSendController::class, 'index']);
+    Route::get('/notifications/preferences', [NotificationSendController::class, 'preferences']);
+    Route::put('/notifications/preferences', [NotificationSendController::class, 'updatePreferences']);
+
+    // ── Agency Branding ──
+    Route::get('/organizations/branding', [AgencyController::class, 'branding']);
+    Route::put('/organizations/branding', [AgencyController::class, 'updateBranding']);
+
+    // ── API Keys & Webhooks (agency+ role) ──
+    Route::apiResource('api-keys', ApiKeyController::class)->only(['index', 'store', 'destroy']);
+    Route::apiResource('webhooks', WebhookController::class);
+    Route::post('/webhooks/{id}/test', [WebhookController::class, 'test']);
 
     // ── Billing & Invoicing ──
     Route::get('/billing/stats', [InvoiceController::class, 'stats']);
