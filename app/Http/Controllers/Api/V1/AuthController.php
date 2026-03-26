@@ -55,6 +55,38 @@ class AuthController extends Controller
 
         $token = $user->createToken('auth-token')->plainTextToken;
 
+        // Send welcome email via Resend
+        try {
+            $resendKey = config('services.resend.key');
+            if ($resendKey) {
+                \Illuminate\Support\Facades\Http::withToken($resendKey)->post('https://api.resend.com/emails', [
+                    'from' => config('mail.from.address', 'noreply@credentik.com'),
+                    'to' => [$user->email],
+                    'subject' => 'Welcome to Credentik!',
+                    'html' => '<div style="font-family:Inter,sans-serif;max-width:560px;margin:0 auto;padding:40px 20px;">'
+                        . '<div style="text-align:center;margin-bottom:32px;">'
+                        . '<div style="display:inline-block;background:#0891b2;color:#fff;font-size:24px;font-weight:800;padding:12px 20px;border-radius:12px;">Credentik</div>'
+                        . '</div>'
+                        . '<h1 style="font-size:24px;font-weight:700;color:#111827;margin:0 0 16px;">Welcome, ' . e($user->first_name) . '!</h1>'
+                        . '<p style="font-size:15px;color:#4b5563;line-height:1.6;">Your Credentik account has been created for <strong>' . e($agency->name) . '</strong>.</p>'
+                        . '<p style="font-size:15px;color:#4b5563;line-height:1.6;">You can now:</p>'
+                        . '<ul style="font-size:14px;color:#4b5563;line-height:1.8;">'
+                        . '<li>Add your providers and start credentialing</li>'
+                        . '<li>Track applications across 226+ payers</li>'
+                        . '<li>Monitor licenses and compliance</li>'
+                        . '<li>Generate reports and share progress</li>'
+                        . '</ul>'
+                        . '<div style="text-align:center;margin:32px 0;">'
+                        . '<a href="https://credentik.com" style="display:inline-block;background:#0891b2;color:#fff;padding:14px 32px;border-radius:10px;font-weight:600;font-size:15px;text-decoration:none;">Go to Dashboard</a>'
+                        . '</div>'
+                        . '<p style="font-size:13px;color:#9ca3af;text-align:center;">Questions? Reply to this email or contact support.</p>'
+                        . '</div>',
+                ]);
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('Welcome email failed: ' . $e->getMessage());
+        }
+
         return response()->json([
             'success' => true,
             'token' => $token,
