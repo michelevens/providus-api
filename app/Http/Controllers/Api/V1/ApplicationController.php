@@ -30,25 +30,10 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        // Enforce plan limit
-        $agency = Agency::find($request->user()->agency_id);
-        if ($agency && !$request->user()->isSuperAdmin()) {
-            $limit = $agency->planLimit('applications');
-            if ($limit !== -1 && $agency->applications()->count() >= $limit) {
-                return response()->json([
-                    'success' => false,
-                    'message' => "Application limit reached ({$limit}) for your " . ucfirst($agency->plan_tier) . " plan. Please upgrade.",
-                    'error_code' => 'plan_limit_reached',
-                ], 403);
-            }
-        }
-
-        // Sanitize empty strings to null for nullable fields
+        // Sanitize empty strings to null
         $input = $request->all();
-        foreach (['organization_id', 'payer_id', 'payer_plan_id', 'wave', 'type', 'status',
-                   'submitted_date', 'received_date', 'effective_date', 'payer_contact_email',
-                   'facility_id', 'assigned_to', 'est_monthly_revenue'] as $field) {
-            if (isset($input[$field]) && $input[$field] === '') $input[$field] = null;
+        foreach ($input as $key => $val) {
+            if ($val === '') $input[$key] = null;
         }
         $request->merge($input);
 
@@ -57,17 +42,25 @@ class ApplicationController extends Controller
             'organization_id' => 'nullable|integer',
             'payer_id' => 'nullable|integer',
             'payer_plan_id' => 'nullable|integer',
-            'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
-            'type' => 'nullable|in:individual,group,both', 'wave' => 'nullable|integer|min:1|max:20',
-            'status' => 'nullable|in:new,not_started,gathering_docs,submitted,in_review,pending_info,pending,approved,credentialed,denied,rejected,withdrawn,on_hold',
-            'portal_url' => 'nullable|string', 'application_ref' => 'nullable|string',
+            'payer_name' => 'nullable|string',
+            'state' => 'required|string|max:5',
+            'type' => 'nullable|string|max:50',
+            'wave' => 'nullable|integer|min:1|max:20',
+            'status' => 'nullable|string|max:50',
+            'portal_url' => 'nullable|string',
+            'application_ref' => 'nullable|string',
             'enrollment_id' => 'nullable|string',
-            'submitted_date' => 'nullable|date', 'received_date' => 'nullable|date',
-            'effective_date' => 'nullable|date', 'denial_reason' => 'nullable|string',
+            'submitted_date' => 'nullable|date',
+            'received_date' => 'nullable|date',
+            'effective_date' => 'nullable|date',
+            'denial_reason' => 'nullable|string',
             'est_monthly_revenue' => 'nullable|numeric',
-            'payer_contact_name' => 'nullable|string', 'payer_contact_phone' => 'nullable|string',
-            'payer_contact_email' => 'nullable|email', 'notes' => 'nullable|string',
-            'facility_id' => 'nullable|integer', 'assigned_to' => 'nullable|integer',
+            'payer_contact_name' => 'nullable|string',
+            'payer_contact_phone' => 'nullable|string',
+            'payer_contact_email' => 'nullable|string',
+            'notes' => 'nullable|string',
+            'facility_id' => 'nullable|integer',
+            'assigned_to' => 'nullable|integer',
             'tags' => 'nullable|array',
         ]);
 
