@@ -30,47 +30,29 @@ class ApplicationController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        \Log::info('ApplicationController::store called', ['input' => $request->all()]);
-        // Sanitize empty strings to null
-        $input = $request->all();
-        foreach ($input as $key => $val) {
-            if ($val === '') $input[$key] = null;
-        }
-        $request->merge($input);
+        $data = collect($request->all())->map(fn($v) => $v === '' ? null : $v)->toArray();
 
-        $data = $request->validate([
-            'provider_id' => 'required|integer',
-            'organization_id' => 'nullable|integer',
-            'payer_id' => 'nullable|integer',
-            'payer_plan_id' => 'nullable|integer',
-            'payer_name' => 'nullable|string',
-            'state' => 'required|string|max:5',
-            'type' => 'nullable|string|max:50',
-            'wave' => 'nullable|integer|min:1|max:20',
-            'status' => 'nullable|string|max:50',
-            'portal_url' => 'nullable|string',
-            'application_ref' => 'nullable|string',
-            'enrollment_id' => 'nullable|string',
-            'submitted_date' => 'nullable|date',
-            'received_date' => 'nullable|date',
-            'effective_date' => 'nullable|date',
-            'denial_reason' => 'nullable|string',
-            'est_monthly_revenue' => 'nullable|numeric',
-            'payer_contact_name' => 'nullable|string',
-            'payer_contact_phone' => 'nullable|string',
-            'payer_contact_email' => 'nullable|string',
-            'notes' => 'nullable|string',
-            'facility_id' => 'nullable|integer',
-            'assigned_to' => 'nullable|integer',
-            'tags' => 'nullable|array',
-        ]);
+        $app = new Application();
+        $app->provider_id = $data['provider_id'] ?? null;
+        $app->organization_id = $data['organization_id'] ?? null;
+        $app->payer_id = $data['payer_id'] ?? null;
+        $app->payer_name = $data['payer_name'] ?? null;
+        $app->state = $data['state'] ?? null;
+        $app->type = $data['type'] ?? null;
+        $app->wave = $data['wave'] ?? null;
+        $app->status = $data['status'] ?? 'new';
+        $app->notes = $data['notes'] ?? null;
+        $app->submitted_date = $data['submitted_date'] ?? null;
+        $app->effective_date = $data['effective_date'] ?? null;
+        $app->enrollment_id = $data['enrollment_id'] ?? null;
+        $app->application_ref = $data['application_ref'] ?? null;
+        $app->est_monthly_revenue = $data['est_monthly_revenue'] ?? null;
+        $app->payer_contact_name = $data['payer_contact_name'] ?? null;
+        $app->payer_contact_phone = $data['payer_contact_phone'] ?? null;
+        $app->payer_contact_email = $data['payer_contact_email'] ?? null;
+        $app->save();
 
-        try {
-            $app = Application::create($data);
-            return response()->json(['success' => true, 'data' => $app], 201);
-        } catch (\Throwable $e) {
-            return response()->json(['success' => false, 'message' => $e->getMessage(), 'trace' => $e->getFile() . ':' . $e->getLine()], 500);
-        }
+        return response()->json(['success' => true, 'data' => $app], 201);
     }
 
     public function show(int $id): JsonResponse
