@@ -280,9 +280,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/notifications/preferences', [NotificationSendController::class, 'preferences']);
     Route::put('/notifications/preferences', [NotificationSendController::class, 'updatePreferences']);
 
-    // ── Agency Branding ──
-    Route::get('/organizations/branding', [AgencyController::class, 'branding']);
-    Route::put('/organizations/branding', [AgencyController::class, 'updateBranding']);
+    // ── Agency Branding (moved to /agency/branding to avoid conflict with organizations apiResource) ──
+    Route::get('/agency/branding', [AgencyController::class, 'branding']);
+    Route::put('/agency/branding', [AgencyController::class, 'updateBranding']);
 
     // ── API Keys & Webhooks (agency+ role) ──
     Route::apiResource('api-keys', ApiKeyController::class)->only(['index', 'store', 'destroy']);
