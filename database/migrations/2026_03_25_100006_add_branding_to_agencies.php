@@ -8,9 +8,15 @@ return new class extends Migration {
     public function up(): void
     {
         Schema::table('agencies', function (Blueprint $table) {
-            $table->string('company_display_name')->nullable()->after('name');
-            $table->text('email_footer')->nullable()->after('accent_color');
-            $table->string('custom_domain')->nullable()->after('email_footer');
+            if (!Schema::hasColumn('agencies', 'company_display_name')) {
+                $table->string('company_display_name')->nullable();
+            }
+            if (!Schema::hasColumn('agencies', 'email_footer')) {
+                $table->text('email_footer')->nullable();
+            }
+            if (!Schema::hasColumn('agencies', 'custom_domain')) {
+                $table->string('custom_domain')->nullable();
+            }
         });
     }
 
