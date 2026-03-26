@@ -206,6 +206,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('applications', ApplicationController::class);
     Route::post('/applications/{id}/transition', [ApplicationController::class, 'transition']);
     Route::get('/applications-stats', [ApplicationController::class, 'stats']);
+    // Alternate create route — workaround for CDN caching 503 on POST /applications
+    Route::post('/app-create', [ApplicationController::class, 'store']);
 
     Route::apiResource('followups', FollowupController::class);
     Route::post('/followups/{id}/complete', [FollowupController::class, 'complete']);
