@@ -43,13 +43,22 @@ class ApplicationController extends Controller
             return response()->json(['success' => false, 'message' => 'provider_id and state are required'], 422);
         }
 
-        // Use raw DB insert to avoid Eloquent boot/trait overhead that crashes PHP
+        // Use raw DB insert to avoid Eloquent boot/trait overhead
         $data['agency_id'] = $request->user()->agency_id;
         $data['created_at'] = now();
         $data['updated_at'] = now();
-        $id = \DB::table('applications')->insertGetId($data);
-        $app = \DB::table('applications')->where('id', $id)->first();
-        return response()->json(['success' => true, 'data' => $app], 201);
+        // JSON encode array fields for raw insert
+        if (isset($data['tags']) && is_array($data['tags'])) $data['tags'] = json_encode($data['tags']);
+        if (isset($data['document_checklist']) && is_array($data['document_checklist'])) $data['document_checklist'] = json_encode($data['document_checklist']);
+        // Remove null values to avoid column type issues
+        $data = array_filter($data, fn($v) => $v !== null);
+        try {
+            $id = \DB::table('applications')->insertGetId($data);
+            $app = \DB::table('applications')->where('id', $id)->first();
+            return response()->json(['success' => true, 'data' => $app], 201);
+        } catch (\Throwable $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 500);
+        }
     }
 
     public function show(int $id): JsonResponse
