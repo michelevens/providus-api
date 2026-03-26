@@ -47,7 +47,7 @@ class AgencyController extends Controller
             'email' => 'nullable|email',
             'website' => 'nullable|string|max:255',
             'taxonomy' => 'nullable|string|max:20',
-            'logo_url' => 'nullable|string|max:500',
+            'logo_url' => 'nullable|string|max:500000',
             'primary_color' => 'nullable|string|max:7',
             'accent_color' => 'nullable|string|max:7',
             'allowed_domains' => 'nullable|array',

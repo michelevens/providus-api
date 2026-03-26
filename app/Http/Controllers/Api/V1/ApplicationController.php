@@ -43,13 +43,22 @@ class ApplicationController extends Controller
             }
         }
 
+        // Sanitize empty strings to null for nullable fields
+        $input = $request->all();
+        foreach (['organization_id', 'payer_id', 'payer_plan_id', 'wave', 'type', 'status',
+                   'submitted_date', 'received_date', 'effective_date', 'payer_contact_email',
+                   'facility_id', 'assigned_to', 'est_monthly_revenue'] as $field) {
+            if (isset($input[$field]) && $input[$field] === '') $input[$field] = null;
+        }
+        $request->merge($input);
+
         $data = $request->validate([
-            'provider_id' => 'required|exists:providers,id',
-            'organization_id' => 'nullable|exists:organizations,id',
+            'provider_id' => 'required|integer',
+            'organization_id' => 'nullable|integer',
             'payer_id' => 'nullable|integer',
             'payer_plan_id' => 'nullable|integer',
             'payer_name' => 'nullable|string', 'state' => 'required|string|max:5',
-            'type' => 'in:individual,group,both', 'wave' => 'integer|min:1|max:20',
+            'type' => 'nullable|in:individual,group,both', 'wave' => 'nullable|integer|min:1|max:20',
             'status' => 'nullable|in:new,not_started,gathering_docs,submitted,in_review,pending_info,pending,approved,credentialed,denied,rejected,withdrawn,on_hold',
             'portal_url' => 'nullable|string', 'application_ref' => 'nullable|string',
             'enrollment_id' => 'nullable|string',
@@ -58,6 +67,7 @@ class ApplicationController extends Controller
             'est_monthly_revenue' => 'nullable|numeric',
             'payer_contact_name' => 'nullable|string', 'payer_contact_phone' => 'nullable|string',
             'payer_contact_email' => 'nullable|email', 'notes' => 'nullable|string',
+            'facility_id' => 'nullable|integer', 'assigned_to' => 'nullable|integer',
             'tags' => 'nullable|array',
         ]);
 
