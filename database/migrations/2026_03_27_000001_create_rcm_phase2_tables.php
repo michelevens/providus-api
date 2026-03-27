@@ -93,8 +93,8 @@ return new class extends Migration
             $table->index(['agency_id', 'status']);
         });
 
-        // ── Eligibility Checks ──
-        Schema::create('eligibility_checks', function (Blueprint $table) {
+        // ── Eligibility Checks (may already exist from earlier migration) ──
+        if (!Schema::hasTable('eligibility_checks')) Schema::create('eligibility_checks', function (Blueprint $table) {
             $table->id();
             $table->unsignedBigInteger('agency_id');
             $table->unsignedBigInteger('billing_client_id')->nullable();
