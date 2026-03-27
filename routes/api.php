@@ -410,6 +410,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/claims', [RcmController::class, 'storeClaim']);
     Route::put('/rcm/claims/{id}', [RcmController::class, 'updateClaim']);
     Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim']);
+    Route::post('/rcm/claims/bulk-import', [RcmController::class, 'bulkImportClaims']);
 
     Route::get('/rcm/denials/stats', [RcmController::class, 'denialStats']);
     Route::get('/rcm/denials', [RcmController::class, 'denials']);

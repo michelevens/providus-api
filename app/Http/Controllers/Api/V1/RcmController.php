@@ -95,6 +95,80 @@ class RcmController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function bulkImportClaims(Request $request): JsonResponse
+    {
+        $request->validate(['claims' => 'required|array|min:1|max:500']);
+
+        $agencyId = $request->user()->agency_id;
+        $userId = $request->user()->id;
+        $baseCount = Claim::where('agency_id', $agencyId)->count();
+        $created = 0;
+        $errors = [];
+
+        foreach ($request->claims as $i => $row) {
+            try {
+                if (empty($row['date_of_service'])) {
+                    $errors[] = "Row " . ($i + 1) . ": date_of_service is required";
+                    continue;
+                }
+                $claim = Claim::create([
+                    'agency_id' => $agencyId,
+                    'claim_number' => 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT),
+                    'created_by' => $userId,
+                    'claim_type' => $row['claim_type'] ?? '837P',
+                    'status' => $row['status'] ?? 'submitted',
+                    'billing_client_id' => $row['billing_client_id'] ?? null,
+                    'provider_name' => $row['provider_name'] ?? null,
+                    'patient_name' => $row['patient_name'] ?? null,
+                    'patient_dob' => $row['patient_dob'] ?? null,
+                    'patient_member_id' => $row['patient_member_id'] ?? null,
+                    'payer_name' => $row['payer_name'] ?? null,
+                    'payer_id_number' => $row['payer_id_number'] ?? null,
+                    'date_of_service' => $row['date_of_service'],
+                    'date_of_service_end' => $row['date_of_service_end'] ?? null,
+                    'place_of_service' => $row['place_of_service'] ?? null,
+                    'facility_name' => $row['facility_name'] ?? null,
+                    'referring_provider' => $row['referring_provider'] ?? null,
+                    'authorization_number' => $row['authorization_number'] ?? null,
+                    'total_charges' => $row['total_charges'] ?? 0,
+                    'total_paid' => $row['total_paid'] ?? 0,
+                    'balance' => ($row['total_charges'] ?? 0) - ($row['total_paid'] ?? 0),
+                    'submission_method' => $row['submission_method'] ?? 'electronic',
+                    'submitted_date' => $row['submitted_date'] ?? null,
+                    'paid_date' => $row['paid_date'] ?? null,
+                    'denial_reason' => $row['denial_reason'] ?? null,
+                    'notes' => $row['notes'] ?? null,
+                ]);
+
+                // Create service lines if CPT code provided
+                if (!empty($row['cpt_code'])) {
+                    ClaimServiceLine::create([
+                        'claim_id' => $claim->id,
+                        'line_number' => 1,
+                        'cpt_code' => $row['cpt_code'],
+                        'cpt_description' => $row['cpt_description'] ?? '',
+                        'modifiers' => $row['modifiers'] ?? '',
+                        'icd_codes' => $row['icd_codes'] ?? '',
+                        'units' => $row['units'] ?? 1,
+                        'charges' => $row['total_charges'] ?? 0,
+                        'paid_amount' => $row['total_paid'] ?? 0,
+                    ]);
+                }
+
+                $created++;
+            } catch (\Exception $e) {
+                $errors[] = "Row " . ($i + 1) . ": " . $e->getMessage();
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'imported' => $created,
+            'errors' => $errors,
+            'total_submitted' => count($request->claims),
+        ], 201);
+    }
+
     public function claimStats(Request $request): JsonResponse
     {
         $aid = $request->user()->agency_id;
