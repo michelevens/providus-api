@@ -8,9 +8,12 @@ Route::get('/', function () {
 
 Route::get('/seed-demo-billing', function () {
     try {
-        // Find demo agency
-        $agency = \App\Models\Agency::where('slug', 'demo-agency')->first();
-        if (!$agency) return response()->json(['success' => false, 'error' => 'Demo agency not found. Run DemoUserSeeder first.'], 404);
+        // Find agency — use query param or fall back to demo
+        $agencyId = request()->query('agency_id');
+        $agency = $agencyId
+            ? \App\Models\Agency::find($agencyId)
+            : \App\Models\Agency::where('slug', 'demo-agency')->first();
+        if (!$agency) return response()->json(['success' => false, 'error' => 'Agency not found.'], 404);
         $aid = $agency->id;
 
         $org = \App\Models\Organization::where('agency_id', $aid)->first();
