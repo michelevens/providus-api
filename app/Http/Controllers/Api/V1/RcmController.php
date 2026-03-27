@@ -132,10 +132,12 @@ class RcmController extends Controller
                     'authorization_number' => $row['authorization_number'] ?? null,
                     'total_charges' => $row['total_charges'] ?? 0,
                     'total_paid' => $row['total_paid'] ?? 0,
+                    'patient_responsibility' => $row['patient_responsibility'] ?? 0,
                     'balance' => ($row['total_charges'] ?? 0) - ($row['total_paid'] ?? 0),
                     'submission_method' => $row['submission_method'] ?? 'electronic',
                     'submitted_date' => $row['submitted_date'] ?? null,
                     'paid_date' => $row['paid_date'] ?? null,
+                    'check_number' => $row['check_number'] ?? null,
                     'denial_reason' => $row['denial_reason'] ?? null,
                     'notes' => $row['notes'] ?? null,
                 ]);
