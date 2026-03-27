@@ -582,15 +582,25 @@ class RcmPhase2Controller extends Controller
         $aid = $request->user()->agency_id;
         $uid = $request->user()->id;
 
-        // Auto-generate statements for claims with patient responsibility > 0
+        // Auto-generate statements for claims with patient responsibility OR unpaid balance
         $claims = Claim::where('agency_id', $aid)
-            ->where('patient_responsibility', '>', 0)
             ->whereDoesntHave('patientStatements')
-            ->whereIn('status', ['paid', 'partial_paid'])
+            ->where(function ($q) {
+                $q->where('patient_responsibility', '>', 0)
+                  ->orWhere(function ($q2) {
+                      $q2->whereIn('status', ['paid', 'partial_paid'])
+                         ->where('balance', '>', 0);
+                  });
+            })
             ->get();
 
         $created = 0;
         foreach ($claims as $claim) {
+            $ptBalance = (float) $claim->patient_responsibility > 0
+                ? $claim->patient_responsibility
+                : $claim->balance;
+            if ($ptBalance <= 0) continue;
+
             PatientStatement::create([
                 'agency_id' => $aid,
                 'billing_client_id' => $claim->billing_client_id,
@@ -599,7 +609,7 @@ class RcmPhase2Controller extends Controller
                 'total_charges' => $claim->total_charges,
                 'insurance_paid' => $claim->total_paid,
                 'adjustments' => $claim->adjustments ?? 0,
-                'patient_balance' => $claim->patient_responsibility,
+                'patient_balance' => $ptBalance,
                 'status' => 'draft',
                 'statement_date' => now()->toDateString(),
                 'due_date' => now()->addDays(30)->toDateString(),
