@@ -111,9 +111,14 @@ class RcmController extends Controller
                     $errors[] = "Row " . ($i + 1) . ": date_of_service is required";
                     continue;
                 }
+                // Use source claim number if available, otherwise auto-generate
+                $claimNumber = $row['payer_id_number'] ?? $row['claim_number'] ?? null;
+                if (!$claimNumber) {
+                    $claimNumber = 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT);
+                }
                 $claim = Claim::create([
                     'agency_id' => $agencyId,
-                    'claim_number' => 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT),
+                    'claim_number' => $claimNumber,
                     'created_by' => $userId,
                     'claim_type' => $row['claim_type'] ?? '837P',
                     'status' => $row['status'] ?? 'submitted',
@@ -174,30 +179,27 @@ class RcmController extends Controller
     public function claimStats(Request $request): JsonResponse
     {
         $aid = $request->user()->agency_id;
-        $totalClaims = Claim::where('agency_id', $aid)->count();
-        $totalCharged = Claim::where('agency_id', $aid)->sum('total_charges');
-        $totalPaid = Claim::where('agency_id', $aid)->sum('total_paid');
-        $pendingCount = Claim::where('agency_id', $aid)->whereIn('status', ['submitted', 'acknowledged', 'pending'])->count();
-        $paidCount = Claim::where('agency_id', $aid)->whereIn('status', ['paid', 'partial_paid'])->count();
-        $deniedCount = Claim::where('agency_id', $aid)->where('status', 'denied')->count();
-
-        // Debug: check raw values
-        $sampleClaim = Claim::where('agency_id', $aid)->first();
-        $debugInfo = $sampleClaim ? [
-            'sample_id' => $sampleClaim->id,
-            'sample_charges' => $sampleClaim->total_charges,
-            'sample_paid' => $sampleClaim->total_paid,
-            'sample_status' => $sampleClaim->status,
-        ] : null;
+        $claims = Claim::where('agency_id', $aid)->get();
+        $totalClaims = $claims->count();
+        $totalCharged = $claims->sum(fn($c) => (float) $c->total_charges);
+        $totalPaid = $claims->sum(fn($c) => (float) $c->total_paid);
+        $totalBalance = $claims->sum(fn($c) => (float) $c->balance);
+        $pendingCount = $claims->whereIn('status', ['submitted', 'acknowledged', 'pending'])->count();
+        $paidCount = $claims->whereIn('status', ['paid', 'partial_paid'])->count();
+        $deniedCount = $claims->where('status', 'denied')->count();
+        $totalPatientResp = $claims->sum(fn($c) => (float) $c->patient_responsibility);
 
         return response()->json(['success' => true, 'data' => [
             'total_claims' => $totalClaims,
-            'total_charged' => (float) $totalCharged,
-            'total_paid' => (float) $totalPaid,
-            'pending_count' => $pendingCount, 'paid_count' => $paidCount, 'denied_count' => $deniedCount,
+            'total_charged' => round($totalCharged, 2),
+            'total_paid' => round($totalPaid, 2),
+            'total_balance' => round($totalBalance, 2),
+            'total_patient_responsibility' => round($totalPatientResp, 2),
+            'pending_count' => $pendingCount,
+            'paid_count' => $paidCount,
+            'denied_count' => $deniedCount,
             'clean_claim_rate' => $totalClaims > 0 ? round(($totalClaims - $deniedCount) / $totalClaims * 100, 1) : 0,
-            'collection_rate' => $totalCharged > 0 ? round((float)$totalPaid / (float)$totalCharged * 100, 1) : 0,
-            'debug' => $debugInfo,
+            'collection_rate' => $totalCharged > 0 ? round($totalPaid / $totalCharged * 100, 1) : 0,
         ]]);
     }
 
