@@ -179,11 +179,23 @@ class RcmController extends Controller
         $paidCount = Claim::where('agency_id', $aid)->whereIn('status', ['paid', 'partial_paid'])->count();
         $deniedCount = Claim::where('agency_id', $aid)->where('status', 'denied')->count();
 
+        // Debug: check raw values
+        $sampleClaim = Claim::where('agency_id', $aid)->first();
+        $debugInfo = $sampleClaim ? [
+            'sample_id' => $sampleClaim->id,
+            'sample_charges' => $sampleClaim->total_charges,
+            'sample_paid' => $sampleClaim->total_paid,
+            'sample_status' => $sampleClaim->status,
+        ] : null;
+
         return response()->json(['success' => true, 'data' => [
-            'total_claims' => $totalClaims, 'total_charged' => $totalCharged, 'total_paid' => $totalPaid,
+            'total_claims' => $totalClaims,
+            'total_charged' => (float) $totalCharged,
+            'total_paid' => (float) $totalPaid,
             'pending_count' => $pendingCount, 'paid_count' => $paidCount, 'denied_count' => $deniedCount,
             'clean_claim_rate' => $totalClaims > 0 ? round(($totalClaims - $deniedCount) / $totalClaims * 100, 1) : 0,
-            'collection_rate' => $totalCharged > 0 ? round($totalPaid / $totalCharged * 100, 1) : 0,
+            'collection_rate' => $totalCharged > 0 ? round((float)$totalPaid / (float)$totalCharged * 100, 1) : 0,
+            'debug' => $debugInfo,
         ]]);
     }
 
