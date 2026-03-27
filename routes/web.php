@@ -249,6 +249,44 @@ Route::get('/debug-routes', function () {
     }
 });
 
+Route::get('/fix-phase2-tables', function () {
+    try {
+        $output = [];
+        $tables = ['underpayment_flags', 'client_reports'];
+        foreach ($tables as $t) {
+            if (\Illuminate\Support\Facades\Schema::hasTable($t)) { $output[] = "$t: already exists"; continue; }
+        }
+        // Create missing tables inline
+        if (!\Illuminate\Support\Facades\Schema::hasTable('underpayment_flags')) {
+            \Illuminate\Support\Facades\Schema::create('underpayment_flags', function ($table) {
+                $table->id(); $table->unsignedBigInteger('agency_id'); $table->unsignedBigInteger('claim_id');
+                $table->string('cpt_code', 10)->nullable(); $table->decimal('expected_amount', 10, 2); $table->decimal('paid_amount', 10, 2); $table->decimal('variance', 10, 2);
+                $table->string('status', 20)->default('flagged'); $table->text('notes')->nullable(); $table->unsignedBigInteger('reviewed_by')->nullable(); $table->timestamp('reviewed_at')->nullable();
+                $table->unsignedBigInteger('created_by')->nullable(); $table->timestamps(); $table->index(['agency_id', 'status']);
+            });
+            $output[] = 'underpayment_flags: created';
+        }
+        if (!\Illuminate\Support\Facades\Schema::hasTable('client_reports')) {
+            \Illuminate\Support\Facades\Schema::create('client_reports', function ($table) {
+                $table->id(); $table->unsignedBigInteger('agency_id'); $table->unsignedBigInteger('billing_client_id');
+                $table->string('report_type', 30)->default('monthly'); $table->string('period', 10);
+                $table->integer('total_claims')->default(0); $table->integer('claims_submitted')->default(0); $table->integer('claims_paid')->default(0); $table->integer('claims_denied')->default(0);
+                $table->decimal('total_charged', 12, 2)->default(0); $table->decimal('total_collected', 12, 2)->default(0); $table->decimal('total_denied_amount', 12, 2)->default(0);
+                $table->decimal('total_adjustments', 12, 2)->default(0); $table->decimal('patient_responsibility', 12, 2)->default(0);
+                $table->decimal('collection_rate', 5, 1)->default(0); $table->decimal('clean_claim_rate', 5, 1)->default(0); $table->decimal('denial_rate', 5, 1)->default(0);
+                $table->integer('avg_days_to_pay')->default(0); $table->json('by_payer')->nullable(); $table->json('denial_breakdown')->nullable();
+                $table->string('status', 20)->default('draft'); $table->date('sent_date')->nullable(); $table->text('notes')->nullable();
+                $table->unsignedBigInteger('created_by')->nullable(); $table->timestamps();
+                $table->index(['agency_id', 'billing_client_id', 'period']);
+            });
+            $output[] = 'client_reports: created';
+        }
+        return response()->json(['success' => true, 'output' => $output]);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+});
+
 Route::get('/run-migrations', function () {
     try {
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
