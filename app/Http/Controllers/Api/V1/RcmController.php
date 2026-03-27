@@ -30,7 +30,7 @@ class RcmController extends Controller
     public function showClaim(Request $request, int $id): JsonResponse
     {
         $claim = Claim::where('agency_id', $request->user()->agency_id)
-            ->with(['billingClient:id,organization_name', 'serviceLines', 'denials', 'paymentAllocations'])
+            ->with(['billingClient:id,organization_name', 'serviceLines', 'denials', 'paymentAllocations', 'followups'])
             ->findOrFail($id);
         return response()->json(['success' => true, 'data' => $claim]);
     }
