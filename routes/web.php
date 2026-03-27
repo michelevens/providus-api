@@ -194,6 +194,24 @@ Route::get('/seed-demo-billing', function () {
     }
 });
 
+Route::get('/cleanup-demo-claims', function () {
+    try {
+        $agencyId = request()->query('agency_id', 1);
+        // Delete demo/mock claims (seeded test data with known fake names)
+        $fakeNames = ['John Smith', 'Jane Doe', 'Robert Williams', 'Emily Chen', 'Michael Brown', 'Sarah Johnson', 'David Lee', 'Lisa Garcia', 'James Wilson', 'Anna Martinez'];
+        $deleted = \App\Models\Claim::where('agency_id', $agencyId)
+            ->whereIn('patient_name', $fakeNames)
+            ->delete();
+        // Also clean up orphaned denials, payments, charges from demo
+        $deletedDenials = \App\Models\ClaimDenial::where('agency_id', $agencyId)
+            ->whereDoesntHave('claim')
+            ->delete();
+        return response()->json(['success' => true, 'deleted_claims' => $deleted, 'deleted_orphan_denials' => $deletedDenials]);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+});
+
 Route::get('/run-migrations', function () {
     try {
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
