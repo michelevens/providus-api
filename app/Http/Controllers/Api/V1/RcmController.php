@@ -206,6 +206,21 @@ class RcmController extends Controller
         $totalPatientResp = $claims->sum(fn($c) => (float) $c->patient_responsibility);
         $totalDeniedAmount = $claims->where('status', 'denied')->sum(fn($c) => (float) $c->total_charges);
 
+        // Monthly breakdown for charts (last 6 months by DOS)
+        $monthly = [];
+        for ($m = 5; $m >= 0; $m--) {
+            $date = now()->subMonths($m);
+            $key = $date->format('Y-m');
+            $monthClaims = $claims->filter(fn($c) => substr($c->date_of_service, 0, 7) === $key);
+            $monthly[] = [
+                'period' => $key,
+                'claims_submitted' => $monthClaims->count(),
+                'amount_billed' => round($monthClaims->sum(fn($c) => (float) $c->total_charges), 2),
+                'amount_collected' => round($monthClaims->sum(fn($c) => (float) $c->total_paid), 2),
+                'denied_amount' => round($monthClaims->where('status', 'denied')->sum(fn($c) => (float) $c->total_charges), 2),
+            ];
+        }
+
         return response()->json(['success' => true, 'data' => [
             'total_claims' => $totalClaims,
             'total_charged' => round($totalCharged, 2),
@@ -218,6 +233,7 @@ class RcmController extends Controller
             'denied_count' => $deniedCount,
             'clean_claim_rate' => $totalClaims > 0 ? round(($totalClaims - $deniedCount) / $totalClaims * 100, 1) : 0,
             'collection_rate' => $totalCharged > 0 ? round($totalPaid / $totalCharged * 100, 1) : 0,
+            'monthly' => $monthly,
         ]]);
     }
 
