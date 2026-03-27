@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\V1\TaskController;
 use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\BillingServiceController;
+use App\Http\Controllers\Api\V1\RcmController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -401,6 +402,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/billing-financials', [BillingServiceController::class, 'financials']);
     Route::post('/billing-financials', [BillingServiceController::class, 'storeFinancial']);
     Route::put('/billing-financials/{id}', [BillingServiceController::class, 'updateFinancial']);
+
+    // ── RCM: Claims, Denials, Payments, Charges, AR ──
+    Route::get('/rcm/claims/stats', [RcmController::class, 'claimStats']);
+    Route::get('/rcm/claims', [RcmController::class, 'claims']);
+    Route::get('/rcm/claims/{id}', [RcmController::class, 'showClaim']);
+    Route::post('/rcm/claims', [RcmController::class, 'storeClaim']);
+    Route::put('/rcm/claims/{id}', [RcmController::class, 'updateClaim']);
+    Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim']);
+
+    Route::get('/rcm/denials/stats', [RcmController::class, 'denialStats']);
+    Route::get('/rcm/denials', [RcmController::class, 'denials']);
+    Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
+    Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
+    Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial']);
+
+    Route::get('/rcm/payments', [RcmController::class, 'payments']);
+    Route::post('/rcm/payments', [RcmController::class, 'storePayment']);
+    Route::put('/rcm/payments/{id}', [RcmController::class, 'updatePayment']);
+    Route::delete('/rcm/payments/{id}', [RcmController::class, 'destroyPayment']);
+
+    Route::get('/rcm/charges', [RcmController::class, 'charges']);
+    Route::post('/rcm/charges', [RcmController::class, 'storeCharge']);
+    Route::put('/rcm/charges/{id}', [RcmController::class, 'updateCharge']);
+    Route::delete('/rcm/charges/{id}', [RcmController::class, 'destroyCharge']);
+
+    Route::get('/rcm/ar-aging', [RcmController::class, 'arAging']);
 
     // ── Funding Hub ──
     Route::prefix('funding')->group(function () {
