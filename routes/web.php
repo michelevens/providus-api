@@ -212,6 +212,15 @@ Route::get('/cleanup-demo-claims', function () {
     }
 });
 
+Route::get('/debug-routes', function () {
+    try {
+        $routes = collect(\Illuminate\Support\Facades\Route::getRoutes())->map(fn($r) => $r->uri())->filter(fn($u) => str_starts_with($u, 'api/'))->values();
+        return response()->json(['api_route_count' => $routes->count(), 'sample' => $routes->take(10)]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()], 500);
+    }
+});
+
 Route::get('/run-migrations', function () {
     try {
         \Illuminate\Support\Facades\Artisan::call('migrate', ['--force' => true]);
