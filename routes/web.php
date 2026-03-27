@@ -212,6 +212,34 @@ Route::get('/cleanup-demo-claims', function () {
     }
 });
 
+Route::get('/backfill-denials', function () {
+    try {
+        $agencyId = request()->query('agency_id');
+        $query = \App\Models\Claim::where('status', 'denied')->whereDoesntHave('denials');
+        if ($agencyId) $query->where('agency_id', $agencyId);
+        $deniedClaims = $query->get();
+
+        $created = 0;
+        foreach ($deniedClaims as $claim) {
+            \App\Models\ClaimDenial::create([
+                'agency_id' => $claim->agency_id,
+                'claim_id' => $claim->id,
+                'billing_client_id' => $claim->billing_client_id,
+                'denial_category' => 'other',
+                'denial_reason' => $claim->denial_reason ?? 'Imported as denied',
+                'denied_amount' => $claim->total_charges,
+                'status' => 'new',
+                'priority' => 'normal',
+                'denial_date' => $claim->date_of_service,
+            ]);
+            $created++;
+        }
+        return response()->json(['success' => true, 'backfilled' => $created]);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+});
+
 Route::get('/debug-routes', function () {
     try {
         $routes = collect(\Illuminate\Support\Facades\Route::getRoutes())->map(fn($r) => $r->uri())->filter(fn($u) => str_starts_with($u, 'api/'))->values();
