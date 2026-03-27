@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\BillingServiceController;
 use App\Http\Controllers\Api\V1\RcmController;
+use App\Http\Controllers\Api\V1\RcmPhase2Controller;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -429,6 +430,53 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/rcm/charges/{id}', [RcmController::class, 'destroyCharge']);
 
     Route::get('/rcm/ar-aging', [RcmController::class, 'arAging']);
+
+    // ── RCM Phase 2: Advanced Features ──
+    Route::get('/rcm/fee-schedules', [RcmPhase2Controller::class, 'feeSchedules']);
+    Route::post('/rcm/fee-schedules', [RcmPhase2Controller::class, 'storeFeeSchedule']);
+    Route::put('/rcm/fee-schedules/{id}', [RcmPhase2Controller::class, 'updateFeeSchedule']);
+    Route::delete('/rcm/fee-schedules/{id}', [RcmPhase2Controller::class, 'destroyFeeSchedule']);
+    Route::post('/rcm/fee-schedules/bulk-import', [RcmPhase2Controller::class, 'bulkImportFeeSchedules']);
+
+    Route::get('/rcm/work-queues', [RcmPhase2Controller::class, 'workQueues']);
+
+    Route::get('/rcm/appeal-templates', [RcmPhase2Controller::class, 'appealTemplates']);
+    Route::post('/rcm/appeal-templates', [RcmPhase2Controller::class, 'storeAppealTemplate']);
+    Route::put('/rcm/appeal-templates/{id}', [RcmPhase2Controller::class, 'updateAppealTemplate']);
+    Route::delete('/rcm/appeal-templates/{id}', [RcmPhase2Controller::class, 'destroyAppealTemplate']);
+    Route::post('/rcm/denials/generate-appeal', [RcmPhase2Controller::class, 'generateAppealLetter']);
+    Route::post('/rcm/denials/escalate', [RcmPhase2Controller::class, 'escalateDenials']);
+
+    Route::post('/rcm/payments/batch-allocate', [RcmPhase2Controller::class, 'batchAllocatePayment']);
+
+    Route::get('/rcm/followups', [RcmPhase2Controller::class, 'followups']);
+    Route::post('/rcm/followups', [RcmPhase2Controller::class, 'storeFollowup']);
+    Route::put('/rcm/followups/{id}', [RcmPhase2Controller::class, 'updateFollowup']);
+    Route::delete('/rcm/followups/{id}', [RcmPhase2Controller::class, 'destroyFollowup']);
+
+    Route::post('/rcm/underpayments/detect', [RcmPhase2Controller::class, 'detectUnderpayments']);
+    Route::get('/rcm/underpayments', [RcmPhase2Controller::class, 'underpayments']);
+    Route::put('/rcm/underpayments/{id}', [RcmPhase2Controller::class, 'updateUnderpayment']);
+
+    Route::get('/rcm/export/claims', [RcmPhase2Controller::class, 'exportClaims']);
+    Route::get('/rcm/export/denials', [RcmPhase2Controller::class, 'exportDenials']);
+
+    Route::post('/rcm/client-reports/generate', [RcmPhase2Controller::class, 'generateClientReport']);
+    Route::get('/rcm/client-reports', [RcmPhase2Controller::class, 'clientReports']);
+
+    Route::get('/rcm/patient-statements', [RcmPhase2Controller::class, 'patientStatements']);
+    Route::post('/rcm/patient-statements', [RcmPhase2Controller::class, 'storePatientStatement']);
+    Route::put('/rcm/patient-statements/{id}', [RcmPhase2Controller::class, 'updatePatientStatement']);
+    Route::post('/rcm/patient-statements/generate', [RcmPhase2Controller::class, 'generatePatientStatements']);
+
+    Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
+    Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);
+    Route::put('/rcm/eligibility/{id}', [RcmPhase2Controller::class, 'updateEligibilityCheck']);
+
+    Route::post('/rcm/era/parse', [RcmPhase2Controller::class, 'parseEra']);
+
+    Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
+    Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);
 
     // ── Funding Hub ──
     Route::prefix('funding')->group(function () {

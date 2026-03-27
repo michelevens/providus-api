@@ -58,4 +58,7 @@ class Claim extends Model
     public function serviceLines(): HasMany { return $this->hasMany(ClaimServiceLine::class); }
     public function denials(): HasMany { return $this->hasMany(ClaimDenial::class); }
     public function paymentAllocations(): HasMany { return $this->hasMany(PaymentAllocation::class); }
+    public function followups(): HasMany { return $this->hasMany(PayerFollowup::class); }
+    public function underpaymentFlags(): HasMany { return $this->hasMany(UnderpaymentFlag::class); }
+    public function patientStatements(): HasMany { return $this->hasMany(PatientStatement::class); }
 }
