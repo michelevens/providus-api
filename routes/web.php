@@ -105,7 +105,7 @@ Route::get('/seed-demo-billing', function () {
         $claimIds = [];
         $count = \App\Models\Claim::where('agency_id', $aid)->count();
         foreach ($claimData as $i => $cd) {
-            $c = \App\Models\Claim::firstOrCreate(
+            $c = \App\Models\Claim::updateOrCreate(
                 ['agency_id' => $aid, 'patient_name' => $cd['patient_name'], 'date_of_service' => $cd['date_of_service']],
                 array_merge($cd, [
                     'agency_id' => $aid,
