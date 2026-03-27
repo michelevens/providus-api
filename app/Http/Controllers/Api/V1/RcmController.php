@@ -147,22 +147,6 @@ class RcmController extends Controller
                     'notes' => $row['notes'] ?? null,
                 ]);
 
-                // Auto-create denial record if status is denied
-                if ($claim->status === 'denied') {
-                    ClaimDenial::create([
-                        'agency_id' => $agencyId,
-                        'claim_id' => $claim->id,
-                        'billing_client_id' => $claim->billing_client_id,
-                        'denial_category' => 'other',
-                        'denial_reason' => $row['denial_reason'] ?? 'Imported as denied',
-                        'denied_amount' => $claim->total_charges,
-                        'status' => 'new',
-                        'priority' => 'normal',
-                        'denial_date' => $claim->date_of_service,
-                        'created_by' => $userId,
-                    ]);
-                }
-
                 // Create service lines if CPT code provided
                 if (!empty($row['cpt_code'])) {
                     ClaimServiceLine::create([
@@ -204,7 +188,6 @@ class RcmController extends Controller
         $paidCount = $claims->whereIn('status', ['paid', 'partial_paid'])->count();
         $deniedCount = $claims->where('status', 'denied')->count();
         $totalPatientResp = $claims->sum(fn($c) => (float) $c->patient_responsibility);
-        $totalDeniedAmount = $claims->where('status', 'denied')->sum(fn($c) => (float) $c->total_charges);
 
         return response()->json(['success' => true, 'data' => [
             'total_claims' => $totalClaims,
@@ -212,7 +195,6 @@ class RcmController extends Controller
             'total_paid' => round($totalPaid, 2),
             'total_balance' => round($totalBalance, 2),
             'total_patient_responsibility' => round($totalPatientResp, 2),
-            'total_denied_amount' => round($totalDeniedAmount, 2),
             'pending_count' => $pendingCount,
             'paid_count' => $paidCount,
             'denied_count' => $deniedCount,
@@ -295,41 +277,6 @@ class RcmController extends Controller
             'total_recovered' => $totalRecovered, 'appeal_success_rate' => $appealRate,
             'overdue_appeals' => $overdue, 'by_category' => $byCategory,
         ]]);
-    }
-
-    public function backfillDenials(Request $request): JsonResponse
-    {
-        $agencyId = $request->user()->agency_id;
-        $userId = $request->user()->id;
-
-        // Find denied claims that have no ClaimDenial record
-        $deniedClaims = Claim::where('agency_id', $agencyId)
-            ->where('status', 'denied')
-            ->whereDoesntHave('denials')
-            ->get();
-
-        $created = 0;
-        foreach ($deniedClaims as $claim) {
-            ClaimDenial::create([
-                'agency_id' => $agencyId,
-                'claim_id' => $claim->id,
-                'billing_client_id' => $claim->billing_client_id,
-                'denial_category' => 'other',
-                'denial_reason' => $claim->denial_reason ?? 'Imported as denied',
-                'denied_amount' => $claim->total_charges,
-                'status' => 'new',
-                'priority' => 'normal',
-                'denial_date' => $claim->date_of_service,
-                'created_by' => $userId,
-            ]);
-            $created++;
-        }
-
-        return response()->json([
-            'success' => true,
-            'backfilled' => $created,
-            'message' => "Created {$created} denial records for existing denied claims.",
-        ]);
     }
 
     // ── Payments ──
