@@ -417,6 +417,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
     Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial']);
+    Route::post('/rcm/denials/backfill', [RcmController::class, 'backfillDenials']);
 
     Route::get('/rcm/payments', [RcmController::class, 'payments']);
     Route::post('/rcm/payments', [RcmController::class, 'storePayment']);
