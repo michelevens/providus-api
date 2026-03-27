@@ -424,6 +424,49 @@ class RcmController extends Controller
         return response()->json(['success' => true]);
     }
 
+    public function bulkImportCharges(Request $request): JsonResponse
+    {
+        $request->validate(['charges' => 'required|array|min:1|max:500']);
+        $agencyId = $request->user()->agency_id;
+        $userId = $request->user()->id;
+        $created = 0;
+        $errors = [];
+
+        foreach ($request->charges as $i => $row) {
+            try {
+                if (empty($row['date_of_service'])) { $errors[] = "Row " . ($i + 1) . ": date_of_service required"; continue; }
+                if (empty($row['cpt_code'])) { $errors[] = "Row " . ($i + 1) . ": cpt_code required"; continue; }
+
+                ChargeEntry::create([
+                    'agency_id' => $agencyId,
+                    'created_by' => $userId,
+                    'billing_client_id' => $row['billing_client_id'] ?? null,
+                    'provider_name' => $row['provider_name'] ?? null,
+                    'patient_name' => $row['patient_name'] ?? null,
+                    'payer_name' => $row['payer_name'] ?? null,
+                    'date_of_service' => $row['date_of_service'],
+                    'cpt_code' => $row['cpt_code'],
+                    'cpt_description' => $row['cpt_description'] ?? '',
+                    'modifiers' => $row['modifiers'] ?? '',
+                    'icd_codes' => $row['icd_codes'] ?? '',
+                    'icd_descriptions' => $row['icd_descriptions'] ?? '',
+                    'units' => $row['units'] ?? 1,
+                    'charge_amount' => $row['charge_amount'] ?? $row['total_charges'] ?? 0,
+                    'allowed_amount' => $row['allowed_amount'] ?? 0,
+                    'place_of_service' => $row['place_of_service'] ?? null,
+                    'authorization_number' => $row['authorization_number'] ?? null,
+                    'status' => $row['status'] ?? 'pending',
+                    'notes' => $row['notes'] ?? null,
+                ]);
+                $created++;
+            } catch (\Exception $e) {
+                $errors[] = "Row " . ($i + 1) . ": " . $e->getMessage();
+            }
+        }
+
+        return response()->json(['success' => true, 'imported' => $created, 'errors' => $errors, 'total_submitted' => count($request->charges)], 201);
+    }
+
     // ── AR Aging ──
 
     public function arAging(Request $request): JsonResponse

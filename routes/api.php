@@ -428,6 +428,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/charges', [RcmController::class, 'storeCharge']);
     Route::put('/rcm/charges/{id}', [RcmController::class, 'updateCharge']);
     Route::delete('/rcm/charges/{id}', [RcmController::class, 'destroyCharge']);
+    Route::post('/rcm/charges/bulk-import', [RcmController::class, 'bulkImportCharges']);
 
     Route::get('/rcm/ar-aging', [RcmController::class, 'arAging']);
 
