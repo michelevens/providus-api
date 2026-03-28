@@ -909,9 +909,8 @@ class RcmPhase2Controller extends Controller
                 $dos = $row['date_of_service'] ?? ($row['service_lines'][0]['date_of_service'] ?? null);
                 if (!$dos) { $errors[] = "Claim {$row['claim_number']}: no DOS"; continue; }
 
-                // Duplicate check: skip if same claim already exists (from a prior import)
+                // Duplicate check 1: same claim_number + date_of_service
                 $claimNum = $row['claim_number'] ?? null;
-                $existingClaim = null;
                 if ($claimNum) {
                     $dupeQuery = Claim::where('agency_id', $aid)
                         ->where('claim_number', $claimNum)
@@ -919,9 +918,20 @@ class RcmPhase2Controller extends Controller
                     if (!empty($row['patient_name'])) {
                         $dupeQuery->where('patient_name', $row['patient_name']);
                     }
-                    $existingClaim = $dupeQuery->first();
-                    if ($existingClaim) {
+                    if ($dupeQuery->exists()) {
                         $errors[] = "Claim {$claimNum}: skipped (already exists)";
+                        continue;
+                    }
+                }
+                // Duplicate check 2: same patient + date_of_service + total_charges (cross-source)
+                $charges = (float) ($row['total_charges'] ?? 0);
+                if (!empty($row['patient_name']) && $charges > 0) {
+                    $dupeByPatient = Claim::where('agency_id', $aid)
+                        ->where('patient_name', $row['patient_name'])
+                        ->where('date_of_service', $dos)
+                        ->where('total_charges', $charges);
+                    if ($dupeByPatient->exists()) {
+                        $errors[] = "Claim " . ($claimNum ?? 'unknown') . ": skipped (same patient/DOS/charges exists)";
                         continue;
                     }
                 }

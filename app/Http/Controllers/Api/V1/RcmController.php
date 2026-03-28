@@ -117,16 +117,27 @@ class RcmController extends Controller
                     $claimNumber = 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT);
                 }
 
-                // Duplicate check: same agency + claim_number + date_of_service + patient_name
-                $dupeQuery = Claim::where('agency_id', $agencyId)
+                // Duplicate check 1: same claim_number + date_of_service
+                $dupeByNumber = Claim::where('agency_id', $agencyId)
                     ->where('claim_number', $claimNumber)
                     ->where('date_of_service', $row['date_of_service']);
                 if (!empty($row['patient_name'])) {
-                    $dupeQuery->where('patient_name', $row['patient_name']);
+                    $dupeByNumber->where('patient_name', $row['patient_name']);
                 }
-                if ($dupeQuery->exists()) {
+                if ($dupeByNumber->exists()) {
                     $errors[] = "Row " . ($i + 1) . ": duplicate claim ({$claimNumber} on {$row['date_of_service']})";
                     continue;
+                }
+                // Duplicate check 2: same patient + date_of_service + total_charges (cross-source)
+                if (!empty($row['patient_name']) && !empty($row['total_charges'])) {
+                    $dupeByPatient = Claim::where('agency_id', $agencyId)
+                        ->where('patient_name', $row['patient_name'])
+                        ->where('date_of_service', $row['date_of_service'])
+                        ->where('total_charges', (float) $row['total_charges']);
+                    if ($dupeByPatient->exists()) {
+                        $errors[] = "Row " . ($i + 1) . ": duplicate (same patient/DOS/charges as existing claim)";
+                        continue;
+                    }
                 }
 
                 $claim = Claim::create([
