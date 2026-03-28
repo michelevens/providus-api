@@ -451,6 +451,7 @@ class RcmController extends Controller
                 }
 
                 // Try to match existing claim — prefer claim_number, fall back to patient+DOS
+                $dosDate = substr($dos, 0, 10); // normalize to YYYY-MM-DD
                 $claim = null;
                 if ($claimNumber) {
                     $claim = Claim::where('agency_id', $agencyId)
@@ -459,12 +460,19 @@ class RcmController extends Controller
                 }
                 if (!$claim && $patientName) {
                     $query = Claim::where('agency_id', $agencyId)
-                        ->where('patient_name', $patientName)
-                        ->where('date_of_service', $dos);
+                        ->whereRaw('UPPER(patient_name) = ?', [strtoupper($patientName)])
+                        ->whereDate('date_of_service', $dosDate);
                     if (!empty($row['total_charges'])) {
                         $query->where('total_charges', (float) $row['total_charges']);
                     }
                     $claim = $query->first();
+                }
+                // Last resort: match by patient name + DOS only (no charges check)
+                if (!$claim && $patientName) {
+                    $claim = Claim::where('agency_id', $agencyId)
+                        ->whereRaw('UPPER(patient_name) = ?', [strtoupper($patientName)])
+                        ->whereDate('date_of_service', $dosDate)
+                        ->first();
                 }
 
                 if ($claim) {
