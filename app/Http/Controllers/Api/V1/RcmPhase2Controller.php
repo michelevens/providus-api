@@ -909,8 +909,9 @@ class RcmPhase2Controller extends Controller
                 $dos = $row['date_of_service'] ?? ($row['service_lines'][0]['date_of_service'] ?? null);
                 if (!$dos) { $errors[] = "Claim {$row['claim_number']}: no DOS"; continue; }
 
-                // Duplicate check: same agency + claim_number + date_of_service + patient_name
+                // Duplicate check: skip if same claim already exists (from a prior import)
                 $claimNum = $row['claim_number'] ?? null;
+                $existingClaim = null;
                 if ($claimNum) {
                     $dupeQuery = Claim::where('agency_id', $aid)
                         ->where('claim_number', $claimNum)
@@ -918,8 +919,9 @@ class RcmPhase2Controller extends Controller
                     if (!empty($row['patient_name'])) {
                         $dupeQuery->where('patient_name', $row['patient_name']);
                     }
-                    if ($dupeQuery->exists()) {
-                        $errors[] = "Claim {$claimNum}: duplicate (already exists for {$dos})";
+                    $existingClaim = $dupeQuery->first();
+                    if ($existingClaim) {
+                        $errors[] = "Claim {$claimNum}: skipped (already exists)";
                         continue;
                     }
                 }
