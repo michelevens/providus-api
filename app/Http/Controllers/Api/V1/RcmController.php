@@ -521,6 +521,7 @@ class RcmController extends Controller
                     $patientResp = (float) ($row['patient_responsibility'] ?? 0);
                     $denialReason = $row['denial_reason'] ?? null;
                     $status = strtolower($row['status'] ?? '');
+                    $checkNumber = $row['check_number'] ?? null;
 
                     if ($paidAmount > 0) {
                         $claim->total_paid = $paidAmount;
@@ -528,10 +529,51 @@ class RcmController extends Controller
                         $claim->balance = $claim->total_charges - $paidAmount - $patientResp;
                         $claim->status = $claim->balance <= 0 ? 'paid' : 'partial_paid';
                         $claim->paid_date = $row['paid_date'] ?? now()->toDateString();
-                        $claim->check_number = $row['check_number'] ?? $claim->check_number;
+                        $claim->check_number = $checkNumber ?? $claim->check_number;
+
+                        // Create ClaimPayment record (dedupe by check_number + claim)
+                        if ($checkNumber) {
+                            $existingPayment = ClaimPayment::where('agency_id', $agencyId)
+                                ->where('check_number', $checkNumber)->first();
+                            if (!$existingPayment) {
+                                $existingPayment = ClaimPayment::create([
+                                    'agency_id' => $agencyId,
+                                    'created_by' => $request->user()->id,
+                                    'payer_name' => $row['payer_name'] ?? $claim->payer_name,
+                                    'payment_type' => 'eft',
+                                    'check_number' => $checkNumber,
+                                    'payment_date' => $row['paid_date'] ?? now()->toDateString(),
+                                    'total_amount' => $paidAmount,
+                                    'remaining_amount' => 0,
+                                    'status' => 'posted',
+                                ]);
+                            } else {
+                                $existingPayment->increment('total_amount', $paidAmount);
+                            }
+                            // Create allocation linking payment to claim
+                            PaymentAllocation::firstOrCreate(
+                                ['claim_payment_id' => $existingPayment->id, 'claim_id' => $claim->id],
+                                ['paid_amount' => $paidAmount, 'charged_amount' => $claim->total_charges, 'patient_responsibility' => $patientResp]
+                            );
+                        }
                     } elseif ($status === 'denied' || $denialReason) {
                         $claim->status = 'denied';
                         $claim->denial_reason = $denialReason;
+
+                        // Create ClaimDenial record
+                        ClaimDenial::firstOrCreate(
+                            ['agency_id' => $agencyId, 'claim_id' => $claim->id],
+                            [
+                                'billing_client_id' => $claim->billing_client_id,
+                                'denial_category' => 'other',
+                                'denial_reason' => $denialReason ?? 'Denied per payer remittance',
+                                'denied_amount' => $claim->total_charges,
+                                'status' => 'new',
+                                'priority' => 'normal',
+                                'denial_date' => $dosDate,
+                                'created_by' => $request->user()->id,
+                            ]
+                        );
                     } elseif ($status && in_array($status, ['paid', 'denied', 'pending', 'submitted', 'partial_paid'])) {
                         $claim->status = $status;
                     }
