@@ -12,6 +12,8 @@ use App\Models\EligibilityCheck;
 use App\Models\FeeSchedule;
 use App\Models\PatientStatement;
 use App\Models\PayerFollowup;
+use App\Models\PayerRule;
+use App\Models\ProviderFeedback;
 use App\Models\UnderpaymentFlag;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -867,5 +869,350 @@ class RcmPhase2Controller extends Controller
             'fee_schedule' => $feeSchedule,
             'total_payer_claims' => $totalPayerClaims,
         ]]);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 13. PAYER INTELLIGENCE HUB
+    // ══════════════════════════════════════════════════
+
+    public function payerRules(Request $request): JsonResponse
+    {
+        $rules = PayerRule::where('agency_id', $request->user()->agency_id)->orderBy('payer_name')->get();
+        return response()->json(['success' => true, 'data' => $rules]);
+    }
+
+    public function showPayerRule(Request $request, string $payerName): JsonResponse
+    {
+        $rule = PayerRule::where('agency_id', $request->user()->agency_id)
+            ->where('payer_name', $payerName)->first();
+
+        // Also pull live stats for this payer
+        $aid = $request->user()->agency_id;
+        $claims = Claim::where('agency_id', $aid)->where('payer_name', $payerName)->get();
+        $denials = ClaimDenial::where('agency_id', $aid)
+            ->whereHas('claim', fn($q) => $q->where('payer_name', $payerName))->get();
+
+        $stats = [
+            'total_claims' => $claims->count(),
+            'total_charged' => round($claims->sum(fn($c) => (float)$c->total_charges), 2),
+            'total_paid' => round($claims->sum(fn($c) => (float)$c->total_paid), 2),
+            'denied_count' => $claims->where('status', 'denied')->count(),
+            'denial_rate' => $claims->count() > 0 ? round($claims->where('status', 'denied')->count() / $claims->count() * 100, 1) : 0,
+            'avg_days_to_pay' => $claims->whereNotNull('paid_date')->count() > 0
+                ? round($claims->whereNotNull('paid_date')->avg(fn($c) => abs(now()->parse($c->date_of_service)->diffInDays(now()->parse($c->paid_date)))))
+                : null,
+            'top_denial_categories' => $denials->groupBy('denial_category')
+                ->map(fn($g, $k) => ['category' => $k, 'count' => $g->count()])
+                ->sortByDesc('count')->values()->take(5),
+            'collection_rate' => $claims->sum(fn($c) => (float)$c->total_charges) > 0
+                ? round($claims->sum(fn($c) => (float)$c->total_paid) / $claims->sum(fn($c) => (float)$c->total_charges) * 100, 1) : 0,
+        ];
+
+        return response()->json(['success' => true, 'data' => [
+            'rule' => $rule,
+            'stats' => $stats,
+        ]]);
+    }
+
+    public function storePayerRule(Request $request): JsonResponse
+    {
+        $request->validate(['payer_name' => 'required|string|max:100']);
+        $rule = PayerRule::updateOrCreate(
+            ['agency_id' => $request->user()->agency_id, 'payer_name' => $request->payer_name],
+            array_merge(
+                $request->only([
+                    'timely_filing_days', 'appeal_filing_days', 'corrected_claim_days',
+                    'portal_url', 'provider_phone', 'claims_address', 'appeals_address', 'appeals_fax',
+                    'electronic_payer_id', 'auth_required_cpts', 'bundling_rules',
+                    'medical_necessity_notes', 'common_denial_reasons', 'credentialing_requirements',
+                    'reimbursement_notes', 'billing_tips',
+                ]),
+                ['created_by' => $request->user()->id]
+            )
+        );
+        return response()->json(['success' => true, 'data' => $rule], 201);
+    }
+
+    public function updatePayerRule(Request $request, int $id): JsonResponse
+    {
+        $rule = PayerRule::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $rule->update($request->only([
+            'payer_name', 'timely_filing_days', 'appeal_filing_days', 'corrected_claim_days',
+            'portal_url', 'provider_phone', 'claims_address', 'appeals_address', 'appeals_fax',
+            'electronic_payer_id', 'auth_required_cpts', 'bundling_rules',
+            'medical_necessity_notes', 'common_denial_reasons', 'credentialing_requirements',
+            'reimbursement_notes', 'billing_tips',
+        ]));
+        return response()->json(['success' => true, 'data' => $rule]);
+    }
+
+    public function destroyPayerRule(Request $request, int $id): JsonResponse
+    {
+        PayerRule::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        return response()->json(['success' => true]);
+    }
+
+    // Check claim against payer rules before submission
+    public function checkPayerRules(Request $request): JsonResponse
+    {
+        $request->validate(['payer_name' => 'required', 'date_of_service' => 'required|date']);
+        $aid = $request->user()->agency_id;
+        $rule = PayerRule::where('agency_id', $aid)->where('payer_name', $request->payer_name)->first();
+
+        $warnings = [];
+        $dos = now()->parse($request->date_of_service);
+        $daysSinceDos = $dos->diffInDays(now());
+
+        if ($rule) {
+            // Timely filing check
+            if ($rule->timely_filing_days && $daysSinceDos > $rule->timely_filing_days) {
+                $warnings[] = ['level' => 'critical', 'message' => "TIMELY FILING RISK: {$daysSinceDos} days since DOS. {$rule->payer_name} limit is {$rule->timely_filing_days} days."];
+            } elseif ($rule->timely_filing_days && $daysSinceDos > $rule->timely_filing_days * 0.8) {
+                $warnings[] = ['level' => 'warning', 'message' => "Approaching timely filing limit: {$daysSinceDos}/{$rule->timely_filing_days} days."];
+            }
+
+            // Auth requirement check
+            $cpt = $request->input('cpt_code');
+            if ($cpt && $rule->auth_required_cpts && in_array($cpt, $rule->auth_required_cpts)) {
+                $warnings[] = ['level' => 'warning', 'message' => "CPT {$cpt} requires prior authorization for {$rule->payer_name}."];
+            }
+
+            // Bundling check
+            if ($rule->bundling_rules) {
+                foreach ($rule->bundling_rules as $br) {
+                    if ($cpt === ($br['primary'] ?? '') || $cpt === ($br['cannot_bill_with'] ?? '')) {
+                        $warnings[] = ['level' => 'info', 'message' => "Bundling rule: {$br['primary']} cannot be billed with {$br['cannot_bill_with']}."];
+                    }
+                }
+            }
+        } else {
+            $warnings[] = ['level' => 'info', 'message' => "No payer rules configured for {$request->payer_name}. Consider adding them."];
+        }
+
+        return response()->json(['success' => true, 'data' => [
+            'payer_name' => $request->payer_name,
+            'rule' => $rule,
+            'warnings' => $warnings,
+            'days_since_dos' => $daysSinceDos,
+        ]]);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 14. DUPLICATE CLAIM DETECTION
+    // ══════════════════════════════════════════════════
+
+    public function detectDuplicates(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $claims = Claim::where('agency_id', $aid)->get();
+
+        $duplicates = [];
+        $seen = [];
+
+        foreach ($claims as $claim) {
+            // Key: patient + DOS + payer + charges
+            $key = strtolower(trim($claim->patient_name ?? '')) . '|' .
+                   ($claim->date_of_service ?? '') . '|' .
+                   strtolower(trim($claim->payer_name ?? '')) . '|' .
+                   number_format((float)$claim->total_charges, 2);
+
+            if (isset($seen[$key])) {
+                if (!isset($duplicates[$key])) {
+                    $duplicates[$key] = ['original' => $seen[$key], 'duplicates' => []];
+                }
+                $duplicates[$key]['duplicates'][] = [
+                    'id' => $claim->id,
+                    'claim_number' => $claim->claim_number,
+                    'status' => $claim->status,
+                    'submitted_date' => $claim->submitted_date,
+                ];
+            } else {
+                $seen[$key] = [
+                    'id' => $claim->id,
+                    'claim_number' => $claim->claim_number,
+                    'patient_name' => $claim->patient_name,
+                    'payer_name' => $claim->payer_name,
+                    'date_of_service' => $claim->date_of_service,
+                    'total_charges' => $claim->total_charges,
+                    'status' => $claim->status,
+                ];
+            }
+        }
+
+        $groups = array_values($duplicates);
+
+        return response()->json(['success' => true, 'data' => [
+            'duplicate_groups' => $groups,
+            'total_duplicates' => array_sum(array_map(fn($g) => count($g['duplicates']), $groups)),
+            'total_claims_checked' => $claims->count(),
+        ]]);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 15. PROVIDER FEEDBACK LOOP
+    // ══════════════════════════════════════════════════
+
+    public function providerFeedback(Request $request): JsonResponse
+    {
+        $query = ProviderFeedback::where('agency_id', $request->user()->agency_id)
+            ->with(['claim:id,claim_number', 'denial:id,denial_category,denial_code']);
+        if ($p = $request->input('provider_name')) $query->where('provider_name', $p);
+        if ($s = $request->input('status')) $query->where('status', $s);
+        return response()->json(['success' => true, 'data' => $query->orderByDesc('created_at')->get()]);
+    }
+
+    public function storeProviderFeedback(Request $request): JsonResponse
+    {
+        $request->validate(['provider_name' => 'required', 'feedback_type' => 'required', 'issue' => 'required', 'recommendation' => 'required']);
+        $fb = ProviderFeedback::create([
+            'agency_id' => $request->user()->agency_id,
+            'created_by' => $request->user()->id,
+            ...$request->only([
+                'provider_id', 'provider_name', 'claim_id', 'denial_id',
+                'feedback_type', 'cpt_code', 'payer_name', 'issue', 'recommendation',
+            ]),
+        ]);
+        return response()->json(['success' => true, 'data' => $fb], 201);
+    }
+
+    public function updateProviderFeedback(Request $request, int $id): JsonResponse
+    {
+        $fb = ProviderFeedback::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $fb->update($request->only(['status', 'sent_date', 'provider_response']));
+        return response()->json(['success' => true, 'data' => $fb]);
+    }
+
+    // Auto-generate feedback from denials with coding/documentation issues
+    public function autoGenerateFeedback(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $uid = $request->user()->id;
+
+        $codingDenials = ClaimDenial::where('agency_id', $aid)
+            ->whereIn('denial_category', ['coding', 'documentation', 'medical_necessity', 'authorization'])
+            ->whereDoesntHave('claim', fn($q) => $q->whereHas('provider'))  // skip if no provider
+            ->with(['claim:id,claim_number,provider_name,payer_name,date_of_service'])
+            ->get();
+
+        // Also check denials that DO have provider info
+        $codingDenials = ClaimDenial::where('agency_id', $aid)
+            ->whereIn('denial_category', ['coding', 'documentation', 'medical_necessity', 'authorization'])
+            ->with(['claim:id,claim_number,provider_name,payer_name,date_of_service'])
+            ->get();
+
+        $created = 0;
+        foreach ($codingDenials as $denial) {
+            $claim = $denial->claim;
+            if (!$claim || !$claim->provider_name) continue;
+
+            // Skip if feedback already exists for this denial
+            $exists = ProviderFeedback::where('agency_id', $aid)->where('denial_id', $denial->id)->exists();
+            if ($exists) continue;
+
+            $recommendation = match($denial->denial_category) {
+                'coding' => "Review CPT/ICD coding for accuracy. Ensure codes match the documentation and services rendered. Consider using more specific codes.",
+                'documentation' => "Ensure clinical documentation supports the billed services. Include treatment goals, progress, and medical necessity justification.",
+                'medical_necessity' => "Document medical necessity clearly. Include symptom severity, functional impairment, and why this level of service is required.",
+                'authorization' => "Verify prior authorization is obtained before rendering services. Check authorization number and covered date range.",
+                default => "Review the denial reason and adjust billing practices accordingly.",
+            };
+
+            ProviderFeedback::create([
+                'agency_id' => $aid,
+                'provider_name' => $claim->provider_name,
+                'claim_id' => $claim->id,
+                'denial_id' => $denial->id,
+                'feedback_type' => $denial->denial_category,
+                'cpt_code' => $denial->denial_code,
+                'payer_name' => $claim->payer_name,
+                'issue' => "Claim {$claim->claim_number} denied by {$claim->payer_name}: {$denial->denial_reason}",
+                'recommendation' => $recommendation,
+                'status' => 'pending',
+                'created_by' => $uid,
+            ]);
+            $created++;
+        }
+
+        return response()->json(['success' => true, 'generated' => $created]);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 16. REAL-TIME ELIGIBILITY (STEDI)
+    // ══════════════════════════════════════════════════
+
+    public function realTimeEligibility(Request $request): JsonResponse
+    {
+        $request->validate(['patient_name' => 'required', 'payer_name' => 'required', 'member_id' => 'required']);
+        $aid = $request->user()->agency_id;
+        $config = $request->user()->agency->config ?? null;
+        $stediNpi = $config->stedi_npi ?? null;
+
+        $check = EligibilityCheck::create([
+            'agency_id' => $aid,
+            'created_by' => $request->user()->id,
+            'status' => 'pending',
+            ...$request->only(['billing_client_id', 'patient_name', 'patient_dob', 'member_id', 'payer_name', 'payer_id', 'provider_npi']),
+        ]);
+
+        // Try Stedi API if configured
+        $stediKey = env('STEDI_API_KEY');
+        if ($stediKey && $request->member_id) {
+            try {
+                $response = \Illuminate\Support\Facades\Http::withHeaders([
+                    'Authorization' => "Key {$stediKey}",
+                    'Content-Type' => 'application/json',
+                ])->post('https://healthcare.us.stedi.com/2024-04-01/change/medicalnetwork/eligibility/v3', [
+                    'controlNumber' => (string) rand(100000000, 999999999),
+                    'tradingPartnerServiceId' => $request->payer_id ?? $request->payer_name,
+                    'provider' => [
+                        'organizationName' => $request->user()->agency->name ?? '',
+                        'npi' => $request->provider_npi ?? $stediNpi ?? '',
+                    ],
+                    'subscriber' => [
+                        'memberId' => $request->member_id,
+                        'firstName' => explode(' ', $request->patient_name)[0] ?? '',
+                        'lastName' => explode(' ', $request->patient_name)[1] ?? '',
+                        'dateOfBirth' => $request->patient_dob ?? '',
+                    ],
+                    'encounter' => ['serviceTypeCodes' => ['30']], // Health benefit plan coverage
+                ]);
+
+                $data = $response->json();
+                $isActive = ($data['planStatus'][0]['statusCode'] ?? '') === '1';
+                $planName = $data['planStatus'][0]['planDetails'] ?? $data['planName'] ?? null;
+
+                // Extract benefits
+                $copay = null; $deductible = null; $deductibleMet = null; $oopMax = null; $oopMet = null;
+                foreach ($data['benefitsInformation'] ?? [] as $b) {
+                    if (($b['code'] ?? '') === 'B' && ($b['insuranceTypeCode'] ?? '') === 'IND') $copay = $b['benefitAmount'] ?? null;
+                    if (($b['code'] ?? '') === 'C') $deductible = $b['benefitAmount'] ?? null;
+                    if (($b['code'] ?? '') === 'G') $oopMax = $b['benefitAmount'] ?? null;
+                }
+
+                $check->update([
+                    'status' => $isActive ? 'active' : 'inactive',
+                    'is_active' => $isActive,
+                    'plan_name' => $planName,
+                    'copay' => $copay,
+                    'deductible' => $deductible,
+                    'deductible_met' => $deductibleMet,
+                    'out_of_pocket_max' => $oopMax,
+                    'oop_met' => $oopMet,
+                    'raw_response' => $data,
+                ]);
+            } catch (\Exception $e) {
+                $check->update([
+                    'status' => 'error',
+                    'error_message' => 'Stedi API error: ' . $e->getMessage(),
+                ]);
+            }
+        } else {
+            $check->update([
+                'status' => 'pending',
+                'error_message' => $stediKey ? 'Member ID required for real-time check.' : 'STEDI_API_KEY not configured. Set it in environment variables for real-time eligibility.',
+            ]);
+        }
+
+        return response()->json(['success' => true, 'data' => $check], 201);
     }
 }

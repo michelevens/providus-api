@@ -479,6 +479,26 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
     Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);
 
+    // Payer Intelligence Hub
+    Route::get('/rcm/payer-rules', [RcmPhase2Controller::class, 'payerRules']);
+    Route::get('/rcm/payer-rules/{payerName}', [RcmPhase2Controller::class, 'showPayerRule']);
+    Route::post('/rcm/payer-rules', [RcmPhase2Controller::class, 'storePayerRule']);
+    Route::put('/rcm/payer-rules/{id}', [RcmPhase2Controller::class, 'updatePayerRule']);
+    Route::delete('/rcm/payer-rules/{id}', [RcmPhase2Controller::class, 'destroyPayerRule']);
+    Route::post('/rcm/payer-rules/check', [RcmPhase2Controller::class, 'checkPayerRules']);
+
+    // Duplicate Detection
+    Route::get('/rcm/duplicates', [RcmPhase2Controller::class, 'detectDuplicates']);
+
+    // Provider Feedback
+    Route::get('/rcm/provider-feedback', [RcmPhase2Controller::class, 'providerFeedback']);
+    Route::post('/rcm/provider-feedback', [RcmPhase2Controller::class, 'storeProviderFeedback']);
+    Route::put('/rcm/provider-feedback/{id}', [RcmPhase2Controller::class, 'updateProviderFeedback']);
+    Route::post('/rcm/provider-feedback/auto-generate', [RcmPhase2Controller::class, 'autoGenerateFeedback']);
+
+    // Real-time Eligibility (Stedi)
+    Route::post('/rcm/eligibility/realtime', [RcmPhase2Controller::class, 'realTimeEligibility']);
+
     // ── Funding Hub ──
     Route::prefix('funding')->group(function () {
         Route::get('/opportunities', [FundingController::class, 'opportunities']);
