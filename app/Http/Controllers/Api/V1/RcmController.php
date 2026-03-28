@@ -217,27 +217,32 @@ class RcmController extends Controller
             return response()->json(['success' => false, 'message' => 'Send {"confirm":"DELETE_ALL_CLAIMS"} to proceed'], 422);
         }
 
-        $claimIds = Claim::where('agency_id', $agencyId)->pluck('id')->toArray();
+        try {
+            $claimIds = Claim::where('agency_id', $agencyId)->pluck('id')->toArray();
 
-        // Delete related records (service lines & allocations don't have agency_id, use claim_id)
-        $deletedAllocations = $claimIds ? PaymentAllocation::whereIn('claim_id', $claimIds)->delete() : 0;
-        $deletedServiceLines = $claimIds ? ClaimServiceLine::whereIn('claim_id', $claimIds)->delete() : 0;
-        $deletedDenials = ClaimDenial::where('agency_id', $agencyId)->delete();
-        $deletedPayments = ClaimPayment::where('agency_id', $agencyId)->delete();
-        $deletedCharges = ChargeEntry::where('agency_id', $agencyId)->delete();
-        $deletedClaims = Claim::where('agency_id', $agencyId)->delete();
+            // Delete related records (service lines & allocations don't have agency_id, use claim_id)
+            $deletedServiceLines = $claimIds ? ClaimServiceLine::whereIn('claim_id', $claimIds)->delete() : 0;
+            $deletedAllocations = 0;
+            try { $deletedAllocations = $claimIds ? PaymentAllocation::whereIn('claim_id', $claimIds)->delete() : 0; } catch (\Exception $e) {}
+            $deletedDenials = ClaimDenial::where('agency_id', $agencyId)->delete();
+            $deletedPayments = ClaimPayment::where('agency_id', $agencyId)->delete();
+            $deletedCharges = ChargeEntry::where('agency_id', $agencyId)->delete();
+            $deletedClaims = Claim::where('agency_id', $agencyId)->delete();
 
-        return response()->json([
-            'success' => true,
-            'deleted' => [
-                'claims' => $deletedClaims,
-                'service_lines' => $deletedServiceLines,
-                'denials' => $deletedDenials,
-                'payments' => $deletedPayments,
-                'allocations' => $deletedAllocations,
-                'charges' => $deletedCharges,
-            ],
-        ]);
+            return response()->json([
+                'success' => true,
+                'deleted' => [
+                    'claims' => $deletedClaims,
+                    'service_lines' => $deletedServiceLines,
+                    'denials' => $deletedDenials,
+                    'payments' => $deletedPayments,
+                    'allocations' => $deletedAllocations,
+                    'charges' => $deletedCharges,
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
     }
 
     public function claimStats(Request $request): JsonResponse
