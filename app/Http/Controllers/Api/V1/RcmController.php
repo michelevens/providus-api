@@ -450,14 +450,31 @@ class RcmController extends Controller
                     continue;
                 }
 
-                // Try to match existing claim — prefer claim_number, fall back to patient+DOS
-                $dosDate = substr($dos, 0, 10); // normalize to YYYY-MM-DD
+                // Normalize name: strip middle initials, special chars, extra spaces
+                $normalizeName = function($name) {
+                    if (!$name) return '';
+                    $n = mb_strtoupper($name);
+                    // Fix encoding issues (â€™ -> ', etc.)
+                    $n = preg_replace('/\xC3\xA2\xE2\x82\xAC\xE2\x84\xA2|\xE2\x80\x99|â€™/', "'", $n);
+                    // Remove special chars except letters and spaces
+                    $n = preg_replace('/[^A-Z\s]/', '', $n);
+                    // Split into parts, remove single-letter middle initials
+                    $parts = preg_split('/\s+/', trim($n));
+                    $parts = array_values(array_filter($parts, fn($p) => strlen($p) > 1));
+                    return implode(' ', $parts);
+                };
+
+                $dosDate = substr($dos, 0, 10);
                 $claim = null;
+
+                // Match 1: exact claim_number
                 if ($claimNumber) {
                     $claim = Claim::where('agency_id', $agencyId)
                         ->where('claim_number', $claimNumber)
                         ->first();
                 }
+
+                // Match 2: exact name + DOS + charges
                 if (!$claim && $patientName) {
                     $query = Claim::where('agency_id', $agencyId)
                         ->whereRaw('UPPER(patient_name) = ?', [strtoupper($patientName)])
@@ -467,12 +484,35 @@ class RcmController extends Controller
                     }
                     $claim = $query->first();
                 }
-                // Last resort: match by patient name + DOS only (no charges check)
+
+                // Match 3: fuzzy name (no middle initial) + DOS + charges
                 if (!$claim && $patientName) {
-                    $claim = Claim::where('agency_id', $agencyId)
-                        ->whereRaw('UPPER(patient_name) = ?', [strtoupper($patientName)])
-                        ->whereDate('date_of_service', $dosDate)
-                        ->first();
+                    $normalized = $normalizeName($patientName);
+                    if ($normalized) {
+                        $candidates = Claim::where('agency_id', $agencyId)
+                            ->whereDate('date_of_service', $dosDate)
+                            ->where('total_charges', (float) ($row['total_charges'] ?? 0))
+                            ->get();
+                        foreach ($candidates as $c) {
+                            if ($normalizeName($c->patient_name) === $normalized) {
+                                $claim = $c;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Match 4: last name + DOS + charges (last resort)
+                if (!$claim && $patientName) {
+                    $lastNameParts = preg_split('/\s+/', trim($patientName));
+                    $lastName = end($lastNameParts);
+                    if ($lastName && strlen($lastName) > 1) {
+                        $claim = Claim::where('agency_id', $agencyId)
+                            ->whereRaw('UPPER(patient_name) LIKE ?', ['%' . strtoupper($lastName)])
+                            ->whereDate('date_of_service', $dosDate)
+                            ->where('total_charges', (float) ($row['total_charges'] ?? 0))
+                            ->first();
+                    }
                 }
 
                 if ($claim) {
