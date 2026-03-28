@@ -765,12 +765,20 @@ class RcmPhase2Controller extends Controller
                 $billingNpi = $parts[9] ?? '';
             }
 
-            // Subscriber/patient
+            // Subscriber (IL = insured/subscriber)
             if ($id === 'NM1' && ($parts[1] ?? '') === 'IL') {
                 $last = $parts[3] ?? '';
                 $first = $parts[4] ?? '';
                 $patientName = trim("$first $last");
                 $patientMemberId = $parts[9] ?? '';
+            }
+
+            // Dependent patient (QC = patient when different from subscriber)
+            if ($id === 'NM1' && ($parts[1] ?? '') === 'QC') {
+                $last = $parts[3] ?? '';
+                $first = $parts[4] ?? '';
+                $middle = $parts[5] ?? '';
+                $patientName = trim("$first $middle $last");
             }
 
             // Patient DOB
@@ -813,7 +821,6 @@ class RcmPhase2Controller extends Controller
 
             // Claim
             if ($id === 'CLM') {
-                if ($current) $claims[] = $current;
                 $current = [
                     'claim_number' => $parts[1] ?? '',
                     'total_charges' => (float)($parts[2] ?? 0),
@@ -858,24 +865,31 @@ class RcmPhase2Controller extends Controller
                 $currentSvcLine = null;
             }
 
-            // End of transaction — reset patient/payer for next
+            // End of transaction — save current claim, reset for next
             if ($id === 'SE') {
+                if ($current) { $claims[] = $current; $current = null; }
                 $patientName = '';
                 $patientDob = '';
                 $patientMemberId = '';
                 $payerName = '';
                 $payerId = '';
                 $icdCodes = [];
+                $currentSvcLine = null;
             }
         }
+        // Save any remaining claim
         if ($current) $claims[] = $current;
+
+        $claimCount = count($claims);
+        $svcCount = array_sum(array_map(fn($c) => count($c['service_lines'] ?? []), $claims));
+        $totalCharges = round(array_sum(array_map(fn($c) => (float)($c['total_charges'] ?? 0), $claims)), 2);
 
         return response()->json(['success' => true, 'data' => [
             'billing_provider' => $billingName,
             'billing_npi' => $billingNpi,
-            'claim_count' => count($claims),
-            'total_charges' => round(array_sum(array_column($claims, 'total_charges')), 2),
-            'service_line_count' => array_sum(array_map(fn($c) => count($c['service_lines']), $claims)),
+            'claim_count' => $claimCount,
+            'total_charges' => $totalCharges,
+            'service_line_count' => $svcCount,
             'claims' => $claims,
         ]]);
     }
