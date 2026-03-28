@@ -1573,7 +1573,46 @@ class RcmPhase2Controller extends Controller
             }
         }
 
-        return response()->json(['success' => true, 'matched' => $matched, 'unlinked_remaining' => $unlinkedCharges->count() - $matched]);
+        // Sync ALL charge statuses with their parent claim status
+        $synced = 0;
+        $linkedCharges = \App\Models\ChargeEntry::where('agency_id', $aid)
+            ->whereNotNull('claim_id')
+            ->get();
+        foreach ($linkedCharges as $charge) {
+            $claim = $claims->firstWhere('id', $charge->claim_id);
+            if ($claim && $charge->status !== $claim->status) {
+                $charge->update(['status' => $claim->status]);
+                $synced++;
+            }
+        }
+
+        return response()->json(['success' => true, 'matched' => $matched, 'synced' => $synced, 'unlinked_remaining' => $unlinkedCharges->count() - $matched]);
+    }
+
+    /**
+     * Sync all charge entry statuses to match their parent claim status.
+     */
+    public function syncChargeStatuses(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $claims = Claim::where('agency_id', $aid)->get()->keyBy('id');
+        $charges = \App\Models\ChargeEntry::where('agency_id', $aid)->whereNotNull('claim_id')->get();
+
+        $synced = 0;
+        foreach ($charges as $charge) {
+            $claim = $claims->get($charge->claim_id);
+            if ($claim && $charge->status !== $claim->status) {
+                $charge->update(['status' => $claim->status]);
+                $synced++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'synced' => $synced,
+            'total_charges' => $charges->count(),
+            'by_status' => $charges->groupBy('status')->map->count(),
+        ]);
     }
 
     /**

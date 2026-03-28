@@ -597,6 +597,10 @@ class RcmController extends Controller
                     }
 
                     $claim->save();
+
+                    // Sync charge entries to match claim status
+                    ChargeEntry::where('claim_id', $claim->id)->update(['status' => $claim->status]);
+
                     $matched++;
                 } else {
                     // No match — create as new claim

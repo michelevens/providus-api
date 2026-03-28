@@ -494,6 +494,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Reconciliation
     Route::post('/rcm/reconcile', [RcmPhase2Controller::class, 'autoReconcile']);
+    Route::post('/rcm/sync-charge-statuses', [RcmPhase2Controller::class, 'syncChargeStatuses']);
     Route::get('/rcm/reconciliation-report', [RcmPhase2Controller::class, 'reconciliationReport']);
 
     // Duplicate Detection
