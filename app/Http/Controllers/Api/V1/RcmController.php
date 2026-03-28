@@ -217,12 +217,13 @@ class RcmController extends Controller
             return response()->json(['success' => false, 'message' => 'Send {"confirm":"DELETE_ALL_CLAIMS"} to proceed'], 422);
         }
 
-        $claimIds = Claim::where('agency_id', $agencyId)->pluck('id');
+        $claimIds = Claim::where('agency_id', $agencyId)->pluck('id')->toArray();
 
-        $deletedServiceLines = ClaimServiceLine::whereIn('claim_id', $claimIds)->delete();
+        // Delete related records (service lines & allocations don't have agency_id, use claim_id)
+        $deletedAllocations = $claimIds ? PaymentAllocation::whereIn('claim_id', $claimIds)->delete() : 0;
+        $deletedServiceLines = $claimIds ? ClaimServiceLine::whereIn('claim_id', $claimIds)->delete() : 0;
         $deletedDenials = ClaimDenial::where('agency_id', $agencyId)->delete();
         $deletedPayments = ClaimPayment::where('agency_id', $agencyId)->delete();
-        $deletedAllocations = PaymentAllocation::where('agency_id', $agencyId)->delete();
         $deletedCharges = ChargeEntry::where('agency_id', $agencyId)->delete();
         $deletedClaims = Claim::where('agency_id', $agencyId)->delete();
 
