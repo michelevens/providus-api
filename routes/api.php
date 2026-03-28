@@ -422,6 +422,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::get('/rcm/payments', [RcmController::class, 'payments']);
     Route::post('/rcm/payments', [RcmController::class, 'storePayment']);
+    Route::post('/rcm/payments/bulk-match', [RcmController::class, 'bulkMatchPayments']);
     Route::put('/rcm/payments/{id}', [RcmController::class, 'updatePayment']);
     Route::delete('/rcm/payments/{id}', [RcmController::class, 'destroyPayment']);
 

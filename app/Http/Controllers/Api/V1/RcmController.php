@@ -426,6 +426,126 @@ class RcmController extends Controller
         return response()->json(['success' => true, 'data' => $payment], 201);
     }
 
+    /**
+     * Bulk match payment CSV rows to existing claims.
+     * Matches by patient_name + date_of_service (+ total_charges if provided).
+     * Updates claim with paid amount, status, check number, paid date, denial info.
+     */
+    public function bulkMatchPayments(Request $request): JsonResponse
+    {
+        $request->validate(['payments' => 'required|array|min:1|max:500']);
+        $agencyId = $request->user()->agency_id;
+        $matched = 0;
+        $created = 0;
+        $errors = [];
+
+        foreach ($request->payments as $i => $row) {
+            try {
+                $patientName = $row['patient_name'] ?? null;
+                $dos = $row['date_of_service'] ?? null;
+                $claimNumber = $row['claim_number'] ?? null;
+
+                if (!$dos) {
+                    $errors[] = "Row " . ($i + 1) . ": date_of_service required";
+                    continue;
+                }
+
+                // Try to match existing claim — prefer claim_number, fall back to patient+DOS
+                $claim = null;
+                if ($claimNumber) {
+                    $claim = Claim::where('agency_id', $agencyId)
+                        ->where('claim_number', $claimNumber)
+                        ->first();
+                }
+                if (!$claim && $patientName) {
+                    $query = Claim::where('agency_id', $agencyId)
+                        ->where('patient_name', $patientName)
+                        ->where('date_of_service', $dos);
+                    if (!empty($row['total_charges'])) {
+                        $query->where('total_charges', (float) $row['total_charges']);
+                    }
+                    $claim = $query->first();
+                }
+
+                if ($claim) {
+                    // Update existing claim with payment data
+                    $paidAmount = (float) ($row['total_paid'] ?? $row['paid_amount'] ?? 0);
+                    $patientResp = (float) ($row['patient_responsibility'] ?? 0);
+                    $denialReason = $row['denial_reason'] ?? null;
+                    $status = strtolower($row['status'] ?? '');
+
+                    if ($paidAmount > 0) {
+                        $claim->total_paid = $paidAmount;
+                        $claim->patient_responsibility = $patientResp;
+                        $claim->balance = $claim->total_charges - $paidAmount - $patientResp;
+                        $claim->status = $claim->balance <= 0 ? 'paid' : 'partial_paid';
+                        $claim->paid_date = $row['paid_date'] ?? now()->toDateString();
+                        $claim->check_number = $row['check_number'] ?? $claim->check_number;
+                    } elseif ($status === 'denied' || $denialReason) {
+                        $claim->status = 'denied';
+                        $claim->denial_reason = $denialReason;
+                    } elseif ($status && in_array($status, ['paid', 'denied', 'pending', 'submitted', 'partial_paid'])) {
+                        $claim->status = $status;
+                    }
+
+                    // Update payer info if provided and different
+                    if (!empty($row['payer_name'])) {
+                        $claim->payer_name = $row['payer_name'];
+                    }
+                    if (!empty($row['payer_id_number'])) {
+                        $claim->payer_id_number = $row['payer_id_number'];
+                    }
+
+                    $claim->save();
+                    $matched++;
+                } else {
+                    // No match — create as new claim
+                    $totalCharges = (float) ($row['total_charges'] ?? 0);
+                    $totalPaid = (float) ($row['total_paid'] ?? $row['paid_amount'] ?? 0);
+                    $status = strtolower($row['status'] ?? '');
+                    if ($totalPaid > 0 && !$status) $status = 'paid';
+                    if (!$status) $status = 'submitted';
+
+                    Claim::create([
+                        'agency_id' => $agencyId,
+                        'claim_number' => $row['claim_number'] ?? $row['payer_id_number'] ?? 'PAY-' . str_pad($i + 1, 6, '0', STR_PAD_LEFT),
+                        'created_by' => $request->user()->id,
+                        'claim_type' => '837P',
+                        'status' => $status,
+                        'billing_client_id' => $row['billing_client_id'] ?? null,
+                        'provider_name' => $row['provider_name'] ?? null,
+                        'patient_name' => $patientName,
+                        'patient_dob' => $row['patient_dob'] ?? null,
+                        'patient_member_id' => $row['patient_member_id'] ?? null,
+                        'payer_name' => $row['payer_name'] ?? null,
+                        'payer_id_number' => $row['payer_id_number'] ?? null,
+                        'date_of_service' => $dos,
+                        'total_charges' => $totalCharges,
+                        'total_paid' => $totalPaid,
+                        'patient_responsibility' => (float) ($row['patient_responsibility'] ?? 0),
+                        'balance' => $totalCharges - $totalPaid,
+                        'paid_date' => $row['paid_date'] ?? ($totalPaid > 0 ? now()->toDateString() : null),
+                        'check_number' => $row['check_number'] ?? null,
+                        'denial_reason' => $row['denial_reason'] ?? null,
+                        'submission_method' => 'electronic',
+                        'submitted_date' => $row['submitted_date'] ?? null,
+                    ]);
+                    $created++;
+                }
+            } catch (\Exception $e) {
+                $errors[] = "Row " . ($i + 1) . ": " . $e->getMessage();
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'matched' => $matched,
+            'created' => $created,
+            'errors' => $errors,
+            'total_submitted' => count($request->payments),
+        ], 201);
+    }
+
     public function updatePayment(Request $request, int $id): JsonResponse
     {
         $payment = ClaimPayment::where('agency_id', $request->user()->agency_id)->findOrFail($id);
