@@ -486,6 +486,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/rcm/payer-rules/{id}', [RcmPhase2Controller::class, 'updatePayerRule']);
     Route::delete('/rcm/payer-rules/{id}', [RcmPhase2Controller::class, 'destroyPayerRule']);
     Route::post('/rcm/payer-rules/check', [RcmPhase2Controller::class, 'checkPayerRules']);
+    Route::post('/rcm/payer-rules/extract-policy', [RcmPhase2Controller::class, 'extractPayerPolicy']);
 
     // Duplicate Detection
     Route::get('/rcm/duplicates', [RcmPhase2Controller::class, 'detectDuplicates']);

@@ -15,6 +15,7 @@ use App\Models\PayerFollowup;
 use App\Models\PayerRule;
 use App\Models\ProviderFeedback;
 use App\Models\UnderpaymentFlag;
+use App\Services\AiService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -1214,5 +1215,57 @@ class RcmPhase2Controller extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $check], 201);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 17. AI PAYER POLICY EXTRACTION
+    // ══════════════════════════════════════════════════
+
+    public function extractPayerPolicy(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $ai = new AiService();
+
+        if ($request->has('pdf_url')) {
+            $result = $ai->extractPayerPolicy($request->pdf_url);
+        } elseif ($request->has('policy_text')) {
+            $result = $ai->extractPayerPolicyFromText($request->policy_text);
+        } else {
+            return response()->json(['success' => false, 'error' => 'Provide pdf_url or policy_text'], 400);
+        }
+
+        if (isset($result['error'])) {
+            return response()->json(['success' => false, 'error' => $result['error']], 422);
+        }
+
+        $extracted = $result['data'] ?? [];
+
+        // Auto-save as payer rule if payer_name was extracted
+        if (!empty($extracted['payer_name']) && $request->input('auto_save', false)) {
+            PayerRule::updateOrCreate(
+                ['agency_id' => $aid, 'payer_name' => $extracted['payer_name']],
+                array_filter([
+                    'timely_filing_days' => $extracted['timely_filing_days'] ?? null,
+                    'appeal_filing_days' => $extracted['appeal_filing_days'] ?? null,
+                    'corrected_claim_days' => $extracted['corrected_claim_days'] ?? null,
+                    'portal_url' => $extracted['portal_url'] ?? null,
+                    'provider_phone' => $extracted['provider_phone'] ?? null,
+                    'claims_address' => $extracted['claims_address'] ?? null,
+                    'appeals_address' => $extracted['appeals_address'] ?? null,
+                    'appeals_fax' => $extracted['appeals_fax'] ?? null,
+                    'electronic_payer_id' => $extracted['electronic_payer_id'] ?? null,
+                    'auth_required_cpts' => $extracted['auth_required_cpts'] ?? null,
+                    'bundling_rules' => $extracted['bundling_rules'] ?? null,
+                    'medical_necessity_notes' => $extracted['medical_necessity_notes'] ?? null,
+                    'common_denial_reasons' => $extracted['common_denial_reasons'] ?? null,
+                    'credentialing_requirements' => $extracted['credentialing_requirements'] ?? null,
+                    'reimbursement_notes' => $extracted['reimbursement_notes'] ?? null,
+                    'billing_tips' => $extracted['billing_tips'] ?? null,
+                    'created_by' => $request->user()->id,
+                ], fn($v) => $v !== null)
+            );
+        }
+
+        return response()->json(['success' => true, 'data' => $extracted]);
     }
 }

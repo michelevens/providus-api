@@ -353,4 +353,91 @@ PROMPT;
             return ['error' => 'AI service unavailable: ' . $e->getMessage()];
         }
     }
+
+    /**
+     * Extract payer reimbursement policy from a PDF URL.
+     * Uses Claude to read the PDF and extract structured billing rules.
+     */
+    public function extractPayerPolicy(string $pdfUrl): array
+    {
+        // Fetch the PDF
+        try {
+            $response = Http::timeout(30)->get($pdfUrl);
+            if (!$response->successful()) {
+                return ['error' => 'Could not fetch PDF from URL: HTTP ' . $response->status()];
+            }
+            $pdfContent = $response->body();
+            $base64 = base64_encode($pdfContent);
+        } catch (\Exception $e) {
+            return ['error' => 'Failed to download PDF: ' . $e->getMessage()];
+        }
+
+        $prompt = <<<'PROMPT'
+Analyze this payer reimbursement/provider policy document and extract the following structured data. Return a JSON object with these fields (use null for any field not found):
+
+{
+  "payer_name": "full name of the insurance company/payer",
+  "timely_filing_days": number of days from date of service to submit a claim (integer),
+  "appeal_filing_days": number of days to file an appeal after denial (integer),
+  "corrected_claim_days": number of days to submit a corrected claim (integer),
+  "portal_url": "provider portal URL if mentioned",
+  "provider_phone": "provider services phone number",
+  "claims_address": "mailing address for paper claims",
+  "appeals_address": "mailing address for appeals",
+  "appeals_fax": "fax number for appeals",
+  "electronic_payer_id": "electronic payer ID for clearinghouse submission",
+  "auth_required_cpts": ["list of CPT codes that require prior authorization"],
+  "bundling_rules": [{"primary": "CPT", "cannot_bill_with": "CPT", "note": "explanation"}],
+  "medical_necessity_notes": [{"cpt": "code", "requirement": "what documentation is needed"}],
+  "common_denial_reasons": [{"reason": "description", "prevention": "how to avoid it"}],
+  "credentialing_requirements": ["list of credentialing requirements"],
+  "reimbursement_notes": "general reimbursement rate information, fee schedule details",
+  "billing_tips": "key billing tips extracted from the document",
+  "key_policies": [{"topic": "policy area", "summary": "brief summary of the policy"}]
+}
+
+Be thorough — this data will be used by billing staff to avoid claim denials. Extract every actionable rule you can find. Return ONLY the JSON object, no other text.
+PROMPT;
+
+        return $this->callClaude([
+            ['role' => 'user', 'content' => [
+                ['type' => 'document', 'source' => ['type' => 'base64', 'media_type' => 'application/pdf', 'data' => $base64]],
+                ['type' => 'text', 'text' => $prompt],
+            ]],
+        ], 4096);
+    }
+
+    /**
+     * Extract payer policy from raw text (for non-PDF sources).
+     */
+    public function extractPayerPolicyFromText(string $text): array
+    {
+        $prompt = <<<PROMPT
+Analyze this payer reimbursement/billing policy text and extract structured data. Return a JSON object with these fields (use null for any field not found):
+
+{
+  "payer_name": "full name of the payer",
+  "timely_filing_days": integer,
+  "appeal_filing_days": integer,
+  "corrected_claim_days": integer,
+  "portal_url": "provider portal URL",
+  "provider_phone": "provider services phone",
+  "electronic_payer_id": "electronic payer ID",
+  "auth_required_cpts": ["CPT codes requiring prior auth"],
+  "common_denial_reasons": [{"reason": "description", "prevention": "how to avoid"}],
+  "reimbursement_notes": "fee schedule and rate information",
+  "billing_tips": "key billing tips",
+  "key_policies": [{"topic": "area", "summary": "brief summary"}]
+}
+
+Return ONLY the JSON object.
+
+--- POLICY TEXT ---
+{$text}
+PROMPT;
+
+        return $this->callClaude([
+            ['role' => 'user', 'content' => $prompt],
+        ], 4096);
+    }
 }
