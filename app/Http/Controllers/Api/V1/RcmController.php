@@ -531,31 +531,40 @@ class RcmController extends Controller
                         $claim->paid_date = $row['paid_date'] ?? now()->toDateString();
                         $claim->check_number = $checkNumber ?? $claim->check_number;
 
-                        // Create ClaimPayment record (dedupe by check_number + claim)
-                        if ($checkNumber) {
-                            $existingPayment = ClaimPayment::where('agency_id', $agencyId)
-                                ->where('check_number', $checkNumber)->first();
-                            if (!$existingPayment) {
-                                $existingPayment = ClaimPayment::create([
-                                    'agency_id' => $agencyId,
-                                    'created_by' => $request->user()->id,
-                                    'payer_name' => $row['payer_name'] ?? $claim->payer_name,
-                                    'payment_type' => 'eft',
-                                    'check_number' => $checkNumber,
-                                    'payment_date' => $row['paid_date'] ?? now()->toDateString(),
-                                    'total_amount' => $paidAmount,
-                                    'remaining_amount' => 0,
-                                    'status' => 'posted',
-                                ]);
-                            } else {
-                                $existingPayment->increment('total_amount', $paidAmount);
-                            }
-                            // Create allocation linking payment to claim
-                            PaymentAllocation::firstOrCreate(
-                                ['claim_payment_id' => $existingPayment->id, 'claim_id' => $claim->id],
-                                ['paid_amount' => $paidAmount, 'charged_amount' => $claim->total_charges, 'patient_responsibility' => $patientResp]
-                            );
+                        // Generate a check number if none provided so ALL payments create ClaimPayment records
+                        if (!$checkNumber) {
+                            $payDate = $row['paid_date'] ?? now()->toDateString();
+                            $datePart = str_replace('-', '', substr($payDate, 0, 10));
+                            $seqNum = ClaimPayment::where('agency_id', $agencyId)
+                                ->where('check_number', 'LIKE', "PAY-{$datePart}-%")
+                                ->count() + 1;
+                            $checkNumber = "PAY-{$datePart}-" . str_pad($seqNum, 3, '0', STR_PAD_LEFT);
+                            $claim->check_number = $checkNumber;
                         }
+
+                        // Create ClaimPayment record (dedupe by check_number + claim)
+                        $existingPayment = ClaimPayment::where('agency_id', $agencyId)
+                            ->where('check_number', $checkNumber)->first();
+                        if (!$existingPayment) {
+                            $existingPayment = ClaimPayment::create([
+                                'agency_id' => $agencyId,
+                                'created_by' => $request->user()->id,
+                                'payer_name' => $row['payer_name'] ?? $claim->payer_name,
+                                'payment_type' => 'eft',
+                                'check_number' => $checkNumber,
+                                'payment_date' => $row['paid_date'] ?? now()->toDateString(),
+                                'total_amount' => $paidAmount,
+                                'remaining_amount' => 0,
+                                'status' => 'posted',
+                            ]);
+                        } else {
+                            $existingPayment->increment('total_amount', $paidAmount);
+                        }
+                        // Create allocation linking payment to claim
+                        PaymentAllocation::firstOrCreate(
+                            ['claim_payment_id' => $existingPayment->id, 'claim_id' => $claim->id],
+                            ['paid_amount' => $paidAmount, 'charged_amount' => $claim->total_charges, 'patient_responsibility' => $patientResp]
+                        );
                     } elseif ($status === 'denied' || $denialReason) {
                         $claim->status = 'denied';
                         $claim->denial_reason = $denialReason;
