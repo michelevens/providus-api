@@ -116,6 +116,19 @@ class RcmController extends Controller
                 if (!$claimNumber) {
                     $claimNumber = 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT);
                 }
+
+                // Duplicate check: same agency + claim_number + date_of_service + patient_name
+                $dupeQuery = Claim::where('agency_id', $agencyId)
+                    ->where('claim_number', $claimNumber)
+                    ->where('date_of_service', $row['date_of_service']);
+                if (!empty($row['patient_name'])) {
+                    $dupeQuery->where('patient_name', $row['patient_name']);
+                }
+                if ($dupeQuery->exists()) {
+                    $errors[] = "Row " . ($i + 1) . ": duplicate claim ({$claimNumber} on {$row['date_of_service']})";
+                    continue;
+                }
+
                 $claim = Claim::create([
                     'agency_id' => $agencyId,
                     'claim_number' => $claimNumber,
@@ -206,9 +219,12 @@ class RcmController extends Controller
         $totalPatientResp = $claims->sum(fn($c) => (float) $c->patient_responsibility);
         $totalDeniedAmount = $claims->where('status', 'denied')->sum(fn($c) => (float) $c->total_charges);
 
-        // Monthly breakdown for charts (last 6 months by DOS)
+        // Monthly breakdown for charts (configurable range)
+        $monthRange = (int) ($request->input('months', 6));
+        if ($monthRange < 1) $monthRange = 6;
+        if ($monthRange > 24) $monthRange = 24;
         $monthly = [];
-        for ($m = 5; $m >= 0; $m--) {
+        for ($m = $monthRange - 1; $m >= 0; $m--) {
             $date = now()->subMonths($m);
             $key = $date->format('Y-m');
             $monthClaims = $claims->filter(fn($c) => substr($c->date_of_service, 0, 7) === $key);
