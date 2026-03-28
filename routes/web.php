@@ -249,6 +249,20 @@ Route::get('/debug-routes', function () {
     }
 });
 
+Route::get('/add-policy-documents-column', function () {
+    try {
+        if (!\Illuminate\Support\Facades\Schema::hasColumn('payer_rules', 'policy_documents')) {
+            \Illuminate\Support\Facades\Schema::table('payer_rules', function ($table) {
+                $table->json('policy_documents')->nullable()->after('billing_tips');
+            });
+            return response()->json(['success' => true, 'message' => 'Column added']);
+        }
+        return response()->json(['success' => true, 'message' => 'Column already exists']);
+    } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+    }
+});
+
 Route::get('/fix-phase2-tables', function () {
     try {
         $output = [];

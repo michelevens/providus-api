@@ -16,7 +16,7 @@ class PayerRule extends Model
         'portal_url', 'provider_phone', 'claims_address', 'appeals_address', 'appeals_fax',
         'electronic_payer_id', 'auth_required_cpts', 'bundling_rules', 'medical_necessity_notes',
         'common_denial_reasons', 'credentialing_requirements', 'reimbursement_notes', 'billing_tips',
-        'created_by',
+        'policy_documents', 'created_by',
     ];
 
     protected $casts = [
@@ -25,6 +25,7 @@ class PayerRule extends Model
         'medical_necessity_notes' => 'array',
         'common_denial_reasons' => 'array',
         'credentialing_requirements' => 'array',
+        'policy_documents' => 'array',
     ];
 
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
