@@ -24,7 +24,8 @@ class RcmController extends Controller
         if ($s = $request->input('status')) $query->where('status', $s);
         if ($from = $request->input('from_date')) $query->where('date_of_service', '>=', $from);
         if ($to = $request->input('to_date')) $query->where('date_of_service', '<=', $to);
-        return response()->json(['success' => true, 'data' => $query->orderByDesc('date_of_service')->paginate(100)]);
+        $perPage = min((int) ($request->input('per_page', 100)), 1000);
+        return response()->json(['success' => true, 'data' => $query->orderByDesc('date_of_service')->paginate($perPage)]);
     }
 
     public function showClaim(Request $request, int $id): JsonResponse
