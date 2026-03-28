@@ -1268,4 +1268,131 @@ class RcmPhase2Controller extends Controller
 
         return response()->json(['success' => true, 'data' => $extracted]);
     }
+
+    // ══════════════════════════════════════════════════
+    // 18. CHARGE-CLAIM-PAYMENT RECONCILIATION
+    // ══════════════════════════════════════════════════
+
+    /**
+     * Auto-match charges to claims by patient + DOS + payer.
+     * Links unlinked charges to their corresponding claims.
+     */
+    public function autoReconcile(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+
+        $unlinkedCharges = \App\Models\ChargeEntry::where('agency_id', $aid)
+            ->whereNull('claim_id')
+            ->get();
+
+        $claims = Claim::where('agency_id', $aid)->get();
+        $matched = 0;
+
+        foreach ($unlinkedCharges as $charge) {
+            $patientKey = strtolower(trim($charge->patient_name ?? ''));
+            $dos = $charge->date_of_service ? $charge->date_of_service->format('Y-m-d') : null;
+            $payer = strtolower(trim($charge->payer_name ?? ''));
+
+            if (!$patientKey || !$dos) continue;
+
+            // Find matching claim: same patient + DOS + payer
+            $match = $claims->first(function ($c) use ($patientKey, $dos, $payer) {
+                $cPatient = strtolower(trim($c->patient_name ?? ''));
+                $cDos = $c->date_of_service ? $c->date_of_service->format('Y-m-d') : null;
+                $cPayer = strtolower(trim($c->payer_name ?? ''));
+                return $cPatient === $patientKey && $cDos === $dos && ($payer === $cPayer || !$payer || !$cPayer);
+            });
+
+            if ($match) {
+                $charge->update(['claim_id' => $match->id, 'status' => $match->status === 'paid' ? 'billed' : 'submitted']);
+                $matched++;
+            }
+        }
+
+        return response()->json(['success' => true, 'matched' => $matched, 'unlinked_remaining' => $unlinkedCharges->count() - $matched]);
+    }
+
+    /**
+     * Full reconciliation report — shows gaps across charges, claims, payments.
+     */
+    public function reconciliationReport(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $now = now();
+
+        $charges = \App\Models\ChargeEntry::where('agency_id', $aid)->get();
+        $claims = Claim::where('agency_id', $aid)->get();
+        $payments = \App\Models\PaymentAllocation::whereHas('claim', fn($q) => $q->where('agency_id', $aid))->get();
+
+        // 1. Unbilled charges — charges with no linked claim
+        $unbilledCharges = $charges->whereNull('claim_id')->values()->map(fn($c) => [
+            'id' => $c->id,
+            'patient_name' => $c->patient_name,
+            'date_of_service' => $c->date_of_service,
+            'cpt_code' => $c->cpt_code,
+            'payer_name' => $c->payer_name,
+            'charge_amount' => $c->charge_amount,
+            'status' => $c->status,
+            'days_old' => $c->date_of_service ? $now->diffInDays($c->date_of_service) : 0,
+        ]);
+
+        // 2. Claims with no payment after 30+ days
+        $unpaidClaims = $claims
+            ->whereIn('status', ['submitted', 'acknowledged', 'pending', 'in_process'])
+            ->filter(fn($c) => $c->date_of_service && $now->diffInDays($c->date_of_service) > 30)
+            ->values()->map(fn($c) => [
+                'id' => $c->id,
+                'claim_number' => $c->claim_number,
+                'patient_name' => $c->patient_name,
+                'payer_name' => $c->payer_name,
+                'date_of_service' => $c->date_of_service,
+                'total_charges' => $c->total_charges,
+                'balance' => $c->balance,
+                'days_old' => $now->diffInDays($c->date_of_service),
+                'status' => $c->status,
+            ]);
+
+        // 3. Paid claims with remaining balance (partial payments / underpayments)
+        $partiallyPaid = $claims
+            ->where('total_paid', '>', 0)
+            ->where('balance', '>', 0)
+            ->values()->map(fn($c) => [
+                'id' => $c->id,
+                'claim_number' => $c->claim_number,
+                'patient_name' => $c->patient_name,
+                'payer_name' => $c->payer_name,
+                'total_charges' => $c->total_charges,
+                'total_paid' => $c->total_paid,
+                'balance' => $c->balance,
+                'status' => $c->status,
+            ]);
+
+        // 4. Charges linked to claims — revenue traced
+        $reconciledCharges = $charges->whereNotNull('claim_id')->count();
+        $totalChargeAmount = $charges->sum(fn($c) => (float) $c->charge_amount);
+        $totalClaimCharges = $claims->sum(fn($c) => (float) $c->total_charges);
+        $totalCollected = $claims->sum(fn($c) => (float) $c->total_paid);
+        $totalDenied = $claims->where('status', 'denied')->sum(fn($c) => (float) $c->total_charges);
+        $totalUnbilled = $unbilledCharges->sum('charge_amount');
+
+        // 5. Revenue pipeline summary
+        $pipeline = [
+            'charges_entered' => ['count' => $charges->count(), 'amount' => round($totalChargeAmount, 2)],
+            'charges_reconciled' => ['count' => $reconciledCharges, 'amount' => round($charges->whereNotNull('claim_id')->sum(fn($c) => (float) $c->charge_amount), 2)],
+            'charges_unbilled' => ['count' => $unbilledCharges->count(), 'amount' => round($totalUnbilled, 2)],
+            'claims_submitted' => ['count' => $claims->count(), 'amount' => round($totalClaimCharges, 2)],
+            'claims_paid' => ['count' => $claims->whereIn('status', ['paid', 'partial_paid'])->count(), 'amount' => round($totalCollected, 2)],
+            'claims_denied' => ['count' => $claims->where('status', 'denied')->count(), 'amount' => round($totalDenied, 2)],
+            'claims_pending' => ['count' => $unpaidClaims->count(), 'amount' => round($unpaidClaims->sum('total_charges'), 2)],
+            'partially_paid' => ['count' => $partiallyPaid->count(), 'amount' => round($partiallyPaid->sum('balance'), 2)],
+            'collection_rate' => $totalClaimCharges > 0 ? round($totalCollected / $totalClaimCharges * 100, 1) : 0,
+        ];
+
+        return response()->json(['success' => true, 'data' => [
+            'pipeline' => $pipeline,
+            'unbilled_charges' => $unbilledCharges,
+            'unpaid_claims' => $unpaidClaims,
+            'partially_paid' => $partiallyPaid,
+        ]]);
+    }
 }

@@ -488,6 +488,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/payer-rules/check', [RcmPhase2Controller::class, 'checkPayerRules']);
     Route::post('/rcm/payer-rules/extract-policy', [RcmPhase2Controller::class, 'extractPayerPolicy']);
 
+    // Reconciliation
+    Route::post('/rcm/reconcile', [RcmPhase2Controller::class, 'autoReconcile']);
+    Route::get('/rcm/reconciliation-report', [RcmPhase2Controller::class, 'reconciliationReport']);
+
     // Duplicate Detection
     Route::get('/rcm/duplicates', [RcmPhase2Controller::class, 'detectDuplicates']);
 
