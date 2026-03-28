@@ -475,6 +475,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/rcm/eligibility/{id}', [RcmPhase2Controller::class, 'updateEligibilityCheck']);
 
     Route::post('/rcm/era/parse', [RcmPhase2Controller::class, 'parseEra']);
+    Route::post('/rcm/837/parse', [RcmPhase2Controller::class, 'parse837']);
+    Route::post('/rcm/837/import', [RcmPhase2Controller::class, 'import837']);
 
     Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
     Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);

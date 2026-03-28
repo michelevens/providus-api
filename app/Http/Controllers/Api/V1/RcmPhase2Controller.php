@@ -732,6 +732,229 @@ class RcmPhase2Controller extends Controller
     }
 
     // ══════════════════════════════════════════════════
+    // 11b. 837 PROFESSIONAL CLAIM FILE PARSER
+    // ══════════════════════════════════════════════════
+
+    public function parse837(Request $request): JsonResponse
+    {
+        $request->validate(['data' => 'required|string']);
+        $raw = $request->data;
+        $segments = array_filter(array_map('trim', explode('~', $raw)));
+
+        $claims = [];
+        $current = null;
+        $currentSvcLine = null;
+        $billingNpi = '';
+        $billingName = '';
+        $patientName = '';
+        $patientDob = '';
+        $patientMemberId = '';
+        $payerName = '';
+        $payerId = '';
+        $renderingName = '';
+        $renderingNpi = '';
+        $icdCodes = [];
+
+        foreach ($segments as $seg) {
+            $parts = explode('*', $seg);
+            $id = $parts[0] ?? '';
+
+            // Billing provider
+            if ($id === 'NM1' && ($parts[1] ?? '') === '85') {
+                $billingName = $parts[3] ?? '';
+                $billingNpi = $parts[9] ?? '';
+            }
+
+            // Subscriber/patient
+            if ($id === 'NM1' && ($parts[1] ?? '') === 'IL') {
+                $last = $parts[3] ?? '';
+                $first = $parts[4] ?? '';
+                $patientName = trim("$first $last");
+                $patientMemberId = $parts[9] ?? '';
+            }
+
+            // Patient DOB
+            if ($id === 'DMG') {
+                $dob = $parts[2] ?? '';
+                $patientDob = $dob ? substr($dob, 0, 4) . '-' . substr($dob, 4, 2) . '-' . substr($dob, 6, 2) : '';
+            }
+
+            // Payer
+            if ($id === 'NM1' && ($parts[1] ?? '') === 'PR') {
+                $payerName = $parts[3] ?? '';
+                $payerId = $parts[9] ?? '';
+            }
+
+            // Subscriber info (insurance plan name)
+            if ($id === 'SBR') {
+                $planName = $parts[4] ?? '';
+                if ($planName && !$payerName) $payerName = $planName;
+            }
+
+            // Diagnosis codes
+            if ($id === 'HI') {
+                $icdCodes = [];
+                for ($i = 1; $i < count($parts); $i++) {
+                    $code = $parts[$i] ?? '';
+                    if ($code && strpos($code, ':') !== false) {
+                        $icdCodes[] = explode(':', $code)[1] ?? $code;
+                    }
+                }
+            }
+
+            // Rendering provider
+            if ($id === 'NM1' && ($parts[1] ?? '') === '82') {
+                $rLast = str_replace(', DNP', '', $parts[3] ?? '');
+                $rFirst = str_replace('DR ', '', $parts[4] ?? '');
+                $rMiddle = $parts[5] ?? '';
+                $renderingName = trim("$rFirst $rMiddle $rLast");
+                $renderingNpi = $parts[9] ?? '';
+            }
+
+            // Claim
+            if ($id === 'CLM') {
+                if ($current) $claims[] = $current;
+                $current = [
+                    'claim_number' => $parts[1] ?? '',
+                    'total_charges' => (float)($parts[2] ?? 0),
+                    'patient_name' => $patientName,
+                    'patient_dob' => $patientDob,
+                    'patient_member_id' => $patientMemberId,
+                    'payer_name' => $payerName,
+                    'payer_id' => $payerId,
+                    'provider_name' => $renderingName,
+                    'provider_npi' => $renderingNpi,
+                    'billing_npi' => $billingNpi,
+                    'icd_codes' => implode(', ', $icdCodes),
+                    'service_lines' => [],
+                ];
+                $currentSvcLine = null;
+            }
+
+            // Service line
+            if ($id === 'SV1' && $current) {
+                $cptParts = explode(':', $parts[1] ?? '');
+                $cpt = $cptParts[1] ?? $cptParts[0] ?? '';
+                $currentSvcLine = [
+                    'cpt_code' => $cpt,
+                    'charge_amount' => (float)($parts[2] ?? 0),
+                    'units' => (int)($parts[4] ?? 1),
+                    'date_of_service' => '',
+                ];
+                $current['service_lines'][] = &$currentSvcLine;
+            }
+
+            // Service line date
+            if ($id === 'DTP' && ($parts[1] ?? '') === '472' && $currentSvcLine) {
+                $d = $parts[3] ?? '';
+                if (strlen($d) === 8) {
+                    $currentSvcLine['date_of_service'] = substr($d, 0, 4) . '-' . substr($d, 4, 2) . '-' . substr($d, 6, 2);
+                }
+                // Also set claim DOS from first service line
+                if ($current && !isset($current['date_of_service'])) {
+                    $current['date_of_service'] = $currentSvcLine['date_of_service'];
+                }
+                unset($currentSvcLine);
+                $currentSvcLine = null;
+            }
+
+            // End of transaction — reset patient/payer for next
+            if ($id === 'SE') {
+                $patientName = '';
+                $patientDob = '';
+                $patientMemberId = '';
+                $payerName = '';
+                $payerId = '';
+                $icdCodes = [];
+            }
+        }
+        if ($current) $claims[] = $current;
+
+        return response()->json(['success' => true, 'data' => [
+            'billing_provider' => $billingName,
+            'billing_npi' => $billingNpi,
+            'claim_count' => count($claims),
+            'total_charges' => round(array_sum(array_column($claims, 'total_charges')), 2),
+            'service_line_count' => array_sum(array_map(fn($c) => count($c['service_lines']), $claims)),
+            'claims' => $claims,
+        ]]);
+    }
+
+    public function import837(Request $request): JsonResponse
+    {
+        $request->validate(['claims' => 'required|array|min:1']);
+        $aid = $request->user()->agency_id;
+        $uid = $request->user()->id;
+        $clientId = $request->input('billing_client_id');
+        $imported = 0;
+        $chargesCreated = 0;
+        $errors = [];
+
+        foreach ($request->claims as $i => $row) {
+            try {
+                $dos = $row['date_of_service'] ?? ($row['service_lines'][0]['date_of_service'] ?? null);
+                if (!$dos) { $errors[] = "Claim {$row['claim_number']}: no DOS"; continue; }
+
+                // Create claim
+                $claim = Claim::create([
+                    'agency_id' => $aid,
+                    'billing_client_id' => $clientId,
+                    'claim_number' => $row['claim_number'] ?? 'CLM-' . str_pad($i + 1, 6, '0', STR_PAD_LEFT),
+                    'claim_type' => '837P',
+                    'status' => 'submitted',
+                    'patient_name' => $row['patient_name'] ?? null,
+                    'patient_dob' => $row['patient_dob'] ?? null,
+                    'patient_member_id' => $row['patient_member_id'] ?? null,
+                    'payer_name' => $row['payer_name'] ?? null,
+                    'payer_id_number' => $row['payer_id'] ?? null,
+                    'provider_name' => $row['provider_name'] ?? null,
+                    'date_of_service' => $dos,
+                    'total_charges' => $row['total_charges'] ?? 0,
+                    'balance' => $row['total_charges'] ?? 0,
+                    'submission_method' => 'electronic',
+                    'submitted_date' => now()->toDateString(),
+                    'created_by' => $uid,
+                ]);
+
+                // Create service lines + charge entries
+                foreach ($row['service_lines'] ?? [] as $j => $sl) {
+                    \App\Models\ClaimServiceLine::create([
+                        'claim_id' => $claim->id,
+                        'line_number' => $j + 1,
+                        'cpt_code' => $sl['cpt_code'] ?? '',
+                        'charges' => $sl['charge_amount'] ?? 0,
+                        'units' => $sl['units'] ?? 1,
+                        'icd_codes' => $row['icd_codes'] ?? '',
+                    ]);
+
+                    \App\Models\ChargeEntry::create([
+                        'agency_id' => $aid,
+                        'billing_client_id' => $clientId,
+                        'claim_id' => $claim->id,
+                        'patient_name' => $row['patient_name'] ?? null,
+                        'payer_name' => $row['payer_name'] ?? null,
+                        'provider_name' => $row['provider_name'] ?? null,
+                        'date_of_service' => $sl['date_of_service'] ?? $dos,
+                        'cpt_code' => $sl['cpt_code'] ?? '',
+                        'icd_codes' => $row['icd_codes'] ?? '',
+                        'units' => $sl['units'] ?? 1,
+                        'charge_amount' => $sl['charge_amount'] ?? 0,
+                        'status' => 'submitted',
+                        'created_by' => $uid,
+                    ]);
+                    $chargesCreated++;
+                }
+
+                $imported++;
+            } catch (\Exception $e) {
+                $errors[] = "Claim " . ($row['claim_number'] ?? $i) . ": " . $e->getMessage();
+            }
+        }
+
+        return response()->json(['success' => true, 'imported_claims' => $imported, 'charges_created' => $chargesCreated, 'errors' => $errors], 201);
+    }
+
+    // ══════════════════════════════════════════════════
     // 12. AI DENIAL PREVENTION
     // ══════════════════════════════════════════════════
 
