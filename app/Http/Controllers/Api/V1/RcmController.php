@@ -205,6 +205,40 @@ class RcmController extends Controller
         ], 201);
     }
 
+    /**
+     * Purge all claims and related data (service lines, denials, charges, payments) for the agency.
+     * Used to wipe imported data before a clean reimport.
+     */
+    public function purgeAllClaims(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->agency_id;
+        $confirm = $request->input('confirm');
+        if ($confirm !== 'DELETE_ALL_CLAIMS') {
+            return response()->json(['success' => false, 'message' => 'Send {"confirm":"DELETE_ALL_CLAIMS"} to proceed'], 422);
+        }
+
+        $claimIds = Claim::where('agency_id', $agencyId)->pluck('id');
+
+        $deletedServiceLines = ClaimServiceLine::whereIn('claim_id', $claimIds)->delete();
+        $deletedDenials = ClaimDenial::where('agency_id', $agencyId)->delete();
+        $deletedPayments = ClaimPayment::where('agency_id', $agencyId)->delete();
+        $deletedAllocations = PaymentAllocation::where('agency_id', $agencyId)->delete();
+        $deletedCharges = ChargeEntry::where('agency_id', $agencyId)->delete();
+        $deletedClaims = Claim::where('agency_id', $agencyId)->delete();
+
+        return response()->json([
+            'success' => true,
+            'deleted' => [
+                'claims' => $deletedClaims,
+                'service_lines' => $deletedServiceLines,
+                'denials' => $deletedDenials,
+                'payments' => $deletedPayments,
+                'allocations' => $deletedAllocations,
+                'charges' => $deletedCharges,
+            ],
+        ]);
+    }
+
     public function claimStats(Request $request): JsonResponse
     {
         $aid = $request->user()->agency_id;
