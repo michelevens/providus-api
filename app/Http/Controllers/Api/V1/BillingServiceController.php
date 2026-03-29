@@ -463,8 +463,13 @@ class BillingServiceController extends Controller
         $created = 0;
         $skipped = 0;
 
+        // Default client for tasks where claim has no billing_client_id
+        $defaultClientId = BillingClient::where('agency_id', $aid)->where('status', 'active')->value('id');
+
         // Helper: create task if source_key doesn't already exist (and not dismissed)
-        $makeTask = function ($key, $data) use ($aid, $uid, &$created, &$skipped) {
+        $makeTask = function ($key, $data) use ($aid, $uid, $defaultClientId, &$created, &$skipped) {
+            // Ensure billing_client_id is set
+            if (empty($data['billing_client_id'])) $data['billing_client_id'] = $defaultClientId;
             $exists = BillingTask::where('agency_id', $aid)
                 ->where('source_key', $key)
                 ->where(function ($q) {
