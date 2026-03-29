@@ -394,11 +394,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance']);
 
     Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);
+    Route::post('/billing-tasks/generate', [BillingServiceController::class, 'generateTasks']);
     Route::post('/billing-tasks', [BillingServiceController::class, 'storeTask']);
+    Route::post('/billing-tasks/{id}/dismiss', [BillingServiceController::class, 'dismissTask']);
     Route::put('/billing-tasks/{id}', [BillingServiceController::class, 'updateTask']);
     Route::delete('/billing-tasks/{id}', [BillingServiceController::class, 'destroyTask']);
-    Route::post('/billing-tasks/generate', [BillingServiceController::class, 'generateTasks']);
-    Route::post('/billing-tasks/{id}/dismiss', [BillingServiceController::class, 'dismissTask']);
 
     Route::get('/billing-activities', [BillingServiceController::class, 'activities']);
     Route::post('/billing-activities', [BillingServiceController::class, 'storeActivity']);
