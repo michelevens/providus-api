@@ -456,6 +456,7 @@ class BillingServiceController extends Controller
 
     public function generateTasks(Request $request): JsonResponse
     {
+      try {
         $aid = $request->user()->agency_id;
         $uid = $request->user()->id;
         $now = now();
@@ -572,7 +573,7 @@ class BillingServiceController extends Controller
                     'billing_client_id' => $d->billing_client_id,
                     'claim_id' => $d->claim_id,
                     'title' => "Appeal deadline in {$daysUntil}d: " . ($claim->patient_name ?? '') . " — \$" . number_format((float) ($d->denied_amount ?? 0), 2),
-                    'description' => "Claim #{$claim->claim_number ?? ''} | Deadline: {$d->appeal_deadline->format('m/d/Y')}\nFile appeal before deadline or amount will be lost.",
+                    'description' => "Claim #" . ($claim->claim_number ?? '') . " | Deadline: " . ($d->appeal_deadline ? $d->appeal_deadline->format('m/d/Y') : '') . "\nFile appeal before deadline or amount will be lost.",
                     'category' => 'denial_management',
                     'priority' => 'urgent',
                     'status' => 'pending',
@@ -628,6 +629,9 @@ class BillingServiceController extends Controller
             'skipped' => $skipped,
             'message' => $created > 0 ? "{$created} new tasks generated" : 'No new tasks — everything is up to date',
         ]);
+      } catch (\Exception $e) {
+        return response()->json(['success' => false, 'error' => $e->getMessage(), 'line' => $e->getLine()], 500);
+      }
     }
 
     /**
