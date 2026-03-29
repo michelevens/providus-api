@@ -16,6 +16,7 @@ class BillingClient extends Model
         'agency_id', 'organization_id', 'organization_name',
         'contact_name', 'contact_email', 'contact_phone',
         'billing_platform', 'monthly_fee', 'fee_structure',
+        'payment_mode', 'agency_fee_percent',
         'status', 'start_date', 'notes', 'created_by',
     ];
 

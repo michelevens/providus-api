@@ -7,6 +7,8 @@ use App\Models\BillingActivity;
 use App\Models\BillingClient;
 use App\Models\BillingFinancial;
 use App\Models\BillingTask;
+use App\Models\Claim;
+use App\Models\ClientPaymentLedger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -44,6 +46,8 @@ class BillingServiceController extends Controller
             'billing_platform' => 'nullable|string|max:50',
             'monthly_fee' => 'nullable|numeric|min:0',
             'fee_structure' => 'nullable|in:flat,per_provider,percentage,per_claim',
+            'payment_mode' => 'nullable|in:agency_managed,self_managed',
+            'agency_fee_percent' => 'nullable|numeric|min:0|max:100',
             'status' => 'nullable|in:onboarding,active,paused,cancelled',
             'start_date' => 'nullable|date',
             'notes' => 'nullable|string',
@@ -56,6 +60,7 @@ class BillingServiceController extends Controller
                 'organization_id', 'organization_name',
                 'contact_name', 'contact_email', 'contact_phone',
                 'billing_platform', 'monthly_fee', 'fee_structure',
+                'payment_mode', 'agency_fee_percent',
                 'status', 'start_date', 'notes',
             ]),
         ]);
@@ -76,6 +81,8 @@ class BillingServiceController extends Controller
             'billing_platform' => 'nullable|string|max:50',
             'monthly_fee' => 'nullable|numeric|min:0',
             'fee_structure' => 'nullable|in:flat,per_provider,percentage,per_claim',
+            'payment_mode' => 'nullable|in:agency_managed,self_managed',
+            'agency_fee_percent' => 'nullable|numeric|min:0|max:100',
             'status' => 'nullable|in:onboarding,active,paused,cancelled',
             'start_date' => 'nullable|date',
             'notes' => 'nullable|string',
@@ -85,6 +92,7 @@ class BillingServiceController extends Controller
             'organization_id', 'organization_name',
             'contact_name', 'contact_email', 'contact_phone',
             'billing_platform', 'monthly_fee', 'fee_structure',
+            'payment_mode', 'agency_fee_percent',
             'status', 'start_date', 'notes',
         ]));
 
@@ -331,5 +339,114 @@ class BillingServiceController extends Controller
             'denial_count', 'denied_amount', 'adjustments', 'patient_responsibility',
         ]));
         return response()->json(['success' => true, 'data' => $financial]);
+    }
+
+    // ── Client Payment Ledger ──
+
+    /**
+     * Generate or refresh the payment ledger for a client.
+     * Calculates collections per month from claims, applies agency fee.
+     */
+    public function generateLedger(Request $request, int $clientId): JsonResponse
+    {
+        $agencyId = $request->user()->agency_id;
+        $client = BillingClient::where('agency_id', $agencyId)->findOrFail($clientId);
+        $feePercent = (float) ($client->agency_fee_percent ?? 0);
+        $isAgencyManaged = ($client->payment_mode ?? 'self_managed') === 'agency_managed';
+
+        // Get all paid claims for this client grouped by month
+        $claims = Claim::where('agency_id', $agencyId)
+            ->where('billing_client_id', $clientId)
+            ->where('total_paid', '>', 0)
+            ->get();
+
+        $monthly = [];
+        foreach ($claims as $c) {
+            $period = substr($c->date_of_service, 0, 7);
+            if (!isset($monthly[$period])) $monthly[$period] = 0;
+            $monthly[$period] += (float) $c->total_paid;
+        }
+
+        $created = 0;
+        $updated = 0;
+        foreach ($monthly as $period => $collected) {
+            $fee = $isAgencyManaged ? round($collected * $feePercent / 100, 2) : 0;
+            $existing = ClientPaymentLedger::where('agency_id', $agencyId)
+                ->where('billing_client_id', $clientId)
+                ->where('period', $period)
+                ->first();
+
+            $data = [
+                'total_collected' => round($collected, 2),
+                'agency_fee' => $fee,
+                'outstanding' => round($collected - $fee - ($existing->amount_remitted ?? 0), 2),
+            ];
+
+            if ($existing) {
+                $existing->update($data);
+                $updated++;
+            } else {
+                ClientPaymentLedger::create([
+                    'agency_id' => $agencyId,
+                    'billing_client_id' => $clientId,
+                    'period' => $period,
+                    'amount_remitted' => 0,
+                    'status' => 'pending',
+                    'created_by' => $request->user()->id,
+                    ...$data,
+                ]);
+                $created++;
+            }
+        }
+
+        return response()->json(['success' => true, 'created' => $created, 'updated' => $updated]);
+    }
+
+    /**
+     * Get ledger entries for a client.
+     */
+    public function getLedger(Request $request, int $clientId): JsonResponse
+    {
+        $agencyId = $request->user()->agency_id;
+        $entries = ClientPaymentLedger::where('agency_id', $agencyId)
+            ->where('billing_client_id', $clientId)
+            ->orderByDesc('period')
+            ->get();
+
+        $totals = [
+            'total_collected' => $entries->sum('total_collected'),
+            'total_fee' => $entries->sum('agency_fee'),
+            'total_remitted' => $entries->sum('amount_remitted'),
+            'total_outstanding' => $entries->sum('outstanding'),
+        ];
+
+        return response()->json(['success' => true, 'data' => $entries, 'totals' => $totals]);
+    }
+
+    /**
+     * Record a remittance (payment to the org).
+     */
+    public function recordRemittance(Request $request, int $ledgerId): JsonResponse
+    {
+        $request->validate([
+            'amount_remitted' => 'required|numeric|min:0.01',
+            'remittance_date' => 'required|date',
+            'remittance_method' => 'nullable|in:check,ach,wire,zelle',
+            'remittance_reference' => 'nullable|string|max:100',
+            'notes' => 'nullable|string',
+        ]);
+
+        $entry = ClientPaymentLedger::where('agency_id', $request->user()->agency_id)->findOrFail($ledgerId);
+        $entry->update([
+            'amount_remitted' => $request->amount_remitted,
+            'outstanding' => round($entry->total_collected - $entry->agency_fee - $request->amount_remitted, 2),
+            'remittance_date' => $request->remittance_date,
+            'remittance_method' => $request->remittance_method,
+            'remittance_reference' => $request->remittance_reference,
+            'status' => $request->amount_remitted >= ($entry->total_collected - $entry->agency_fee) ? 'remitted' : 'partial',
+            'notes' => $request->notes ?? $entry->notes,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $entry]);
     }
 }
