@@ -8,6 +8,8 @@ use App\Models\BillingClient;
 use App\Models\BillingFinancial;
 use App\Models\BillingTask;
 use App\Models\Claim;
+use App\Models\ClaimDenial;
+use App\Models\ClaimPayment;
 use App\Models\ClientPaymentLedger;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -448,5 +450,193 @@ class BillingServiceController extends Controller
         ]);
 
         return response()->json(['success' => true, 'data' => $entry]);
+    }
+
+    // ── Auto-Generate Tasks ──
+
+    public function generateTasks(Request $request): JsonResponse
+    {
+        $aid = $request->user()->agency_id;
+        $uid = $request->user()->id;
+        $now = now();
+        $created = 0;
+        $skipped = 0;
+
+        // Helper: create task if source_key doesn't already exist (and not dismissed)
+        $makeTask = function ($key, $data) use ($aid, $uid, &$created, &$skipped) {
+            $exists = BillingTask::where('agency_id', $aid)
+                ->where('source_key', $key)
+                ->where(function ($q) {
+                    $q->where('dismissed', false)
+                      ->orWhereIn('status', ['pending', 'in_progress']);
+                })
+                ->exists();
+            if ($exists) { $skipped++; return; }
+            // Also skip if a dismissed version exists and claim hasn't changed
+            $dismissed = BillingTask::where('agency_id', $aid)->where('source_key', $key)->where('dismissed', true)->exists();
+            if ($dismissed) { $skipped++; return; }
+
+            BillingTask::create([
+                'agency_id' => $aid,
+                'created_by' => $uid,
+                'source' => 'system',
+                'source_key' => $key,
+                ...$data,
+            ]);
+            $created++;
+        };
+
+        // Get all claims
+        $claims = Claim::where('agency_id', $aid)->get();
+        $denials = ClaimDenial::where('agency_id', $aid)->get();
+        $payments = ClaimPayment::where('agency_id', $aid)->get();
+
+        // ── 1. Payer Follow-Up: Claims pending 30/60/90+ days ──
+        $pendingClaims = $claims->whereIn('status', ['submitted', 'pending', 'acknowledged']);
+        foreach ($pendingClaims as $c) {
+            $dos = $c->date_of_service;
+            if (!$dos) continue;
+            $days = $now->diffInDays($dos);
+            $payer = $c->payer_name ?? 'Unknown Payer';
+            $patient = $c->patient_name ?? 'Unknown';
+            $amt = number_format((float) $c->total_charges, 2);
+            $clientId = $c->billing_client_id;
+
+            if ($days >= 90) {
+                $makeTask("followup-90-{$c->id}", [
+                    'billing_client_id' => $clientId,
+                    'claim_id' => $c->id,
+                    'title' => "URGENT: {$payer} claim #{$c->claim_number} is {$days}d old — timely filing risk",
+                    'description' => "Patient: {$patient} | DOS: {$dos->format('m/d/Y')} | Charges: \${$amt}\nThis claim is over 90 days with no payment. Contact {$payer} immediately to avoid timely filing denial.",
+                    'category' => 'claim_followup',
+                    'priority' => 'urgent',
+                    'status' => 'pending',
+                    'due_date' => $now->copy()->addDays(2),
+                ]);
+            } elseif ($days >= 60) {
+                $makeTask("followup-60-{$c->id}", [
+                    'billing_client_id' => $clientId,
+                    'claim_id' => $c->id,
+                    'title' => "Follow up with {$payer} on claim #{$c->claim_number} — {$days}d pending",
+                    'description' => "Patient: {$patient} | DOS: {$dos->format('m/d/Y')} | Charges: \${$amt}\nNo payment received after {$days} days. Call {$payer} for claim status.",
+                    'category' => 'claim_followup',
+                    'priority' => 'high',
+                    'status' => 'pending',
+                    'due_date' => $now->copy()->addDays(5),
+                ]);
+            } elseif ($days >= 30) {
+                $makeTask("followup-30-{$c->id}", [
+                    'billing_client_id' => $clientId,
+                    'claim_id' => $c->id,
+                    'title' => "Check status: {$payer} claim for {$patient} — {$days}d pending",
+                    'description' => "Claim #{$c->claim_number} | DOS: {$dos->format('m/d/Y')} | Charges: \${$amt}\nPending {$days} days. May need payer follow-up or check if payment CSV is missing.",
+                    'category' => 'claim_followup',
+                    'priority' => 'normal',
+                    'status' => 'pending',
+                    'due_date' => $now->copy()->addDays(7),
+                ]);
+            }
+        }
+
+        // ── 2. Denial Management: Denied claims needing review/appeal ──
+        $deniedClaims = $claims->where('status', 'denied');
+        foreach ($deniedClaims as $c) {
+            $denial = $denials->where('claim_id', $c->id)->first();
+            $hasAppeal = $denial && in_array($denial->status, ['appeal_in_progress', 'pending_response', 'resolved_won', 'resolved_lost']);
+            if ($hasAppeal) continue;
+
+            $payer = $c->payer_name ?? 'Unknown';
+            $patient = $c->patient_name ?? 'Unknown';
+            $amt = number_format((float) $c->total_charges, 2);
+            $reason = $c->denial_reason ?? ($denial->denial_reason ?? 'Not specified');
+
+            $makeTask("denial-review-{$c->id}", [
+                'billing_client_id' => $c->billing_client_id,
+                'claim_id' => $c->id,
+                'title' => "Review denial: {$patient} — {$payer} — \${$amt}",
+                'description' => "Claim #{$c->claim_number} | Reason: {$reason}\nReview denial and determine if appeal is warranted.",
+                'category' => 'denial_management',
+                'priority' => 'high',
+                'status' => 'pending',
+                'due_date' => $now->copy()->addDays(5),
+            ]);
+        }
+
+        // ── 3. Appeal Deadlines: Denials with approaching deadlines ──
+        foreach ($denials as $d) {
+            if (!$d->appeal_deadline || in_array($d->status, ['resolved_won', 'resolved_lost', 'written_off'])) continue;
+            $daysUntil = $now->diffInDays($d->appeal_deadline, false);
+            if ($daysUntil <= 7 && $daysUntil >= 0) {
+                $claim = $claims->firstWhere('id', $d->claim_id);
+                $makeTask("appeal-deadline-{$d->id}", [
+                    'billing_client_id' => $d->billing_client_id,
+                    'claim_id' => $d->claim_id,
+                    'title' => "Appeal deadline in {$daysUntil}d: " . ($claim->patient_name ?? '') . " — \$" . number_format((float) ($d->denied_amount ?? 0), 2),
+                    'description' => "Claim #{$claim->claim_number ?? ''} | Deadline: {$d->appeal_deadline->format('m/d/Y')}\nFile appeal before deadline or amount will be lost.",
+                    'category' => 'denial_management',
+                    'priority' => 'urgent',
+                    'status' => 'pending',
+                    'due_date' => $d->appeal_deadline,
+                ]);
+            }
+        }
+
+        // ── 4. Patient Collections: Open patient balances 30+ days ──
+        $ptBalanceClaims = $claims->filter(fn($c) => (float) $c->patient_responsibility > 0 && in_array($c->status, ['paid', 'partial_paid']));
+        $byPatient = [];
+        foreach ($ptBalanceClaims as $c) {
+            $name = $c->patient_name ?? 'Unknown';
+            if (!isset($byPatient[$name])) $byPatient[$name] = ['total' => 0, 'claims' => 0, 'client_id' => $c->billing_client_id];
+            $byPatient[$name]['total'] += (float) $c->patient_responsibility;
+            $byPatient[$name]['claims']++;
+        }
+        foreach ($byPatient as $name => $data) {
+            if ($data['total'] < 1) continue;
+            $amt = number_format($data['total'], 2);
+            $makeTask("pt-balance-{$name}", [
+                'billing_client_id' => $data['client_id'],
+                'title' => "Send statement to {$name} — \${$amt} patient balance",
+                'description' => "{$data['claims']} claim(s) with patient responsibility totaling \${$amt}.\nGenerate and send patient statement.",
+                'category' => 'patient_billing',
+                'priority' => $data['total'] > 100 ? 'high' : 'normal',
+                'status' => 'pending',
+                'due_date' => $now->copy()->addDays(7),
+            ]);
+        }
+
+        // ── 5. Undeposited Checks: Payments received 7+ days ago without deposit date ──
+        foreach ($payments as $p) {
+            if ($p->deposit_date || !$p->payment_date) continue;
+            $daysSince = $now->diffInDays($p->payment_date);
+            if ($daysSince < 7) continue;
+            $ck = $p->check_number ?? $p->trace_number ?? 'Unknown';
+            $amt = number_format((float) $p->total_amount, 2);
+            $makeTask("deposit-{$p->id}", [
+                'billing_client_id' => $p->billing_client_id,
+                'title' => "Deposit check #{$ck} from {$p->payer_name} — \${$amt}",
+                'description' => "Payment received {$daysSince} days ago but not yet marked as deposited.\nConfirm deposit in the Payments tab.",
+                'category' => 'payment_posting',
+                'priority' => $daysSince > 14 ? 'high' : 'normal',
+                'status' => 'pending',
+                'due_date' => $now->copy()->addDays(2),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'created' => $created,
+            'skipped' => $skipped,
+            'message' => $created > 0 ? "{$created} new tasks generated" : 'No new tasks — everything is up to date',
+        ]);
+    }
+
+    /**
+     * Dismiss a system-generated task (won't be recreated).
+     */
+    public function dismissTask(Request $request, int $id): JsonResponse
+    {
+        $task = BillingTask::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $task->update(['dismissed' => true, 'status' => 'cancelled']);
+        return response()->json(['success' => true]);
     }
 }

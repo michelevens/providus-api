@@ -12,9 +12,10 @@ class BillingTask extends Model
     use BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'billing_client_id', 'title', 'description',
+        'agency_id', 'billing_client_id', 'claim_id', 'title', 'description',
         'provider_name', 'category', 'priority', 'status',
         'due_date', 'assigned_to', 'created_by', 'completed_at',
+        'source', 'source_key', 'dismissed',
     ];
 
     protected $casts = [
