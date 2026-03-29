@@ -130,6 +130,11 @@ class AuthController extends Controller
         }
 
         $user->update(['last_login_at' => now()]);
+        // Clean up old tokens (keep only last 5) to prevent token bloat
+        $tokens = $user->tokens()->orderByDesc('created_at')->get();
+        if ($tokens->count() > 5) {
+            $tokens->slice(5)->each->delete();
+        }
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
