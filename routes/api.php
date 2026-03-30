@@ -247,6 +247,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Proxy services
     Route::post('/proxy/stedi/eligibility', [ProxyController::class, 'stediEligibility']);
+    Route::post('/proxy/availity/eligibility', [ProxyController::class, 'availityEligibility']);
+    Route::post('/proxy/availity/claim-status', [ProxyController::class, 'availityClaimStatus']);
     Route::post('/proxy/caqh/{action}', [ProxyController::class, 'caqh']);
 
     // Eligibility check history

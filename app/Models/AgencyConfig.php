@@ -12,17 +12,19 @@ class AgencyConfig extends Model
     protected $fillable = [
         'agency_id', 'stedi_api_key', 'stedi_npi', 'stedi_org_name',
         'caqh_org_id', 'caqh_username', 'caqh_password', 'caqh_environment',
+        'availity_client_id', 'availity_client_secret', 'availity_customer_id', 'availity_env',
         'google_calendar_id', 'notification_email', 'provider_name',
         'elig_monthly_limit', 'waves',
     ];
 
-    protected $hidden = ['stedi_api_key', 'caqh_password'];
+    protected $hidden = ['stedi_api_key', 'caqh_password', 'availity_client_secret'];
 
     protected function casts(): array
     {
         return [
             'stedi_api_key' => 'encrypted',
             'caqh_password' => 'encrypted',
+            'availity_client_secret' => 'encrypted',
             'waves' => 'array',
         ];
     }
