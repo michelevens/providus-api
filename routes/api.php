@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
 use App\Http\Controllers\Api\V1\OrganizationContactController;
+use App\Http\Controllers\Api\V1\ApplicationAttachmentController;
 use App\Http\Controllers\Api\V1\RevenueIntelligenceController;
 use App\Http\Controllers\Api\V1\TestimonialController;
 use App\Http\Controllers\Api\V1\TwoFactorController;
@@ -211,6 +212,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/applications-stats', [ApplicationController::class, 'stats']);
     // Alternate create route — workaround for CDN caching 503 on POST /applications
     Route::post('/app-create', [ApplicationController::class, 'store']);
+
+    // Application attachments (emails, letters, contracts)
+    Route::get('/applications/{id}/attachments', [ApplicationAttachmentController::class, 'index']);
+    Route::post('/applications/{id}/attachments', [ApplicationAttachmentController::class, 'store']);
+    Route::get('/applications/{id}/attachments/{attachmentId}/download', [ApplicationAttachmentController::class, 'download']);
+    Route::delete('/applications/{id}/attachments/{attachmentId}', [ApplicationAttachmentController::class, 'destroy']);
 
     Route::apiResource('followups', FollowupController::class);
     Route::post('/followups/{id}/complete', [FollowupController::class, 'complete']);
