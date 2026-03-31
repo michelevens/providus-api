@@ -18,7 +18,7 @@ class NotificationSendController extends Controller
     public function send(Request $request): JsonResponse
     {
         $data = $request->validate([
-            'type'           => 'required|string|in:status_change,expiration_warning,document_needed,welcome,milestone,followup_created',
+            'type'           => 'required|string|in:status_change,expiration_warning,document_needed,welcome,milestone,followup_created,outreach,appeal,general',
             'recipientEmail' => 'required|email',
             'recipientName'  => 'nullable|string|max:255',
             'subject'        => 'required|string|max:500',
