@@ -16,7 +16,7 @@ class TenantScope implements Scope
     {
         $key = "{$table}.{$column}";
         if (!isset(self::$columnCache[$key])) {
-            self::$columnCache[$key] = self::hasCol($table, $column);
+            self::$columnCache[$key] = Schema::hasColumn($table, $column);
         }
         return self::$columnCache[$key];
     }
