@@ -28,6 +28,7 @@ class FacilityController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:200',
+            'organization_id' => 'nullable|integer|exists:organizations,id',
             'npi' => 'nullable|string|size:10',
             'facility_type' => 'nullable|string|max:50',
             'tax_id' => 'nullable|string|max:20',
@@ -48,7 +49,7 @@ class FacilityController extends Controller
         $facility = Facility::create([
             'agency_id' => $request->user()->agency_id,
             ...$request->only([
-                'name', 'npi', 'facility_type', 'tax_id', 'street', 'city',
+                'name', 'organization_id', 'npi', 'facility_type', 'tax_id', 'street', 'city',
                 'state', 'zip', 'phone', 'fax', 'email', 'website',
                 'contact_name', 'contact_phone', 'contact_email', 'notes',
             ]),
@@ -68,6 +69,7 @@ class FacilityController extends Controller
         $facility = Facility::where('agency_id', $request->user()->agency_id)->findOrFail($id);
         $request->validate([
             'name' => 'sometimes|string|max:200',
+            'organization_id' => 'sometimes|nullable|integer|exists:organizations,id',
             'npi' => 'sometimes|nullable|string|size:10',
             'facility_type' => 'sometimes|nullable|string|max:50',
             'tax_id' => 'sometimes|nullable|string|max:20',
@@ -86,7 +88,7 @@ class FacilityController extends Controller
             'notes' => 'sometimes|nullable|string',
         ]);
         $facility->update($request->only([
-            'name', 'npi', 'facility_type', 'tax_id', 'street', 'city',
+            'name', 'organization_id', 'npi', 'facility_type', 'tax_id', 'street', 'city',
             'state', 'zip', 'phone', 'fax', 'email', 'website',
             'contact_name', 'contact_phone', 'contact_email', 'is_active', 'notes',
         ]));
