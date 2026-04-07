@@ -23,7 +23,7 @@ class TaskController extends Controller
     {
         $data = $request->validate([
             'title' => 'required|string|max:500',
-            'category' => 'nullable|in:credentialing,licensing,followup,document,audit,other',
+            'category' => 'nullable|string|max:50',
             'priority' => 'in:urgent,high,normal,low',
             'due_date' => 'nullable|date',
             'linked_application_id' => 'nullable|exists:applications,id',
