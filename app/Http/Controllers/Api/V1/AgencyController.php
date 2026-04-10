@@ -215,6 +215,11 @@ class AgencyController extends Controller
         $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
 
         $request->validate([
+            'first_name' => 'sometimes|string|max:100',
+            'last_name' => 'sometimes|string|max:100',
+            'email' => 'sometimes|email|max:200|unique:users,email,' . $id,
+            'phone' => 'sometimes|nullable|string|max:30',
+            'password' => 'sometimes|string|min:6',
             'role' => 'sometimes|in:owner,agency,organization,provider',
             'ui_role' => 'sometimes|nullable|string|max:50',
             'is_active' => 'sometimes|boolean',
@@ -255,7 +260,11 @@ class AgencyController extends Controller
             }
         }
 
-        $user->update($request->only(['role', 'ui_role', 'is_active', 'organization_id', 'provider_id']));
+        $data = $request->only(['first_name', 'last_name', 'email', 'phone', 'role', 'ui_role', 'is_active', 'organization_id', 'provider_id']);
+        if ($request->has('password')) {
+            $data['password'] = $request->password;
+        }
+        $user->update($data);
 
         return response()->json([
             'success' => true,
