@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Webhook;
+use App\Models\WebhookDelivery;
 use App\Support\WebhookUrlGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -123,4 +124,20 @@ class WebhookController extends Controller
         }
     }
 
+    /**
+     * List recent delivery attempts for a webhook (audit / replay surface).
+     */
+    public function deliveries(Request $request, int $id): JsonResponse
+    {
+        // findOrFail enforces tenant scope via BelongsToAgency.
+        Webhook::findOrFail($id);
+
+        $deliveries = WebhookDelivery::where('webhook_id', $id)
+            ->where('agency_id', $request->user()->agency_id)
+            ->orderByDesc('created_at')
+            ->limit((int) min($request->input('limit', 100), 500))
+            ->get();
+
+        return response()->json(['success' => true, 'data' => $deliveries]);
+    }
 }

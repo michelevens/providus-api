@@ -302,6 +302,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::apiResource('api-keys', ApiKeyController::class)->only(['index', 'store', 'destroy']);
     Route::apiResource('webhooks', WebhookController::class);
     Route::post('/webhooks/{id}/test', [WebhookController::class, 'test']);
+    Route::get('/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
 
     // ── Billing & Invoicing ──
     Route::get('/billing/stats', [InvoiceController::class, 'stats']);

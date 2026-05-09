@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Jobs\DeliverWebhook;
 use App\Models\Webhook;
+use App\Models\WebhookDelivery;
 use Illuminate\Support\Str;
 
 /**
@@ -48,6 +49,7 @@ class WebhookDispatcher
     /**
      * Queue a delivery for every webhook in the agency that subscribes to $event.
      * Subscriptions: webhook.events array contains $event, or contains '*'.
+     * Each delivery gets a row in webhook_deliveries for audit / replay.
      */
     public static function dispatch(int $agencyId, string $event, array $data): void
     {
@@ -58,12 +60,19 @@ class WebhookDispatcher
             ->filter(fn(Webhook $w) => self::subscribesTo($w, $event));
 
         foreach ($webhooks as $webhook) {
-            DeliverWebhook::dispatch(
-                $webhook->id,
-                $event,
-                $data,
-                (string) Str::uuid(),
-            );
+            $deliveryId = (string) Str::uuid();
+
+            WebhookDelivery::create([
+                'webhook_id'    => $webhook->id,
+                'agency_id'     => $agencyId,
+                'event'         => $event,
+                'delivery_id'   => $deliveryId,
+                'payload'       => $data,
+                'status'        => WebhookDelivery::STATUS_PENDING,
+                'attempt_count' => 0,
+            ]);
+
+            DeliverWebhook::dispatch($webhook->id, $event, $data, $deliveryId);
         }
     }
 

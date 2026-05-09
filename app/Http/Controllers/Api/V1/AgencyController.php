@@ -121,6 +121,11 @@ class AgencyController extends Controller
             'provider_id' => 'nullable|integer',
         ]);
 
+        // Privilege gate: only owners (or superadmin) can mint another owner.
+        if ($request->role === 'owner' && !$request->user()->hasMinimumRole('owner')) {
+            return response()->json(['success' => false, 'message' => 'Only owners can assign the owner role.'], 403);
+        }
+
         $agencyId = $request->user()->agency_id;
 
         // Enforce user plan limit
@@ -232,6 +237,15 @@ class AgencyController extends Controller
             return response()->json([
                 'success' => false, 'message' => 'Cannot assign superadmin role',
             ], 403);
+        }
+
+        // Privilege gate: only owners (or superadmin) can promote anyone — including themselves —
+        // to owner, and only owners can demote an existing owner.
+        if ($request->has('role') && $request->role === 'owner' && !$request->user()->hasMinimumRole('owner')) {
+            return response()->json(['success' => false, 'message' => 'Only owners can assign the owner role.'], 403);
+        }
+        if ($user->role === 'owner' && $request->has('role') && $request->role !== 'owner' && !$request->user()->hasMinimumRole('owner')) {
+            return response()->json(['success' => false, 'message' => 'Only owners can change another owner\'s role.'], 403);
         }
 
         $agencyId = $request->user()->agency_id;
