@@ -9,6 +9,7 @@ use App\Models\Application;
 use App\Models\Followup;
 use App\Models\User;
 use App\Services\NotificationService;
+use App\Services\WebhookDispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -195,6 +196,25 @@ class ApplicationController extends Controller
                 'due_date' => now()->addDays(14),
                 'method' => 'phone',
             ]);
+        }
+
+        // Fire webhook events — also emit a specific event for terminal states
+        // so subscribers can listen to just approvals/denials without parsing.
+        $webhookData = [
+            'application_id' => $app->id,
+            'provider_id'    => $app->provider_id,
+            'payer_id'       => $app->payer_id,
+            'payer_name'     => $app->payer?->name ?? $app->payer_name,
+            'state'          => $app->state,
+            'old_status'     => $oldStatus,
+            'new_status'     => $request->new_status,
+            'notes'          => $request->notes,
+        ];
+        WebhookDispatcher::dispatch($app->agency_id, WebhookDispatcher::APPLICATION_STATUS_CHANGED, $webhookData);
+        if ($request->new_status === 'approved') {
+            WebhookDispatcher::dispatch($app->agency_id, WebhookDispatcher::APPLICATION_APPROVED, $webhookData);
+        } elseif (in_array($request->new_status, ['denied', 'rejected'], true)) {
+            WebhookDispatcher::dispatch($app->agency_id, WebhookDispatcher::APPLICATION_DENIED, $webhookData);
         }
 
         return response()->json(['success' => true, 'data' => $app->fresh()]);

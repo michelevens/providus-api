@@ -16,6 +16,7 @@ use App\Models\PayerRule;
 use App\Models\ProviderFeedback;
 use App\Models\UnderpaymentFlag;
 use App\Services\AiService;
+use App\Services\WebhookDispatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -283,6 +284,7 @@ class RcmPhase2Controller extends Controller
         $aid = $request->user()->agency_id;
         $payment = \App\Models\ClaimPayment::where('agency_id', $aid)->findOrFail($request->payment_id);
         $allocated = 0;
+        $claimsFlippedToPaid = [];
 
         foreach ($request->allocations as $alloc) {
             \App\Models\PaymentAllocation::create([
@@ -297,6 +299,7 @@ class RcmPhase2Controller extends Controller
 
             $claim = Claim::find($alloc['claim_id']);
             if ($claim) {
+                $oldStatus = $claim->status;
                 $claim->total_paid = ($claim->total_paid ?? 0) + $alloc['paid_amount'];
                 $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
                 $claim->patient_responsibility = ($claim->patient_responsibility ?? 0) + ($alloc['patient_responsibility'] ?? 0);
@@ -304,11 +307,29 @@ class RcmPhase2Controller extends Controller
                 elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
                 $claim->paid_date = $payment->payment_date;
                 $claim->save();
+                if ($oldStatus !== 'paid' && $claim->status === 'paid') {
+                    $claimsFlippedToPaid[] = $claim;
+                }
             }
             $allocated++;
         }
 
         $payment->recalculate();
+
+        foreach ($claimsFlippedToPaid as $c) {
+            WebhookDispatcher::dispatch($c->agency_id, WebhookDispatcher::CLAIM_PAID, [
+                'claim_id'       => $c->id,
+                'claim_number'   => $c->claim_number,
+                'patient_name'   => $c->patient_name,
+                'payer_name'     => $c->payer_name,
+                'total_charges'  => $c->total_charges,
+                'total_paid'     => $c->total_paid,
+                'balance'        => $c->balance,
+                'status'         => $c->status,
+                'payment_id'     => $payment->id,
+            ]);
+        }
+
         $payment->load(['allocations.claim:id,claim_number,patient_name']);
 
         return response()->json(['success' => true, 'allocated' => $allocated, 'data' => $payment]);

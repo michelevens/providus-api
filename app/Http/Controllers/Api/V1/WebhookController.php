@@ -4,11 +4,11 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Webhook;
+use App\Support\WebhookUrlGuard;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
-use Illuminate\Validation\ValidationException;
 
 class WebhookController extends Controller
 {
@@ -33,7 +33,7 @@ class WebhookController extends Controller
             'secret' => 'nullable|string|min:16|max:128',
         ]);
 
-        $this->assertSafeUrl($data['url']);
+        WebhookUrlGuard::assertSafe($data['url']);
 
         $webhook = Webhook::create([
             'agency_id'  => $request->user()->agency_id,
@@ -65,7 +65,7 @@ class WebhookController extends Controller
         ]);
 
         if (isset($data['url'])) {
-            $this->assertSafeUrl($data['url']);
+            WebhookUrlGuard::assertSafe($data['url']);
         }
 
         $webhook->update($data);
@@ -86,7 +86,7 @@ class WebhookController extends Controller
         $webhook = Webhook::findOrFail($id);
 
         // Re-check at delivery time — DNS may have changed since the URL was registered.
-        $this->assertSafeUrl($webhook->url);
+        WebhookUrlGuard::assertSafe($webhook->url);
 
         $payload = [
             'event'     => 'test',
@@ -123,46 +123,4 @@ class WebhookController extends Controller
         }
     }
 
-    /**
-     * Reject webhook URLs that resolve to private/loopback/link-local IPs (SSRF guard).
-     * Validates host AND resolved IP — defends against DNS rebinding at registration time.
-     */
-    private function assertSafeUrl(string $url): void
-    {
-        $parsed = parse_url($url);
-        if (!$parsed || empty($parsed['host'])) {
-            throw ValidationException::withMessages(['url' => ['Invalid URL.']]);
-        }
-
-        $host = strtolower($parsed['host']);
-
-        // Block obvious internal hostnames before DNS lookup.
-        $blockedHostnames = ['localhost', 'metadata.google.internal', 'metadata.goog'];
-        if (in_array($host, $blockedHostnames, true)) {
-            throw ValidationException::withMessages(['url' => ['URL host is not allowed.']]);
-        }
-
-        // Resolve to IPs (handles literal IPs and DNS names).
-        $ips = [];
-        if (filter_var($host, FILTER_VALIDATE_IP)) {
-            $ips[] = $host;
-        } else {
-            $records = @dns_get_record($host, DNS_A | DNS_AAAA);
-            foreach ($records ?: [] as $r) {
-                if (!empty($r['ip']))    $ips[] = $r['ip'];
-                if (!empty($r['ipv6']))  $ips[] = $r['ipv6'];
-            }
-        }
-
-        if (empty($ips)) {
-            throw ValidationException::withMessages(['url' => ['Could not resolve URL host.']]);
-        }
-
-        foreach ($ips as $ip) {
-            // Reject private (RFC1918), loopback, link-local, reserved.
-            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) === false) {
-                throw ValidationException::withMessages(['url' => ['URL must not point to a private or loopback address.']]);
-            }
-        }
-    }
 }
