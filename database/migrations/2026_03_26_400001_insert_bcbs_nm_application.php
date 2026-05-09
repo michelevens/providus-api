@@ -6,6 +6,23 @@ use Illuminate\Support\Facades\DB;
 return new class extends Migration {
     public function up(): void
     {
+        $agencyExists = DB::table('agencies')->where('id', 1)->exists();
+        $providerExists = DB::table('providers')->where('id', 1)->exists();
+
+        if (!$agencyExists || !$providerExists) {
+            return;
+        }
+
+        $alreadyInserted = DB::table('applications')
+            ->where('payer_name', 'BCBS of New Mexico')
+            ->where('provider_id', 1)
+            ->where('state', 'NM')
+            ->exists();
+
+        if ($alreadyInserted) {
+            return;
+        }
+
         DB::table('applications')->insert([
             'agency_id' => 1,
             'provider_id' => 1,
