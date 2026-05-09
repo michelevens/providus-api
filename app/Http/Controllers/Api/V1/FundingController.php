@@ -45,10 +45,11 @@ class FundingController extends Controller
             });
         }
 
-        // Sort
-        $sort = $request->input('sort', 'close_date');
-        $order = $request->input('order', 'asc');
-        $query->orderByRaw("CASE WHEN {$sort} IS NULL THEN 1 ELSE 0 END")->orderBy($sort, $order);
+        // Sort — strict allowlist; raw interpolation is a SQLi sink otherwise.
+        $allowedSort = ['close_date', 'amount_max', 'amount_min', 'created_at', 'title', 'agency_source'];
+        $sort = in_array($request->input('sort'), $allowedSort, true) ? $request->input('sort') : 'close_date';
+        $order = strtolower($request->input('order', 'asc')) === 'desc' ? 'desc' : 'asc';
+        $query->orderByRaw("CASE WHEN \"{$sort}\" IS NULL THEN 1 ELSE 0 END")->orderBy($sort, $order);
 
         $opportunities = $query->paginate($request->input('per_page', 50));
 

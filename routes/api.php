@@ -551,7 +551,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/enable', [TwoFactorController::class, 'enable']);
         Route::post('/verify', [TwoFactorController::class, 'verify']);
         Route::post('/disable', [TwoFactorController::class, 'disable']);
-        Route::get('/recovery-codes', [TwoFactorController::class, 'recoveryCodes']);
+        // Recovery codes are show-once at generation; stored as one-way hashes,
+        // so retrieval after the fact is impossible by design. Use regenerate to get a fresh set.
         Route::post('/regenerate-recovery', [TwoFactorController::class, 'regenerateRecoveryCodes']);
     });
 

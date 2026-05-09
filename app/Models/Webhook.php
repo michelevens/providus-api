@@ -21,4 +21,6 @@ class Webhook extends Model
         'last_triggered_at' => 'datetime',
         'failure_count' => 'integer',
     ];
+
+    protected $hidden = ['secret'];
 }

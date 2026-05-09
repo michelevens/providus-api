@@ -53,7 +53,8 @@ class ApplicationAttachmentController extends Controller
     public function store(Request $request, int $applicationId): JsonResponse
     {
         $request->validate([
-            'file' => 'required|file|max:20480', // 20MB
+            // mimes: validates BOTH extension and content (anti-SVG-XSS, anti-phar).
+            'file' => 'required|file|max:20480|mimes:pdf,doc,docx,xls,xlsx,jpg,jpeg,png,gif,txt,csv',
             'label' => 'nullable|string|max:255',
             'notes' => 'nullable|string|max:2000',
         ]);
@@ -64,6 +65,20 @@ class ApplicationAttachmentController extends Controller
         Application::where('agency_id', $agencyId)->findOrFail($applicationId);
 
         $file = $request->file('file');
+
+        // Verify MIME by content (don't trust client-supplied type).
+        $detectedMime = mime_content_type($file->getRealPath()) ?: 'application/octet-stream';
+        $allowedMimes = [
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.ms-excel',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'image/jpeg', 'image/png', 'image/gif',
+            'text/plain', 'text/csv',
+        ];
+        abort_unless(in_array($detectedMime, $allowedMimes, true), 422, 'Unsupported file type.');
+
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $path = "attachments/{$agencyId}/applications/{$applicationId}/{$filename}";
 
@@ -76,7 +91,7 @@ class ApplicationAttachmentController extends Controller
             'notes' => $request->notes,
             'file_path' => $path,
             'file_disk' => config('filesystems.default') === 'local' ? 'local' : 's3',
-            'mime_type' => $file->getClientMimeType(),
+            'mime_type' => $detectedMime,
             'file_size' => $file->getSize(),
             'original_name' => $file->getClientOriginalName(),
             'uploaded_by' => $user->id,

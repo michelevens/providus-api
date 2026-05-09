@@ -9,6 +9,7 @@ use App\Models\AgencyConfig;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
@@ -118,9 +119,15 @@ class AuthController extends Controller
             ]);
         }
 
-        // If 2FA is enabled, return a challenge instead of a token
+        // If 2FA is enabled, return a challenge instead of a token.
+        // login_token is a random one-time value cached for 5 min; avoids deterministic/replayable tokens.
         if ($user->two_factor_enabled && $user->two_factor_secret) {
-            $loginToken = hash('sha256', $user->email . now()->format('Y-m-d-H'));
+            $loginToken = Str::random(48);
+            Cache::put(
+                '2fa_session:' . hash('sha256', $loginToken),
+                ['user_id' => $user->id],
+                now()->addMinutes(5)
+            );
             return response()->json([
                 'success' => true,
                 'two_factor_required' => true,
@@ -176,12 +183,22 @@ class AuthController extends Controller
     {
         $request->validate(['email' => 'required|email']);
 
-        // Only allow demo domain
-        if (!str_ends_with($request->email, '@demo.credentik.com')) {
+        // Strict allowlist — only the four known demo accounts. Arbitrary @demo.credentik.com
+        // emails are rejected so an attacker cannot mint accounts of their choosing.
+        $demoProfiles = [
+            'agency@demo.credentik.com'   => ['first_name' => 'Alex',   'last_name' => 'Agency',   'role' => 'agency',       'ui_role' => 'agency'],
+            'staff@demo.credentik.com'    => ['first_name' => 'Sam',    'last_name' => 'Staff',    'role' => 'agency',       'ui_role' => 'staff'],
+            'org@demo.credentik.com'      => ['first_name' => 'Olivia', 'last_name' => 'Org',      'role' => 'organization', 'ui_role' => 'organization'],
+            'provider@demo.credentik.com' => ['first_name' => 'Pat',    'last_name' => 'Provider', 'role' => 'provider',     'ui_role' => 'provider'],
+        ];
+
+        if (!isset($demoProfiles[$request->email])) {
             return response()->json([
                 'message' => 'Demo login is only available for demo accounts.',
             ], 403);
         }
+
+        $profile = $demoProfiles[$request->email];
 
         // Ensure demo agency exists
         $demoAgency = Agency::firstOrCreate(
@@ -207,36 +224,24 @@ class AuthController extends Controller
         // Ensure agency config exists
         \App\Models\AgencyConfig::firstOrCreate(['agency_id' => $demoAgency->id]);
 
-        // Define demo account profiles
-        $demoProfiles = [
-            'agency@demo.credentik.com' => ['first_name' => 'Alex', 'last_name' => 'Agency', 'role' => 'agency', 'ui_role' => 'agency'],
-            'staff@demo.credentik.com' => ['first_name' => 'Sam', 'last_name' => 'Staff', 'role' => 'agency', 'ui_role' => 'staff'],
-            'org@demo.credentik.com' => ['first_name' => 'Olivia', 'last_name' => 'Org', 'role' => 'organization', 'ui_role' => 'organization'],
-            'provider@demo.credentik.com' => ['first_name' => 'Pat', 'last_name' => 'Provider', 'role' => 'provider', 'ui_role' => 'provider'],
-        ];
-
-        $profile = $demoProfiles[$request->email] ?? ['first_name' => 'Demo', 'last_name' => 'User', 'role' => 'agency'];
-
         // Find or create the user
         $user = User::where('email', $request->email)->first();
 
         if (!$user) {
-            // Auto-create demo account
             $user = User::create([
                 'email' => $request->email,
                 'first_name' => $profile['first_name'],
                 'last_name' => $profile['last_name'],
                 'role' => $profile['role'],
-                'ui_role' => $profile['ui_role'] ?? $profile['role'],
+                'ui_role' => $profile['ui_role'],
                 'agency_id' => $demoAgency->id,
-                'password' => Hash::make('Demo@2026!'),
+                'password' => Hash::make(Str::random(32)),
                 'is_active' => true,
             ]);
         } else {
-            // Always update demo user profile and reassign to demo agency
             $user->update([
                 'agency_id' => $demoAgency->id,
-                'ui_role' => $profile['ui_role'] ?? $profile['role'],
+                'ui_role' => $profile['ui_role'],
             ]);
         }
 

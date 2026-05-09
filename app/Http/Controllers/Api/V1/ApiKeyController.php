@@ -14,9 +14,9 @@ class ApiKeyController extends Controller
     {
         $keys = ApiKey::where('is_active', true)->orderByDesc('created_at')->get();
 
-        // Mask the key for display
+        // `key` is hidden via $hidden — expose only a prefix for identification.
         $keys->transform(function ($key) {
-            $key->masked_key = substr($key->key, 0, 8) . str_repeat('*', 24);
+            $key->key_prefix = substr($key->getRawOriginal('key') ?? '', 0, 8);
             return $key;
         });
 

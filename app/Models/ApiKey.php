@@ -21,5 +21,5 @@ class ApiKey extends Model
         'last_used_at' => 'datetime',
     ];
 
-    protected $hidden = ['secret_hash'];
+    protected $hidden = ['key', 'secret_hash'];
 }

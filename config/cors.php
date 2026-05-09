@@ -27,9 +27,11 @@ return [
         array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', ''))),
     )),
 
-    'allowed_origins_patterns' => [
-        '#^http://localhost(:\d+)?$#',
-    ],
+    'allowed_origins_patterns' => array_filter([
+        // Only allow localhost origins outside production — avoids credentialed
+        // CORS from rogue local apps in deployed environments.
+        env('APP_ENV') !== 'production' ? '#^http://localhost(:\d+)?$#' : null,
+    ]),
 
     'allowed_headers' => ['*'],
 

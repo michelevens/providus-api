@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -43,12 +44,13 @@ class TwoFactorController extends Controller
         // Generate TOTP secret (base32, 20 bytes = 32 chars)
         $secret = $this->generateBase32Secret();
 
-        // Generate recovery codes
-        $recoveryCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
+        // Generate recovery codes — plaintext shown to user ONCE; we store only bcrypt hashes.
+        $plainCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
+        $hashedCodes = array_map(fn($c) => Hash::make($c), $plainCodes);
 
         $user->update([
             'two_factor_secret' => Crypt::encryptString($secret),
-            'two_factor_recovery_codes' => Crypt::encryptString(json_encode($recoveryCodes)),
+            'two_factor_recovery_codes' => Crypt::encryptString(json_encode($hashedCodes)),
             'two_factor_enabled' => false, // Not confirmed yet
             'two_factor_confirmed_at' => null,
         ]);
@@ -63,8 +65,9 @@ class TwoFactorController extends Controller
             'data' => [
                 'secret' => $secret,
                 'otpauth_url' => $otpauthUrl,
-                'recovery_codes' => $recoveryCodes,
+                'recovery_codes' => $plainCodes,
             ],
+            'message' => 'Save the recovery codes now — they will not be shown again.',
         ]);
     }
 
@@ -119,23 +122,7 @@ class TwoFactorController extends Controller
     }
 
     /**
-     * Get recovery codes (requires password).
-     */
-    public function recoveryCodes(Request $request): JsonResponse
-    {
-        $user = $request->user();
-
-        if (!$user->two_factor_enabled || !$user->two_factor_recovery_codes) {
-            return response()->json(['success' => false, 'message' => '2FA is not enabled'], 400);
-        }
-
-        $codes = json_decode(Crypt::decryptString($user->two_factor_recovery_codes), true);
-
-        return response()->json(['success' => true, 'data' => ['recovery_codes' => $codes]]);
-    }
-
-    /**
-     * Regenerate recovery codes.
+     * Regenerate recovery codes — returns the new plaintext set ONCE; only hashes are stored.
      */
     public function regenerateRecoveryCodes(Request $request): JsonResponse
     {
@@ -147,17 +134,22 @@ class TwoFactorController extends Controller
             return response()->json(['success' => false, 'message' => 'Incorrect password'], 403);
         }
 
-        $recoveryCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
+        $plainCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
+        $hashedCodes = array_map(fn($c) => Hash::make($c), $plainCodes);
 
         $user->update([
-            'two_factor_recovery_codes' => Crypt::encryptString(json_encode($recoveryCodes)),
+            'two_factor_recovery_codes' => Crypt::encryptString(json_encode($hashedCodes)),
         ]);
 
-        return response()->json(['success' => true, 'data' => ['recovery_codes' => $recoveryCodes]]);
+        return response()->json([
+            'success' => true,
+            'data' => ['recovery_codes' => $plainCodes],
+            'message' => 'Save the recovery codes now — they will not be shown again.',
+        ]);
     }
 
     /**
-     * Verify 2FA during login (public endpoint, uses temporary token).
+     * Verify 2FA during login (public endpoint, uses cached short-lived session token).
      */
     public function verifyLogin(Request $request): JsonResponse
     {
@@ -167,33 +159,35 @@ class TwoFactorController extends Controller
             'login_token' => 'required|string',
         ]);
 
-        $user = User::findOrFail($request->user_id);
+        $cacheKey = '2fa_session:' . hash('sha256', $request->login_token);
+        $session = Cache::get($cacheKey);
 
-        // Verify the temporary login token (hash of user email + a timestamp window)
-        $validToken = hash('sha256', $user->email . now()->format('Y-m-d-H'));
-        $validTokenPrev = hash('sha256', $user->email . now()->subHour()->format('Y-m-d-H'));
-
-        if ($request->login_token !== $validToken && $request->login_token !== $validTokenPrev) {
-            return response()->json(['success' => false, 'message' => 'Invalid login session'], 403);
+        if (!$session || ($session['user_id'] ?? null) !== (int) $request->user_id) {
+            return response()->json(['success' => false, 'message' => 'Invalid or expired login session'], 403);
         }
+
+        $user = User::findOrFail($request->user_id);
 
         $code = $request->code;
         $secret = Crypt::decryptString($user->two_factor_secret);
 
         // Try TOTP first
         if (strlen($code) === 6 && $this->verifyTotp($secret, $code)) {
+            Cache::forget($cacheKey);
             return $this->issueToken($user);
         }
 
-        // Try recovery code
-        $recoveryCodes = json_decode(Crypt::decryptString($user->two_factor_recovery_codes), true);
-        if (in_array($code, $recoveryCodes)) {
-            // Remove used recovery code
-            $recoveryCodes = array_values(array_filter($recoveryCodes, fn($c) => $c !== $code));
-            $user->update([
-                'two_factor_recovery_codes' => Crypt::encryptString(json_encode($recoveryCodes)),
-            ]);
-            return $this->issueToken($user);
+        // Try recovery code — codes are bcrypt hashes; Hash::check is constant-time.
+        $hashedCodes = json_decode(Crypt::decryptString($user->two_factor_recovery_codes), true) ?? [];
+        foreach ($hashedCodes as $i => $hash) {
+            if (Hash::check($code, $hash)) {
+                unset($hashedCodes[$i]);
+                $user->update([
+                    'two_factor_recovery_codes' => Crypt::encryptString(json_encode(array_values($hashedCodes))),
+                ]);
+                Cache::forget($cacheKey);
+                return $this->issueToken($user);
+            }
         }
 
         return response()->json(['success' => false, 'message' => 'Invalid verification code'], 422);
@@ -232,7 +226,7 @@ class TwoFactorController extends Controller
     {
         $timeSlice = (int) floor(time() / 30);
         for ($i = -$window; $i <= $window; $i++) {
-            if ($this->generateTotp($secret, $timeSlice + $i) === $code) {
+            if (hash_equals($this->generateTotp($secret, $timeSlice + $i), $code)) {
                 return true;
             }
         }
