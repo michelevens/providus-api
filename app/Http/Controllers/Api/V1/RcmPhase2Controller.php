@@ -17,6 +17,7 @@ use App\Models\ProviderFeedback;
 use App\Models\UnderpaymentFlag;
 use App\Services\AiService;
 use App\Services\WebhookDispatcher;
+use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -317,17 +318,11 @@ class RcmPhase2Controller extends Controller
         $payment->recalculate();
 
         foreach ($claimsFlippedToPaid as $c) {
-            WebhookDispatcher::dispatch($c->agency_id, WebhookDispatcher::CLAIM_PAID, [
-                'claim_id'       => $c->id,
-                'claim_number'   => $c->claim_number,
-                'patient_name'   => $c->patient_name,
-                'payer_name'     => $c->payer_name,
-                'total_charges'  => $c->total_charges,
-                'total_paid'     => $c->total_paid,
-                'balance'        => $c->balance,
-                'status'         => $c->status,
-                'payment_id'     => $payment->id,
-            ]);
+            WebhookDispatcher::dispatch(
+                $c->agency_id,
+                WebhookDispatcher::CLAIM_PAID,
+                WebhookPayloads::claim($c, ['payment_id' => $payment->id]),
+            );
         }
 
         $payment->load(['allocations.claim:id,claim_number,patient_name']);

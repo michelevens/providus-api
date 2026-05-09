@@ -44,9 +44,8 @@ class TwoFactorController extends Controller
         // Generate TOTP secret (base32, 20 bytes = 32 chars)
         $secret = $this->generateBase32Secret();
 
-        // Generate recovery codes — plaintext shown to user ONCE; we store only bcrypt hashes.
-        $plainCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
-        $hashedCodes = array_map(fn($c) => Hash::make($c), $plainCodes);
+        // Plaintext shown to user ONCE; we store only bcrypt hashes.
+        [$plainCodes, $hashedCodes] = $this->generateRecoveryCodes();
 
         $user->update([
             'two_factor_secret' => Crypt::encryptString($secret),
@@ -134,8 +133,7 @@ class TwoFactorController extends Controller
             return response()->json(['success' => false, 'message' => 'Incorrect password'], 403);
         }
 
-        $plainCodes = collect(range(1, 8))->map(fn() => Str::random(10))->all();
-        $hashedCodes = array_map(fn($c) => Hash::make($c), $plainCodes);
+        [$plainCodes, $hashedCodes] = $this->generateRecoveryCodes();
 
         $user->update([
             'two_factor_recovery_codes' => Crypt::encryptString(json_encode($hashedCodes)),
@@ -208,6 +206,17 @@ class TwoFactorController extends Controller
             'token' => $token,
             'user' => $user->load($relations),
         ]);
+    }
+
+    /**
+     * Returns [plaintextCodes, hashedCodes] — plaintext is shown to the user once,
+     * hashes are persisted so verification is one-way.
+     */
+    private function generateRecoveryCodes(int $count = 8, int $length = 10): array
+    {
+        $plain = collect(range(1, $count))->map(fn() => Str::random($length))->all();
+        $hashed = array_map(fn($c) => Hash::make($c), $plain);
+        return [$plain, $hashed];
     }
 
     // ─── TOTP Helpers ───

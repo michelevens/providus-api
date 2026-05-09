@@ -2,6 +2,7 @@
 
 namespace App\Support;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -11,6 +12,12 @@ use Illuminate\Validation\ValidationException;
  */
 class WebhookUrlGuard
 {
+    /**
+     * DNS cache TTL — short enough that DNS-rebind defense remains effective
+     * (an attacker who flips DNS to internal must wait for the cache to expire).
+     */
+    private const DNS_CACHE_TTL = 60;
+
     private const BLOCKED_HOSTNAMES = [
         'localhost',
         'metadata.google.internal',
@@ -48,12 +55,14 @@ class WebhookUrlGuard
             return [$host];
         }
 
-        $ips = [];
-        $records = @dns_get_record($host, DNS_A | DNS_AAAA);
-        foreach ($records ?: [] as $r) {
-            if (!empty($r['ip']))   $ips[] = $r['ip'];
-            if (!empty($r['ipv6'])) $ips[] = $r['ipv6'];
-        }
-        return $ips;
+        return Cache::remember("webhook_dns:{$host}", self::DNS_CACHE_TTL, function () use ($host) {
+            $ips = [];
+            $records = @dns_get_record($host, DNS_A | DNS_AAAA);
+            foreach ($records ?: [] as $r) {
+                if (!empty($r['ip']))   $ips[] = $r['ip'];
+                if (!empty($r['ipv6'])) $ips[] = $r['ipv6'];
+            }
+            return $ips;
+        });
     }
 }

@@ -10,6 +10,7 @@ use App\Models\ClaimPayment;
 use App\Models\ClaimServiceLine;
 use App\Models\PaymentAllocation;
 use App\Services\WebhookDispatcher;
+use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -65,7 +66,7 @@ class RcmController extends Controller
         }
 
         if ($claim->status === 'submitted') {
-            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_SUBMITTED, $this->claimWebhookData($claim));
+            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_SUBMITTED, WebhookPayloads::claim($claim));
         }
 
         $claim->load(['serviceLines', 'billingClient:id,organization_name']);
@@ -347,7 +348,7 @@ class RcmController extends Controller
         $oldStatus = $claim->status;
         $claim->update(['status' => 'denied', 'denial_reason' => $request->denial_reason]);
         if ($oldStatus !== 'denied') {
-            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_DENIED, $this->claimWebhookData($claim));
+            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_DENIED, WebhookPayloads::claim($claim));
         }
         return response()->json(['success' => true, 'data' => $denial->load('claim:id,claim_number,payer_name')], 201);
     }
@@ -424,28 +425,30 @@ class RcmController extends Controller
         ]);
         $claimsFlippedToPaid = [];
         if ($request->has('allocations')) {
+            $claimIds = array_filter(array_column($request->allocations, 'claim_id'));
+            $claimsById = Claim::whereIn('id', $claimIds)->get()->keyBy('id');
+
             foreach ($request->allocations as $alloc) {
                 PaymentAllocation::create(['claim_payment_id' => $payment->id, ...$alloc]);
-                $claim = Claim::find($alloc['claim_id'] ?? null);
-                if ($claim) {
-                    $oldStatus = $claim->status;
-                    $claim->total_paid = ($claim->total_paid ?? 0) + ($alloc['paid_amount'] ?? 0);
-                    $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
-                    if ($claim->balance <= 0) $claim->status = 'paid';
-                    elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
-                    $claim->paid_date = $request->payment_date;
-                    $claim->save();
-                    if ($oldStatus !== 'paid' && $claim->status === 'paid') {
-                        $claimsFlippedToPaid[] = $claim;
-                    }
+                $claim = $claimsById->get($alloc['claim_id'] ?? null);
+                if (!$claim) continue;
+
+                $oldStatus = $claim->status;
+                $claim->total_paid = ($claim->total_paid ?? 0) + ($alloc['paid_amount'] ?? 0);
+                $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
+                if ($claim->balance <= 0) $claim->status = 'paid';
+                elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
+                $claim->paid_date = $request->payment_date;
+                $claim->save();
+
+                if ($oldStatus !== 'paid' && $claim->status === 'paid') {
+                    $claimsFlippedToPaid[] = $claim;
                 }
             }
             $payment->recalculate();
         }
 
-        if ($payment->status === 'posted' || $payment->total_amount > 0) {
-            WebhookDispatcher::dispatch($payment->agency_id, WebhookDispatcher::PAYMENT_POSTED, $this->paymentWebhookData($payment));
-        }
+        WebhookDispatcher::dispatch($payment->agency_id, WebhookDispatcher::PAYMENT_POSTED, WebhookPayloads::payment($payment));
         foreach ($claimsFlippedToPaid as $c) {
             WebhookDispatcher::dispatch($c->agency_id, WebhookDispatcher::CLAIM_PAID, $this->claimWebhookData($c));
         }
@@ -630,17 +633,9 @@ class RcmController extends Controller
 
                     // Fire webhook events for transitions detected in this row.
                     if ($createdPaymentForWebhook) {
-                        WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::PAYMENT_POSTED, $this->paymentWebhookData($createdPaymentForWebhook));
+                        WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::PAYMENT_POSTED, WebhookPayloads::payment($createdPaymentForWebhook));
                     }
-                    if ($oldStatus !== $claim->status) {
-                        if ($claim->status === 'paid') {
-                            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_PAID, $this->claimWebhookData($claim));
-                        } elseif ($claim->status === 'denied') {
-                            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_DENIED, $this->claimWebhookData($claim));
-                        } elseif ($claim->status === 'submitted') {
-                            WebhookDispatcher::dispatch($claim->agency_id, WebhookDispatcher::CLAIM_SUBMITTED, $this->claimWebhookData($claim));
-                        }
-                    }
+                    $this->fireClaimStatusEvent($claim, $oldStatus);
 
                     // Sync charge entries to match claim status
                     ChargeEntry::where('claim_id', $claim->id)->update(['status' => $claim->status]);
@@ -678,14 +673,8 @@ class RcmController extends Controller
                         'submission_method' => 'electronic',
                         'submitted_date' => $row['submitted_date'] ?? null,
                     ]);
-                    if (in_array($newClaim->status, ['submitted', 'paid', 'denied'], true)) {
-                        $eventMap = [
-                            'submitted' => WebhookDispatcher::CLAIM_SUBMITTED,
-                            'paid'      => WebhookDispatcher::CLAIM_PAID,
-                            'denied'    => WebhookDispatcher::CLAIM_DENIED,
-                        ];
-                        WebhookDispatcher::dispatch($newClaim->agency_id, $eventMap[$newClaim->status], $this->claimWebhookData($newClaim));
-                    }
+                    // Treat as a transition from null so the helper picks the right event.
+                    $this->fireClaimStatusEvent($newClaim, null);
                     $created++;
                 }
             } catch (\Exception $e) {
@@ -854,42 +843,6 @@ class RcmController extends Controller
         ]]);
     }
 
-    // ── Webhook helpers ──
-
-    private function claimWebhookData(Claim $claim): array
-    {
-        return [
-            'claim_id'          => $claim->id,
-            'claim_number'      => $claim->claim_number,
-            'billing_client_id' => $claim->billing_client_id,
-            'provider_id'       => $claim->provider_id,
-            'provider_name'     => $claim->provider_name,
-            'patient_name'      => $claim->patient_name,
-            'payer_name'        => $claim->payer_name,
-            'date_of_service'   => $claim->date_of_service ? (string) $claim->date_of_service : null,
-            'total_charges'     => $claim->total_charges,
-            'total_paid'        => $claim->total_paid,
-            'balance'           => $claim->balance,
-            'status'            => $claim->status,
-            'denial_reason'     => $claim->denial_reason,
-        ];
-    }
-
-    private function paymentWebhookData(ClaimPayment $payment): array
-    {
-        return [
-            'payment_id'        => $payment->id,
-            'billing_client_id' => $payment->billing_client_id,
-            'payer_name'        => $payment->payer_name,
-            'payment_type'      => $payment->payment_type,
-            'check_number'      => $payment->check_number,
-            'payment_date'      => $payment->payment_date ? (string) $payment->payment_date : null,
-            'total_amount'      => $payment->total_amount,
-            'remaining_amount'  => $payment->remaining_amount,
-            'status'            => $payment->status,
-        ];
-    }
-
     private function fireClaimStatusEvent(Claim $claim, ?string $oldStatus): void
     {
         if ($oldStatus === $claim->status) return;
@@ -899,7 +852,7 @@ class RcmController extends Controller
             'denied'    => WebhookDispatcher::CLAIM_DENIED,
         ];
         if (isset($eventMap[$claim->status])) {
-            WebhookDispatcher::dispatch($claim->agency_id, $eventMap[$claim->status], $this->claimWebhookData($claim));
+            WebhookDispatcher::dispatch($claim->agency_id, $eventMap[$claim->status], WebhookPayloads::claim($claim));
         }
     }
 }

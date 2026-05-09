@@ -21,21 +21,11 @@ class DeliverWebhook implements ShouldQueue
     public int $timeout = 30;
     public bool $afterCommit = true;
 
-    /**
-     * Auto-disable a webhook after this many consecutive failed deliveries.
-     */
     private const FAILURE_DEACTIVATION_THRESHOLD = 20;
 
-    public function __construct(
-        public int $webhookId,
-        public string $event,
-        public array $data,
-        public string $deliveryId,
-    ) {}
+    public function __construct(public string $deliveryId) {}
 
-    /**
-     * Exponential backoff: 10s, 1m, 5m, 30m, 2h.
-     */
+    /** Exponential backoff: 10s, 1m, 5m, 30m, 2h. */
     public function backoff(): array
     {
         return [10, 60, 300, 1800, 7200];
@@ -43,11 +33,12 @@ class DeliverWebhook implements ShouldQueue
 
     public function handle(): void
     {
-        $webhook = Webhook::withoutGlobalScopes()->find($this->webhookId);
-        $delivery = WebhookDelivery::where('delivery_id', $this->deliveryId)->first();
+        $delivery = WebhookDelivery::with('webhook')->where('delivery_id', $this->deliveryId)->first();
+        if (!$delivery) return;
 
+        $webhook = $delivery->webhook;
         if (!$webhook || !$webhook->is_active) {
-            $this->finalizeDelivery($delivery, WebhookDelivery::STATUS_ABANDONED, null, null, 'Webhook missing or inactive at delivery time');
+            $this->finalize($delivery, WebhookDelivery::STATUS_ABANDONED, null, null, 'Webhook missing or inactive at delivery time');
             return;
         }
 
@@ -57,68 +48,62 @@ class DeliverWebhook implements ShouldQueue
         } catch (\Throwable $e) {
             Log::warning("Webhook {$webhook->id} URL failed SSRF check at delivery: {$e->getMessage()}");
             $webhook->update(['is_active' => false]);
-            $this->finalizeDelivery($delivery, WebhookDelivery::STATUS_ABANDONED, null, null, 'URL failed SSRF check at delivery');
+            $this->finalize($delivery, WebhookDelivery::STATUS_ABANDONED, null, null, 'URL failed SSRF check at delivery');
             return;
         }
 
         $payload = [
-            'event'       => $this->event,
-            'delivery_id' => $this->deliveryId,
-            'data'        => $this->data,
+            'event'       => $delivery->event,
+            'delivery_id' => $delivery->delivery_id,
+            'data'        => $delivery->payload,
             'timestamp'   => now()->toIso8601String(),
         ];
 
         $body = json_encode($payload);
         $signature = hash_hmac('sha256', $body, $webhook->secret);
 
-        if ($delivery && !$delivery->first_attempt_at) {
+        if (!$delivery->first_attempt_at) {
             $delivery->update(['first_attempt_at' => now()]);
         }
 
         $response = Http::timeout(10)
             ->withOptions(['allow_redirects' => false])
             ->withHeaders([
-                'X-Credentik-Event'       => $this->event,
-                'X-Credentik-Delivery-Id' => $this->deliveryId,
+                'X-Credentik-Event'       => $delivery->event,
+                'X-Credentik-Delivery-Id' => $delivery->delivery_id,
                 'X-Credentik-Signature'   => $signature,
                 'Content-Type'            => 'application/json',
             ])
             ->withBody($body, 'application/json')
             ->post($webhook->url);
 
-        if ($delivery) {
-            $delivery->increment('attempt_count');
-        }
+        $delivery->increment('attempt_count');
 
         if ($response->successful()) {
             $webhook->update([
                 'last_triggered_at' => now(),
                 'failure_count'     => 0,
             ]);
-            $this->finalizeDelivery($delivery, WebhookDelivery::STATUS_DELIVERED, $response->status(), $response->body(), null);
+            $this->finalize($delivery, WebhookDelivery::STATUS_DELIVERED, $response->status(), $response->body(), null);
             return;
         }
 
         // Persist this attempt's response so the audit trail is complete even mid-retry.
-        if ($delivery) {
-            $delivery->update([
-                'response_status' => $response->status(),
-                'response_body'   => $this->truncate($response->body()),
-                'error_message'   => "Webhook returned {$response->status()}",
-            ]);
-        }
+        $delivery->update([
+            'response_status' => $response->status(),
+            'response_body'   => $this->truncate($response->body()),
+            'error_message'   => "Webhook returned {$response->status()}",
+        ]);
 
         // Non-2xx — let Laravel retry per backoff(); failed() handles terminal state.
-        throw new \RuntimeException("Webhook {$this->webhookId} responded {$response->status()}");
+        throw new \RuntimeException("Webhook {$webhook->id} responded {$response->status()}");
     }
 
-    /**
-     * Called by Laravel when the job runs out of retries.
-     */
+    /** Called by Laravel when the job runs out of retries. */
     public function failed(\Throwable $e): void
     {
-        $webhook = Webhook::withoutGlobalScopes()->find($this->webhookId);
-        $delivery = WebhookDelivery::where('delivery_id', $this->deliveryId)->first();
+        $delivery = WebhookDelivery::with('webhook')->where('delivery_id', $this->deliveryId)->first();
+        $webhook = $delivery?->webhook;
 
         if ($webhook) {
             $webhook->increment('failure_count');
@@ -128,10 +113,10 @@ class DeliverWebhook implements ShouldQueue
             }
         }
 
-        $this->finalizeDelivery($delivery, WebhookDelivery::STATUS_FAILED, null, null, $e->getMessage());
+        $this->finalize($delivery, WebhookDelivery::STATUS_FAILED, null, null, $e->getMessage());
     }
 
-    private function finalizeDelivery(?WebhookDelivery $delivery, string $status, ?int $responseStatus, ?string $responseBody, ?string $error): void
+    private function finalize(?WebhookDelivery $delivery, string $status, ?int $responseStatus, ?string $responseBody, ?string $error): void
     {
         if (!$delivery) return;
         $delivery->update([

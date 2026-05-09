@@ -72,7 +72,7 @@ class WebhookDispatcher
                 'attempt_count' => 0,
             ]);
 
-            DeliverWebhook::dispatch($webhook->id, $event, $data, $deliveryId);
+            DeliverWebhook::dispatch($deliveryId);
         }
     }
 
