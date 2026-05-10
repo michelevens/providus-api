@@ -16,6 +16,7 @@ use App\Models\PayerRule;
 use App\Models\ProviderFeedback;
 use App\Models\UnderpaymentFlag;
 use App\Services\AiService;
+use App\Services\Era835Importer;
 use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
@@ -745,6 +746,58 @@ class RcmPhase2Controller extends Controller
             'claims' => $payments,
             'claim_count' => count($payments),
         ]]);
+    }
+
+    // ══════════════════════════════════════════════════
+    // 11a. 835 ERA UPLOAD + IMPORT (the real one — writes to DB)
+    // ══════════════════════════════════════════════════
+    //
+    // POST /rcm/era/upload (multipart, file=<835>) — accepts uploaded file
+    // POST /rcm/era/post   (JSON body, era_data=<raw X12 string>) — direct text
+    //
+    // Both delegate to Era835Importer which:
+    //  1. Parses BPR/TRN/N1/CLP/CAS/SVC/DTM/MOA segments
+    //  2. Creates ClaimPayment + PaymentAllocation rows
+    //  3. Matches CLP01 to existing claims by claim_number
+    //  4. Creates ClaimDenial rows for denied CLPs WITH denial_code,
+    //     denial_category (from carc_codes table), denial_reason,
+    //     appeal_deadline (from RARC + payer defaults)
+    //
+    // V2's Denial Inbox consumes denial_category — once this runs, the
+    // ~70% of denials in the "Unknown" queue should redistribute correctly.
+
+    public function uploadEra(Request $request): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file',
+            'billing_client_id' => 'nullable|integer|exists:billing_clients,id',
+        ]);
+
+        $rawX12 = file_get_contents($request->file('file')->getRealPath());
+        return $this->runEraImport($request, $rawX12);
+    }
+
+    public function postEra(Request $request): JsonResponse
+    {
+        $request->validate([
+            'era_data' => 'required|string',
+            'billing_client_id' => 'nullable|integer|exists:billing_clients,id',
+        ]);
+        return $this->runEraImport($request, $request->input('era_data'));
+    }
+
+    private function runEraImport(Request $request, string $rawX12): JsonResponse
+    {
+        $user = $request->user();
+        $importer = new Era835Importer(
+            $rawX12,
+            $user->agency_id,
+            $user->id,
+            $request->input('billing_client_id'),
+        );
+        $result = $importer->run();
+
+        return response()->json(['success' => true, 'data' => $result], $result['imported'] > 0 ? 201 : 200);
     }
 
     // ══════════════════════════════════════════════════

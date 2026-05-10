@@ -491,7 +491,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);
     Route::put('/rcm/eligibility/{id}', [RcmPhase2Controller::class, 'updateEligibilityCheck']);
 
-    Route::post('/rcm/era/parse', [RcmPhase2Controller::class, 'parseEra']);
+    Route::post('/rcm/era/parse', [RcmPhase2Controller::class, 'parseEra']);     // dry-run preview, no DB writes
+    Route::post('/rcm/era/upload', [RcmPhase2Controller::class, 'uploadEra']);    // multipart file → writes payments + denials with CARC enrichment
+    Route::post('/rcm/era/post', [RcmPhase2Controller::class, 'postEra']);        // raw 835 string → same import as /upload
     Route::post('/rcm/837/parse', [RcmPhase2Controller::class, 'parse837']);
     Route::post('/rcm/837/import', [RcmPhase2Controller::class, 'import837']);
 
