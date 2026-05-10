@@ -148,7 +148,13 @@ Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle']);
 
 // ─── Public payment-link endpoints (patient-facing, no auth) ───
 Route::get('/payments/config', [PaymentLinkController::class, 'config']);
-Route::get('/payments/status/{token}', [PaymentLinkController::class, 'status'])->where('token', '[A-Za-z0-9]+');
+// Token is Str::random(40) — alphanumeric, exactly 40 chars. Tightening the
+// regex stops enumeration probes that send shorter tokens hoping for partial
+// matches or odd routing behavior. Combined with the throttle below this is
+// effectively unbrute-forceable.
+Route::get('/payments/status/{token}', [PaymentLinkController::class, 'status'])
+    ->where('token', '[A-Za-z0-9]{40}')
+    ->middleware('throttle:30,1');
 
 /*
 |--------------------------------------------------------------------------

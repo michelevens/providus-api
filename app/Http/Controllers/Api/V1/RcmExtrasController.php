@@ -9,6 +9,7 @@ use App\Models\ClearinghouseConfig;
 use App\Models\PriorAuthorization;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 /**
  * Endpoints that V2 was calling but the backend hadn't implemented yet —
@@ -51,6 +52,7 @@ class RcmExtrasController extends Controller
 
     public function storeAuthorization(Request $request): JsonResponse
     {
+        $agencyId = $request->user()->agency_id;
         $data = $request->validate([
             'patient_name'         => 'nullable|string|max:255',
             'patient_member_id'    => 'nullable|string|max:100',
@@ -64,8 +66,13 @@ class RcmExtrasController extends Controller
             'expiration_date'      => 'nullable|date|after_or_equal:effective_date',
             'status'               => 'nullable|in:active,expired,exhausted,denied,cancelled',
             'notes'                => 'nullable|string',
-            'claim_id'             => 'nullable|integer|exists:claims,id',
-            'billing_client_id'    => 'nullable|integer|exists:billing_clients,id',
+            // Tenant-scoped existence checks: a malicious caller can't attach
+            // a prior-auth to another agency's claim or billing client by
+            // guessing IDs. The Rule::exists with a closure constraint
+            // resolves to "EXISTS WHERE id=? AND agency_id=?" — Laravel
+            // parameterizes both, no SQL injection risk.
+            'claim_id'             => ['nullable','integer', Rule::exists('claims','id')->where('agency_id', $agencyId)],
+            'billing_client_id'    => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $agencyId)],
         ]);
 
         $data['agency_id']  = $request->user()->agency_id;
@@ -160,13 +167,16 @@ class RcmExtrasController extends Controller
 
     public function importClaims(Request $request): JsonResponse
     {
-        $request->validate(['file' => 'required|file']);
+        $aid = $request->user()->agency_id;
+        $request->validate([
+            'file' => 'required|file|max:10240|mimes:csv,txt,xlsx',
+            'billing_client_id' => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $aid)],
+        ]);
         $rows = $this->parseUploadedCsv($request->file('file'));
         if (empty($rows)) {
             return response()->json(['success' => false, 'error' => 'No rows found in CSV'], 422);
         }
 
-        $aid = $request->user()->agency_id;
         $uid = $request->user()->id;
         $clientId = $request->input('billing_client_id');
         $imported = 0; $updated = 0; $skipped = 0; $errors = [];
@@ -221,13 +231,16 @@ class RcmExtrasController extends Controller
 
     public function importCharges(Request $request): JsonResponse
     {
-        $request->validate(['file' => 'required|file']);
+        $aid = $request->user()->agency_id;
+        $request->validate([
+            'file' => 'required|file|max:10240|mimes:csv,txt,xlsx',
+            'billing_client_id' => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $aid)],
+        ]);
         $rows = $this->parseUploadedCsv($request->file('file'));
         if (empty($rows)) {
             return response()->json(['success' => false, 'error' => 'No rows found in CSV'], 422);
         }
 
-        $aid = $request->user()->agency_id;
         $uid = $request->user()->id;
         $clientId = $request->input('billing_client_id');
         $imported = 0; $skipped = 0; $errors = [];

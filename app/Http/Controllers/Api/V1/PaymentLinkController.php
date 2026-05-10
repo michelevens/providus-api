@@ -151,10 +151,29 @@ class PaymentLinkController extends Controller
 
     public function status(string $token): JsonResponse
     {
+        // Public, unauthenticated endpoint — polled by patient-facing pay
+        // pages. Response strips PHI (patient_name) so anyone who somehow
+        // obtains a token learns only payment state + amount + a generic
+        // description, not who the patient is. Expired links return 410 Gone
+        // so callers can give up polling cleanly. The 40-char token + route
+        // regex + throttle:30,1 makes enumeration impractical.
         $link = PaymentLink::where('public_token', $token)->first();
         if (!$link) {
             return response()->json(['success' => false, 'error' => 'not_found'], 404);
         }
+        if ($link->expires_at && $link->expires_at->isPast() && $link->status === 'pending') {
+            return response()->json([
+                'success' => false,
+                'error'   => 'expired',
+                'data'    => ['status' => 'expired', 'expires_at' => $link->expires_at],
+            ], 410);
+        }
+        // Generic description — no patient name in the public response.
+        $descLabel = match ($link->target_type) {
+            'patient_statement' => 'Patient Statement',
+            'invoice'           => 'Invoice',
+            default             => 'Patient Balance',
+        };
         return response()->json([
             'success' => true,
             'data'    => [
@@ -162,14 +181,12 @@ class PaymentLinkController extends Controller
                 'status'       => $link->status,
                 'amount'       => $link->amount,
                 'currency'     => $link->currency,
-                'patient_name' => $link->patient_name,
                 'paid_at'      => $link->paid_at,
                 'expires_at'   => $link->expires_at,
+                // checkout_url is fine — Stripe-issued, the patient already
+                // had it via the link they clicked.
                 'checkout_url' => $link->checkout_url,
-                'description'  => $this->descriptionFor([
-                    'target_type' => $link->target_type,
-                    'patient_name'=> $link->patient_name,
-                ]),
+                'description'  => $descLabel,
             ],
         ]);
     }

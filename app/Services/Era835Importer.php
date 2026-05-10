@@ -72,10 +72,23 @@ class Era835Importer
         $this->billingClientId = $billingClientId;
 
         // ISA segment is exactly 106 chars; element separator is at position 3
-        // and segment terminator at position 105. Falling back to common defaults
-        // when the file is malformed.
-        $this->elemSep = $rawX12[3] ?? '*';
-        $this->segTerm = $rawX12[105] ?? '~';
+        // and segment terminator at position 105. Some clearinghouses don't
+        // emit ISA at all (just LX/CLP loops) or emit it with \n delimiters
+        // instead of ~ — handle all three shapes.
+        $hasValidIsa = strlen($rawX12) >= 106 && str_starts_with($rawX12, 'ISA');
+        if ($hasValidIsa) {
+            // Read separators from canonical positions in a real ISA segment.
+            $this->elemSep = $rawX12[3];
+            $this->segTerm = $rawX12[105];
+        } else {
+            // No usable ISA — fall back to common defaults and additionally
+            // check whether the file is newline-delimited (some clearinghouses
+            // pre-process the X12 to one segment per line). A control char at
+            // position 3 would indicate broken/empty input so default away.
+            $this->elemSep = '*';
+            // Prefer ~ if present anywhere in the file; otherwise newline.
+            $this->segTerm = str_contains($rawX12, '~') ? '~' : "\n";
+        }
     }
 
     public function run(): array
@@ -172,8 +185,18 @@ class Era835Importer
                 }
                 $stats['matched']++;
 
-                // Sum CAS adjustments by group for the allocation row.
-                $adjustmentByGroup = $this->sumAdjustmentsByGroup($clp['adjustments']);
+                // Sum CAS adjustments by group for the allocation row. Includes
+                // BOTH claim-level CAS and line-level CAS — without this, the
+                // common case (commercial-payer CO-45 contractual write-down at
+                // line level) records adjustment_amount=0 and overstates
+                // allowed_amount by hundreds of dollars per claim.
+                $allCasAdjustments = $clp['adjustments'] ?? [];
+                foreach (($clp['service_lines'] ?? []) as $sl) {
+                    foreach (($sl['adjustments'] ?? []) as $lineCas) {
+                        $allCasAdjustments[] = $lineCas;
+                    }
+                }
+                $adjustmentByGroup = $this->sumAdjustmentsByGroup($allCasAdjustments);
 
                 $allocation = PaymentAllocation::create([
                     'claim_payment_id'        => $payment->id,
@@ -185,7 +208,9 @@ class Era835Importer
                     'adjustment_amount'       => $adjustmentByGroup['CO'] ?? 0,
                     'patient_responsibility'  => $clp['patient_responsibility'] ?: ($adjustmentByGroup['PR'] ?? 0),
                     // Stash full CARC breakdown as JSON string — schema column is varchar.
-                    'adjustment_codes'        => json_encode($this->enrichAdjustments($clp['adjustments'], $carcMap)),
+                    // Use the merged set (claim-level + line-level CAS) so the
+                    // adjustment_codes JSON matches what adjustment_amount sums.
+                    'adjustment_codes'        => json_encode($this->enrichAdjustments($allCasAdjustments, $carcMap)),
                     'remark_codes'            => $clp['remarks'] ? implode(',', $clp['remarks']) : null,
                 ]);
                 $stats['posted']++;
