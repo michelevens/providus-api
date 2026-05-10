@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Agency;
+use App\Models\PaymentLink;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -39,6 +40,25 @@ class StripeWebhookController extends Controller
 
     protected function handleCheckoutSessionCompleted($session)
     {
+        // Branch: if this checkout came from a PaymentLink (patient payment),
+        // mark the link paid and return. Otherwise fall through to agency
+        // subscription handling.
+        $paymentLinkId = $session->metadata->payment_link_id ?? null;
+        if ($paymentLinkId) {
+            $link = PaymentLink::find($paymentLinkId);
+            if ($link) {
+                $link->update([
+                    'status'                   => 'paid',
+                    'stripe_payment_intent_id' => $session->payment_intent ?? null,
+                    'paid_at'                  => now(),
+                ]);
+                Log::info("Stripe: payment_link {$link->id} marked paid via checkout {$session->id}");
+            } else {
+                Log::warning("Stripe: payment_link_id={$paymentLinkId} in metadata but no PaymentLink row found");
+            }
+            return response('OK', 200);
+        }
+
         $agencyId = $session->metadata->agency_id ?? null;
         $planTier = $session->metadata->plan_tier ?? 'starter';
 

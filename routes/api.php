@@ -33,7 +33,9 @@ use App\Http\Controllers\Api\V1\DocumentController;
 use App\Http\Controllers\Api\V1\AiController;
 use App\Http\Controllers\Api\V1\BillingServiceController;
 use App\Http\Controllers\Api\V1\RcmController;
+use App\Http\Controllers\Api\V1\RcmExtrasController;
 use App\Http\Controllers\Api\V1\RcmPhase2Controller;
+use App\Http\Controllers\Api\V1\PaymentLinkController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -143,6 +145,10 @@ Route::prefix('contracts/view')->group(function () {
 |--------------------------------------------------------------------------
 */
 Route::post('/stripe/webhook', [StripeWebhookController::class, 'handle']);
+
+// ─── Public payment-link endpoints (patient-facing, no auth) ───
+Route::get('/payments/config', [PaymentLinkController::class, 'config']);
+Route::get('/payments/status/{token}', [PaymentLinkController::class, 'status'])->where('token', '[A-Za-z0-9]+');
 
 /*
 |--------------------------------------------------------------------------
@@ -494,8 +500,32 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/era/parse', [RcmPhase2Controller::class, 'parseEra']);     // dry-run preview, no DB writes
     Route::post('/rcm/era/upload', [RcmPhase2Controller::class, 'uploadEra']);    // multipart file → writes payments + denials with CARC enrichment
     Route::post('/rcm/era/post', [RcmPhase2Controller::class, 'postEra']);        // raw 835 string → same import as /upload
+    Route::post('/rcm/era/pull', [RcmExtrasController::class, 'eraPull']);        // clearinghouse pull (stub until Availity integration)
     Route::post('/rcm/837/parse', [RcmPhase2Controller::class, 'parse837']);
     Route::post('/rcm/837/import', [RcmPhase2Controller::class, 'import837']);
+
+    // ─── Bulk imports (CSV) — wired 2026-05-10 ───
+    Route::post('/rcm/claims/import', [RcmExtrasController::class, 'importClaims']);
+    Route::post('/rcm/charges/import', [RcmExtrasController::class, 'importCharges']);
+
+    // ─── Prior Authorizations — full CRUD ───
+    Route::get('/rcm/authorizations', [RcmExtrasController::class, 'listAuthorizations']);
+    Route::post('/rcm/authorizations', [RcmExtrasController::class, 'storeAuthorization']);
+    Route::put('/rcm/authorizations/{id}', [RcmExtrasController::class, 'updateAuthorization']);
+    Route::delete('/rcm/authorizations/{id}', [RcmExtrasController::class, 'destroyAuthorization']);
+
+    // ─── Clearinghouse config (Availity OAuth creds) ───
+    Route::get('/rcm/clearinghouse/config', [RcmExtrasController::class, 'getClearinghouseConfig']);
+    Route::put('/rcm/clearinghouse/config', [RcmExtrasController::class, 'updateClearinghouseConfig']);
+
+    // ─── Availity import/pull stubs — return 501 until full integration ships ───
+    Route::post('/rcm/availity/import', [RcmExtrasController::class, 'availityImport']);
+    Route::post('/rcm/availity/pull', [RcmExtrasController::class, 'availityPull']);
+
+    // ─── Patient payment links (auth side — public read/status routes live above) ───
+    Route::post('/payments/checkout', [PaymentLinkController::class, 'createCheckout']);
+    Route::post('/payments/{id}/resend', [PaymentLinkController::class, 'resendEmail'])->where('id', '[0-9]+');
+    Route::post('/payments/{id}/refund', [PaymentLinkController::class, 'refund'])->where('id', '[0-9]+');
 
     Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
     Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);
