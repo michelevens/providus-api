@@ -333,32 +333,53 @@ class RcmExtrasController extends Controller
     // HELPERS
     // ══════════════════════════════════════════════════
 
-    /** Parse uploaded CSV to associative arrays keyed by header. */
+    /**
+     * Parse uploaded CSV to associative arrays keyed by header.
+     *
+     * Uses fgetcsv() which is a proper RFC-4180 state machine — handles
+     * quoted fields that contain commas, embedded newlines, and escaped
+     * quotes correctly. The old preg_split('/\r\n|\r|\n/') split on every
+     * newline regardless of quote state, breaking any cell with a newline
+     * (notes field, multiline address) into two rows.
+     */
     private function parseUploadedCsv($file): array
     {
-        $text = file_get_contents($file->getRealPath());
-        if (!$text) return [];
+        $path = $file->getRealPath();
+        if (!is_readable($path)) return [];
 
-        $lines = preg_split('/\r\n|\r|\n/', $text);
-        $lines = array_filter($lines, fn($l) => trim($l) !== '');
-        if (count($lines) < 2) return [];
+        $fh = fopen($path, 'r');
+        if (!$fh) return [];
 
-        $headerLine = array_shift($lines);
-        $headers = array_map(
-            fn($h) => strtolower(trim(str_replace(' ', '_', $h), " \t\"")),
-            str_getcsv($headerLine),
-        );
+        try {
+            // Read header row first; normalize to snake_case lowercase keys so
+            // downstream code can use $row['claim_number'] etc.
+            $headerRaw = fgetcsv($fh);
+            if (!$headerRaw) return [];
+            $headers = array_map(
+                fn($h) => strtolower(trim(str_replace(' ', '_', (string) $h), " \t\"")),
+                $headerRaw,
+            );
 
-        $rows = [];
-        foreach ($lines as $line) {
-            $cols = str_getcsv($line);
-            $row = [];
-            foreach ($headers as $i => $h) {
-                $row[$h] = isset($cols[$i]) ? trim($cols[$i]) : null;
+            $rows = [];
+            // Cap to prevent DoS from a 10M-row CSV. Bulk imports of more than
+            // 50k rows should be split anyway — this is a sanity ceiling, not
+            // a real product limit.
+            $cap = 50000;
+            while (($cols = fgetcsv($fh)) !== false) {
+                if (count($rows) >= $cap) break;
+                // fgetcsv returns array of strings or [null] for blank lines.
+                // Skip rows that are entirely empty.
+                if (count($cols) === 1 && (is_null($cols[0]) || $cols[0] === '')) continue;
+                $row = [];
+                foreach ($headers as $i => $h) {
+                    $row[$h] = isset($cols[$i]) ? trim((string) $cols[$i]) : null;
+                }
+                $rows[] = $row;
             }
-            $rows[] = $row;
+            return $rows;
+        } finally {
+            fclose($fh);
         }
-        return $rows;
     }
 
     private function normalizeDate(?string $raw): ?string

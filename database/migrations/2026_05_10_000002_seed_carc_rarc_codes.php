@@ -107,8 +107,15 @@ return new class extends Migration {
             'description' => $r[3], 'created_at' => $now, 'updated_at' => $now,
         ], $carcs);
         // Chunk to avoid hitting Postgres parameter limits on a single INSERT.
+        // upsert (Postgres ON CONFLICT DO UPDATE) keeps this migration
+        // idempotent — re-running after a rollback or on a fresh deploy
+        // with existing data updates rather than throwing PK violation.
         foreach (array_chunk($carcRows, 50) as $chunk) {
-            DB::table('carc_codes')->insert($chunk);
+            DB::table('carc_codes')->upsert(
+                $chunk,
+                ['code'], // unique key
+                ['description', 'category', 'typical_group_codes', 'updated_at'], // update on conflict
+            );
         }
 
         // ── RARC codes ─────────────────────────────────────────────────────
@@ -147,7 +154,11 @@ return new class extends Migration {
             'created_at' => $now, 'updated_at' => $now,
         ], $rarcs);
         foreach (array_chunk($rarcRows, 50) as $chunk) {
-            DB::table('rarc_codes')->insert($chunk);
+            DB::table('rarc_codes')->upsert(
+                $chunk,
+                ['code'],
+                ['description', 'triggers_appeal_window', 'indicates_documentation_request', 'updated_at'],
+            );
         }
     }
 

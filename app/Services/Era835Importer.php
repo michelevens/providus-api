@@ -512,8 +512,13 @@ class Era835Importer
             }
         }
 
-        $denialDate = $parsed['payment_date'] ?? now()->toDateString();
-        return now()->parse($denialDate)->addDays($days)->toDateString();
+        // Refuse to compute a deadline when payment_date is missing. The
+        // old fallback to now() produced wildly wrong deadlines when the
+        // user imported an old 835 — a 90-day appeal window starting from
+        // import-day instead of EOB-day is a worse hint than no hint at all.
+        // V2 surfaces null as "—" in the SLA column.
+        if (empty($parsed['payment_date'])) return null;
+        return now()->parse($parsed['payment_date'])->addDays($days)->toDateString();
     }
 
     private function collectAllCarcCodes(array $claims): array

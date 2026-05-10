@@ -234,15 +234,25 @@ class PaymentLinkController extends Controller
         return response()->json(['success' => true, 'data' => $link]);
     }
 
+    /**
+     * Stripe product description shown on the Checkout page AND included in
+     * Stripe dashboard exports, financial reports, and chargeback notices.
+     * We deliberately exclude patient_name here — including it would leak
+     * PHI into every Stripe report. The agency can still see who the payment
+     * was for via their PaymentLink row (which carries patient_name as a
+     * server-side field) plus the `target_id` reference.
+     *
+     * The internal description in the dashboard (`metadata`) can reference
+     * the link id for back-pointer purposes; the customer-facing line item
+     * stays generic.
+     */
     private function descriptionFor(array $data): string
     {
         $type = $data['target_type'] ?? 'patient_balance';
-        $name = $data['patient_name'] ?? null;
-        $label = match ($type) {
+        return match ($type) {
             'patient_statement' => 'Patient Statement',
             'invoice'           => 'Invoice',
             default             => 'Patient Balance',
         };
-        return $name ? "{$label} — {$name}" : $label;
     }
 }
