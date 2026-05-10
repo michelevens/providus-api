@@ -242,7 +242,7 @@ class RcmExtrasController extends Controller
             }
 
             try {
-                Charge::create([
+                ChargeEntry::create([
                     'agency_id'         => $aid,
                     'billing_client_id' => $clientId,
                     'patient_name'      => $row['patient_name'] ?? null,

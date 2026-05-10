@@ -100,7 +100,13 @@ class PaymentLinkController extends Controller
                         'product_data' => [
                             'name'        => $this->descriptionFor($data),
                         ],
-                        'unit_amount' => (int) round($data['amount'] * 100), // cents
+                        // Float * 100 + round drops pennies on edge cases (e.g. 0.295*100=29.4999...).
+                        // bcmul does string-based decimal math; we multiply at scale=2 so the
+                        // result keeps any fractional cents (e.g. "18295.00"), then explicit
+                        // round-half-up via bcadd('0.5') + intval-truncate matches accountant
+                        // expectations. Required for money to avoid undercharging patients by
+                        // 1¢ on ~half of statements.
+                        'unit_amount' => (int) bcadd(bcmul((string) $data['amount'], '100', 2), '0.5', 0),
                     ],
                     'quantity' => 1,
                 ]],

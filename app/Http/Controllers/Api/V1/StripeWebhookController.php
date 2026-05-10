@@ -45,16 +45,35 @@ class StripeWebhookController extends Controller
         // subscription handling.
         $paymentLinkId = $session->metadata->payment_link_id ?? null;
         if ($paymentLinkId) {
-            $link = PaymentLink::find($paymentLinkId);
+            // Tenant cross-check — Stripe signature verifies the event came
+            // from Stripe, but the metadata could still be wrong if our own
+            // checkout-create accidentally tagged the wrong agency_id (or
+            // future tooling rebroadcasts events). Find scoped to agency_id
+            // from metadata so a mismatched ID can't clobber another tenant.
+            $metaAgencyId = $session->metadata->agency_id ?? null;
+            $linkQuery = PaymentLink::where('id', $paymentLinkId);
+            if ($metaAgencyId) {
+                $linkQuery->where('agency_id', $metaAgencyId);
+            }
+            $link = $linkQuery->first();
             if ($link) {
-                $link->update([
-                    'status'                   => 'paid',
-                    'stripe_payment_intent_id' => $session->payment_intent ?? null,
-                    'paid_at'                  => now(),
-                ]);
-                Log::info("Stripe: payment_link {$link->id} marked paid via checkout {$session->id}");
+                // Refund-clobber guard: Stripe retries webhook deliveries for
+                // up to 3 days. If a refund has already moved this link from
+                // 'paid' to 'refunded', a late retry of the ORIGINAL completion
+                // event would silently mark it paid again. Only progress from
+                // pending → paid; never overwrite a terminal state.
+                if (in_array($link->status, ['pending', null], true)) {
+                    $link->update([
+                        'status'                   => 'paid',
+                        'stripe_payment_intent_id' => $session->payment_intent ?? null,
+                        'paid_at'                  => now(),
+                    ]);
+                    Log::info("Stripe: payment_link {$link->id} marked paid via checkout {$session->id}");
+                } else {
+                    Log::info("Stripe: payment_link {$link->id} already in terminal state '{$link->status}', ignoring checkout {$session->id} (likely retry)");
+                }
             } else {
-                Log::warning("Stripe: payment_link_id={$paymentLinkId} in metadata but no PaymentLink row found");
+                Log::warning("Stripe: payment_link_id={$paymentLinkId} in metadata but no PaymentLink row found for agency {$metaAgencyId}");
             }
             return response('OK', 200);
         }

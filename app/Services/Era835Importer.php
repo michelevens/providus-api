@@ -105,6 +105,30 @@ class Era835Importer
         $stats['check_number'] = $parsed['check_number'];
         $stats['total_amount'] = $parsed['total_amount'];
 
+        // ── Idempotency guard ──────────────────────────────────────────
+        // X12 TRN02 is the trace number — the canonical "this is the same
+        // payment event" key. Combined with check_number (BPR's reference)
+        // it's stable across retries of the same 835. If we already imported
+        // this exact remit, return the prior result instead of double-posting.
+        // Without this, re-uploading the same file (intentionally or via a
+        // webhook retry) would create a second ClaimPayment and double the
+        // posted_amount on every matched claim.
+        if (!empty($parsed['trace_number']) || !empty($parsed['check_number'])) {
+            $dupeQuery = ClaimPayment::where('agency_id', $this->agencyId);
+            if (!empty($parsed['trace_number'])) {
+                $dupeQuery->where('trace_number', $parsed['trace_number']);
+            } elseif (!empty($parsed['check_number'])) {
+                $dupeQuery->where('check_number', $parsed['check_number']);
+            }
+            $existing = $dupeQuery->first();
+            if ($existing) {
+                $stats['errors'][] = 'Already imported this remit on ' . $existing->created_at->toDateString() .
+                    ' (ClaimPayment #' . $existing->id . '). Skipped to avoid duplicate posting.';
+                $stats['already_imported'] = $existing->id;
+                return $stats;
+            }
+        }
+
         // Cache CARC/RARC lookups for this run (one query, not per-denial).
         $carcMap = CarcCode::whereIn('code', $this->collectAllCarcCodes($parsed['claims']))->get()->keyBy('code');
         $rarcMap = RarcCode::whereIn('code', $this->collectAllRarcCodes($parsed['claims']))->get()->keyBy('code');
@@ -182,7 +206,11 @@ class Era835Importer
                     $claimUpdate['status'] = 'paid';
                     $claimUpdate['paid_date'] = $parsed['payment_date'] ?: now()->toDateString();
                 } else {
-                    $claimUpdate['status'] = 'paid'; // partial — treat as paid until further adjudication
+                    // Partial payment received. Keep the balance visible in A/R aging.
+                    // Marking these as 'paid' (the old behavior) hid every partially-
+                    // paid claim from outstanding-A/R reports — board-level
+                    // collections-rate looked artificially high.
+                    $claimUpdate['status'] = 'partially_paid';
                 }
                 $claim->update($claimUpdate);
 
