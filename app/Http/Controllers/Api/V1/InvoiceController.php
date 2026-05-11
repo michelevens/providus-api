@@ -62,7 +62,7 @@ class InvoiceController extends Controller
         $number = $prefix . '-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $invoice = Invoice::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'invoice_number' => $number,
             'type' => $request->input('type', 'invoice'),
             'status' => 'draft',
@@ -164,7 +164,7 @@ class InvoiceController extends Controller
         $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         Payment::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'invoice_id' => $invoice->id,
             'amount' => $request->amount,
             'payment_method' => $request->payment_method,
@@ -219,7 +219,7 @@ class InvoiceController extends Controller
         ]);
 
         $service = ServiceCatalog::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             ...$request->only('name', 'code', 'description', 'category', 'default_price'),
         ]);
 

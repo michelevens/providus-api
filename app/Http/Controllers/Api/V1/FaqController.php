@@ -40,7 +40,7 @@ class FaqController extends Controller
         ]);
 
         $faq = Faq::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             ...$request->only('question', 'answer', 'category', 'sort_order', 'is_published'),
         ]);
 

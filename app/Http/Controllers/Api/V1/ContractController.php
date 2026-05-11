@@ -69,7 +69,7 @@ class ContractController extends Controller
         $number = 'CTR-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $contract = Contract::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'contract_number' => $number,
             'status' => 'draft',
             'token' => Contract::generateToken(),
@@ -272,7 +272,7 @@ class ContractController extends Controller
         $number = 'INV-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $invoice = Invoice::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'invoice_number' => $number,
             'type' => 'invoice',
             'status' => 'draft',

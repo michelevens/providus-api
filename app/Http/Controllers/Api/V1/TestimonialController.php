@@ -46,7 +46,7 @@ class TestimonialController extends Controller
         ]);
 
         $testimonial = Testimonial::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'token' => Str::random(32),
             'patient_first_name' => $request->patient_first_name,
             'patient_last_name' => $request->patient_last_name,

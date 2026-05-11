@@ -47,7 +47,7 @@ class RcmController extends Controller
         ]);
         $count = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->count() + 1;
         $claim = Claim::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'claim_number' => 'CLM-' . str_pad($count, 6, '0', STR_PAD_LEFT),
             'created_by' => $request->user()->id,
             ...$request->only([
@@ -337,7 +337,7 @@ class RcmController extends Controller
         ]);
         $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($request->claim_id);
         $denial = ClaimDenial::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'billing_client_id' => $claim->billing_client_id,
             'created_by' => $request->user()->id,
             ...$request->only([
@@ -415,7 +415,7 @@ class RcmController extends Controller
             'total_amount' => 'required|numeric|min:0.01',
         ]);
         $payment = ClaimPayment::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             'remaining_amount' => $request->total_amount,
             ...$request->only([
@@ -726,7 +726,7 @@ class RcmController extends Controller
             'charge_amount' => 'required|numeric|min:0',
         ]);
         $charge = ChargeEntry::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             ...$request->only([
                 'billing_client_id', 'provider_id', 'provider_name', 'patient_name', 'payer_name',

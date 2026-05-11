@@ -45,7 +45,7 @@ class ProviderProfileController extends Controller
             'expiration_date' => 'nullable|date',
         ]);
         $policy = MalpracticePolicy::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'carrier_name', 'policy_number', 'coverage_type',
@@ -101,7 +101,7 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $request->validate(['institution_name' => 'required|string|max:200']);
         $edu = ProviderEducation::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'institution_name', 'degree', 'field_of_study', 'education_type',
@@ -152,7 +152,7 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $request->validate(['board_name' => 'required|string', 'specialty' => 'required|string']);
         $cert = BoardCertification::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'board_name', 'specialty', 'certificate_number',
@@ -204,7 +204,7 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $request->validate(['employer_name' => 'required|string|max:200']);
         $wh = ProviderWorkHistory::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'employer_name', 'position_title', 'department', 'start_date',
@@ -259,7 +259,7 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $request->validate(['course_name' => 'required|string|max:200']);
         $cme = ProviderCme::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'course_name', 'provider_org', 'credit_hours', 'credit_type',
@@ -309,7 +309,7 @@ class ProviderProfileController extends Controller
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
         $request->validate(['reference_name' => 'required|string|max:200']);
         $ref = ProviderReference::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'reference_name', 'reference_title', 'reference_organization',
@@ -361,7 +361,7 @@ class ProviderProfileController extends Controller
             'document_name' => 'required|string|max:200',
         ]);
         $doc = ProviderDocument::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             ...$request->only([
                 'document_type', 'document_name', 'file_url', 'status',

@@ -47,7 +47,7 @@ class FacilityController extends Controller
         ]);
 
         $facility = Facility::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             ...$request->only([
                 'name', 'organization_id', 'npi', 'facility_type', 'tax_id', 'street', 'city',
                 'state', 'zip', 'phone', 'fax', 'email', 'website',
@@ -129,7 +129,7 @@ class FacilityController extends Controller
         $name = $basic['organization_name'] ?? trim(($basic['first_name'] ?? '') . ' ' . ($basic['last_name'] ?? ''));
 
         $facility = Facility::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'name' => $name,
             'npi' => $request->npi,
             'facility_type' => $basic['enumeration_type'] === 'NPI-2' ? 'organization' : 'individual',

@@ -56,7 +56,7 @@ class BillingServiceController extends Controller
         ]);
 
         $client = BillingClient::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             ...$request->only([
                 'organization_id', 'organization_name',
@@ -169,7 +169,7 @@ class BillingServiceController extends Controller
         ]);
 
         $task = BillingTask::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             ...$request->only([
                 'billing_client_id', 'title', 'description',
@@ -257,7 +257,7 @@ class BillingServiceController extends Controller
         ]);
 
         $activity = BillingActivity::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             ...$request->only([
                 'billing_client_id', 'activity_type',
@@ -317,7 +317,7 @@ class BillingServiceController extends Controller
 
         $financial = BillingFinancial::updateOrCreate(
             [
-                'agency_id' => $request->user()->agency_id,
+                'agency_id' => $request->user()->effectiveAgencyId($request),
                 'billing_client_id' => $request->input('billing_client_id'),
                 'period' => $request->input('period'),
             ],

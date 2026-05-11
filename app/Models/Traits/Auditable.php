@@ -30,9 +30,23 @@ trait Auditable
             $user = auth()->user();
             $request = request();
 
+            // Impersonation detection: if the operator's Sanctum token
+            // carries an `impersonate:<agencyId>` ability for a tenant
+            // different from their home agency, mark this entry as
+            // impersonator-driven so compliance can trace the
+            // who-actually-acted question separately from who-owns-the-data.
+            $impersonatorUserId = null;
+            if ($user && method_exists($user, 'effectiveAgencyId')) {
+                $effective = $user->effectiveAgencyId($request);
+                if ($effective !== null && $effective !== $user->agency_id) {
+                    $impersonatorUserId = $user->id;
+                }
+            }
+
             AuditLog::create([
                 'agency_id' => $this->agency_id ?? $user?->agency_id,
                 'user_id' => $user?->id,
+                'impersonator_user_id' => $impersonatorUserId,
                 'user_email' => $user?->email,
                 'action' => $action,
                 'auditable_type' => static::class,

@@ -46,7 +46,7 @@ class ExclusionController extends Controller
         foreach ($results['checks'] as $type => $checkResult) {
             ExclusionCheck::updateOrCreate(
                 [
-                    'agency_id' => $request->user()->agency_id,
+                    'agency_id' => $request->user()->effectiveAgencyId($request),
                     'provider_id' => $provider->id,
                     'check_type' => $type,
                 ],
@@ -88,7 +88,7 @@ class ExclusionController extends Controller
             foreach ($checkResults['checks'] as $type => $checkResult) {
                 ExclusionCheck::updateOrCreate(
                     [
-                        'agency_id' => $request->user()->agency_id,
+                        'agency_id' => $request->user()->effectiveAgencyId($request),
                         'provider_id' => $provider->id,
                         'check_type' => $type,
                     ],

@@ -40,7 +40,7 @@ class RcmPhase2Controller extends Controller
     public function storeFeeSchedule(Request $request): JsonResponse
     {
         $request->validate(['payer_name' => 'required|string|max:100', 'cpt_code' => 'required|string|max:10', 'contracted_rate' => 'required|numeric|min:0']);
-        $fs = FeeSchedule::create(['agency_id' => $request->user()->agency_id, 'created_by' => $request->user()->id, ...$request->only([
+        $fs = FeeSchedule::create(['agency_id' => $request->user()->effectiveAgencyId($request), 'created_by' => $request->user()->id, ...$request->only([
             'billing_client_id', 'payer_name', 'cpt_code', 'cpt_description', 'modifier',
             'contracted_rate', 'expected_allowed', 'effective_date', 'termination_date', 'plan_type', 'notes',
         ])]);
@@ -162,7 +162,7 @@ class RcmPhase2Controller extends Controller
     public function storeAppealTemplate(Request $request): JsonResponse
     {
         $request->validate(['name' => 'required|string|max:100', 'body' => 'required|string']);
-        $t = AppealTemplate::create(['agency_id' => $request->user()->agency_id, 'created_by' => $request->user()->id, ...$request->only([
+        $t = AppealTemplate::create(['agency_id' => $request->user()->effectiveAgencyId($request), 'created_by' => $request->user()->id, ...$request->only([
             'name', 'denial_category', 'template_type', 'subject', 'body', 'required_attachments', 'is_default',
         ])]);
         return response()->json(['success' => true, 'data' => $t], 201);
@@ -358,7 +358,7 @@ class RcmPhase2Controller extends Controller
     {
         $request->validate(['claim_id' => 'required|exists:claims,id', 'notes' => 'required|string']);
         $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($request->claim_id);
-        $f = PayerFollowup::create(['agency_id' => $request->user()->agency_id, 'created_by' => $request->user()->id, 'payer_name' => $claim->payer_name, ...$request->only([
+        $f = PayerFollowup::create(['agency_id' => $request->user()->effectiveAgencyId($request), 'created_by' => $request->user()->id, 'payer_name' => $claim->payer_name, ...$request->only([
             'claim_id', 'contact_method', 'payer_rep', 'reference_number', 'outcome', 'notes', 'followup_date',
         ])]);
         return response()->json(['success' => true, 'data' => $f->load('claim:id,claim_number,patient_name')], 201);
@@ -588,7 +588,7 @@ class RcmPhase2Controller extends Controller
     public function storePatientStatement(Request $request): JsonResponse
     {
         $request->validate(['patient_name' => 'required|string|max:100', 'patient_balance' => 'required|numeric|min:0']);
-        $st = PatientStatement::create(['agency_id' => $request->user()->agency_id, 'created_by' => $request->user()->id, ...$request->only([
+        $st = PatientStatement::create(['agency_id' => $request->user()->effectiveAgencyId($request), 'created_by' => $request->user()->id, ...$request->only([
             'billing_client_id', 'claim_id', 'patient_name', 'patient_email', 'patient_phone',
             'patient_address', 'total_charges', 'insurance_paid', 'adjustments', 'patient_balance',
             'amount_paid', 'status', 'statement_date', 'due_date', 'notes',
@@ -1274,7 +1274,7 @@ class RcmPhase2Controller extends Controller
     {
         $request->validate(['payer_name' => 'required|string|max:100']);
         $rule = PayerRule::updateOrCreate(
-            ['agency_id' => $request->user()->agency_id, 'payer_name' => $request->payer_name],
+            ['agency_id' => $request->user()->effectiveAgencyId($request), 'payer_name' => $request->payer_name],
             array_merge(
                 $request->only([
                     'timely_filing_days', 'appeal_filing_days', 'corrected_claim_days',
@@ -1421,7 +1421,7 @@ class RcmPhase2Controller extends Controller
     {
         $request->validate(['provider_name' => 'required', 'feedback_type' => 'required', 'issue' => 'required', 'recommendation' => 'required']);
         $fb = ProviderFeedback::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
             ...$request->only([
                 'provider_id', 'provider_name', 'claim_id', 'denial_id',

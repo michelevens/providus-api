@@ -30,7 +30,7 @@ class OnboardController extends Controller
         ]);
 
         $token = OnboardToken::create([
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'token' => Str::random(64),
             'provider_email' => $request->provider_email,
             'expires_at' => now()->addHours($request->input('expires_hours', 72)),

@@ -115,7 +115,7 @@ class RcmExtrasController extends Controller
     public function getClearinghouseConfig(Request $request): JsonResponse
     {
         $cfg = ClearinghouseConfig::firstOrCreate(
-            ['agency_id' => $request->user()->agency_id],
+            ['agency_id' => $request->user()->effectiveAgencyId($request)],
             ['clearinghouse_name' => 'availity', 'connected' => false],
         );
         // Never return the encrypted secret. Just indicate whether one is set.
@@ -147,7 +147,7 @@ class RcmExtrasController extends Controller
         ]);
 
         $cfg = ClearinghouseConfig::firstOrCreate(
-            ['agency_id' => $request->user()->agency_id],
+            ['agency_id' => $request->user()->effectiveAgencyId($request)],
             ['clearinghouse_name' => 'availity'],
         );
         if (array_key_exists('client_secret', $data)) {

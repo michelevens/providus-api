@@ -119,7 +119,7 @@ class NotificationSendController extends Controller
         ]);
 
         $prefs = NotificationPreference::updateOrCreate(
-            ['agency_id' => $request->user()->agency_id],
+            ['agency_id' => $request->user()->effectiveAgencyId($request)],
             $data
         );
 

@@ -49,7 +49,7 @@ class CommunicationLogController extends Controller
                 'subject', 'body', 'contact_name', 'contact_info',
                 'outcome', 'duration_seconds',
             ]),
-            'agency_id' => $request->user()->agency_id,
+            'agency_id' => $request->user()->effectiveAgencyId($request),
             'created_by' => $request->user()->id,
         ]);
 
