@@ -5,6 +5,7 @@ use App\Http\Middleware\EnforcePlanLimits;
 use App\Http\Middleware\EnsureAgencyRole;
 use App\Http\Middleware\EnsureWriteAccess;
 use App\Http\Middleware\PromoteSessionCookieToBearer;
+use App\Http\Middleware\RequireCsrfTokenHeader;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -26,6 +27,12 @@ return Application::configure(basePath: dirname(__DIR__))
         // middleware once all V2 sessions have migrated to cookies
         // (~1-2 weeks after rollout).
         $middleware->prependToGroup('api', PromoteSessionCookieToBearer::class);
+
+        // CSRF guard: requires X-Requested-With on cookie-auth POST/PUT/
+        // PATCH/DELETE. Runs AFTER cookie→bearer promotion so it can
+        // still detect the cookie at the original request level. Bearer-
+        // only callers and GET/HEAD/OPTIONS bypass.
+        $middleware->appendToGroup('api', RequireCsrfTokenHeader::class);
 
         $middleware->alias([
             'role' => EnsureAgencyRole::class,
