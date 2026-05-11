@@ -38,7 +38,6 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 class RequireCsrfTokenHeader
@@ -48,7 +47,6 @@ class RequireCsrfTokenHeader
 
     public function handle(Request $request, Closure $next): Response
     {
-        Log::info('[CSRF] hit', ['method' => $request->method(), 'path' => $request->path(), 'hasCookie' => $request->cookie('credentik_session') !== null, 'xrw' => $request->header('X-Requested-With'), 'cookieHeader' => $request->header('Cookie')]);
         if (!in_array($request->method(), self::STATE_CHANGING, true)) {
             return $next($request);
         }

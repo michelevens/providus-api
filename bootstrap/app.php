@@ -29,10 +29,11 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->prependToGroup('api', PromoteSessionCookieToBearer::class);
 
         // CSRF guard: requires X-Requested-With on cookie-auth POST/PUT/
-        // PATCH/DELETE. Runs AFTER cookie→bearer promotion so it can
-        // still detect the cookie at the original request level. Bearer-
-        // only callers and GET/HEAD/OPTIONS bypass.
-        $middleware->appendToGroup('api', RequireCsrfTokenHeader::class);
+        // PATCH/DELETE. Prepended (not appended) so it runs BEFORE
+        // route-level auth:sanctum — otherwise a bad cookie that fails
+        // auth gets 401'd before we can return the more-specific 403.
+        // Bearer-only callers and GET/HEAD/OPTIONS bypass internally.
+        $middleware->prependToGroup('api', RequireCsrfTokenHeader::class);
 
         $middleware->alias([
             'role' => EnsureAgencyRole::class,
