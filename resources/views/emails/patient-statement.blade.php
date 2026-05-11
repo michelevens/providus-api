@@ -6,6 +6,14 @@
 Statement of account: {{ number_format((float) $statement->patient_balance, 2) }} balance due.
 @endsection
 
+@php
+    // The parent layout defines $primaryColor inside its own @php block,
+    // but Blade child sections don't inherit those locals. Re-derive here
+    // from $agency (passed via the Mailable's `with`) so colored CTAs
+    // and balance values match the rest of the email's branding.
+    $primaryColor = $agency->primary_color ?? '#0891b2';
+@endphp
+
 @section('content')
 <h2 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#0f172a;letter-spacing:-0.2px;" class="text-dark">
     Statement of Account
