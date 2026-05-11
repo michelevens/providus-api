@@ -10,10 +10,12 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Cookie as SymfonyCookie;
 
 class AuthController extends Controller
 {
@@ -92,7 +94,7 @@ class AuthController extends Controller
             'success' => true,
             'token' => $token,
             'user' => $user->load('agency'),
-        ], 201);
+        ], 201)->withCookie($this->sessionCookie($token));
     }
 
     /**
@@ -148,17 +150,22 @@ class AuthController extends Controller
             'success' => true,
             'token' => $token,
             'user' => $user->load($this->userRelations($user)),
-        ]);
+        ])->withCookie($this->sessionCookie($token));
     }
 
     /**
-     * Logout — revoke current token.
+     * Logout — revoke current token AND clear the session cookie.
+     * The cookie is HttpOnly so the frontend can't clear it itself; this
+     * endpoint must be called even when the V2 client is the one driving
+     * the logout flow.
      */
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
 
-        return response()->json(['success' => true, 'message' => 'Logged out']);
+        return response()
+            ->json(['success' => true, 'message' => 'Logged out'])
+            ->withCookie($this->forgetSessionCookie());
     }
 
     /**
@@ -258,7 +265,7 @@ class AuthController extends Controller
             'success' => true,
             'token' => $token,
             'user' => $user->load($this->userRelations($user)),
-        ]);
+        ])->withCookie($this->sessionCookie($token));
     }
 
     /**
@@ -352,7 +359,7 @@ class AuthController extends Controller
             'success' => true,
             'token' => $token,
             'user' => $user->load($this->userRelations($user)),
-        ]);
+        ])->withCookie($this->sessionCookie($token));
     }
 
     /**
@@ -432,6 +439,56 @@ class AuthController extends Controller
             'message' => 'Demo users seeded',
             'accounts' => $results,
         ]);
+    }
+
+    /**
+     * Build the HttpOnly session cookie that carries the Sanctum token to
+     * the browser. This is the XSS-mitigation half of the dual-mode
+     * migration — we still return the plaintext token in JSON for any
+     * client that hasn't migrated, but new V2 sessions rely on this
+     * cookie (JS can't read it, so XSS can't lift the token).
+     *
+     * Cookie properties:
+     *   - HttpOnly: not readable from document.cookie
+     *   - Secure: only sent over HTTPS (production-safe; dev over http
+     *     localhost still works because Secure is only enforced when the
+     *     request itself is HTTPS in modern browsers)
+     *   - SameSite=Lax: sent on top-level same-site navigations + same-
+     *     site fetches. app.credentik.com → api.credentik.com is same-
+     *     site (eTLD+1 = credentik.com), so cookies flow.
+     *   - Domain=.credentik.com (prod): shared between app + api subs
+     *   - Lifetime: 1440 minutes (24 hours), matches Sanctum expiration
+     *
+     * Returns a Symfony Cookie value object suitable for `withCookie()`.
+     */
+    private function sessionCookie(string $plainTextToken): SymfonyCookie
+    {
+        $minutes = (int) config('sanctum.expiration', 1440);
+        $secure = app()->environment('production');
+        $domain = $secure ? '.credentik.com' : null;
+
+        return Cookie::make(
+            name: 'credentik_session',
+            value: $plainTextToken,
+            minutes: $minutes,
+            path: '/',
+            domain: $domain,
+            secure: $secure,
+            httpOnly: true,
+            raw: false,
+            sameSite: 'lax',
+        );
+    }
+
+    /**
+     * Forget the session cookie (used by logout). Same path/domain as
+     * sessionCookie() so the browser actually clears the right entry.
+     */
+    private function forgetSessionCookie(): SymfonyCookie
+    {
+        $secure = app()->environment('production');
+        $domain = $secure ? '.credentik.com' : null;
+        return Cookie::forget('credentik_session', '/', $domain);
     }
 
     /**

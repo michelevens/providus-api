@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -201,11 +202,29 @@ class TwoFactorController extends Controller
         if (in_array($user->role, ['organization', 'provider'])) $relations[] = 'organization';
         if ($user->role === 'provider') $relations[] = 'provider';
 
+        // Mirror AuthController::sessionCookie — same HttpOnly cookie that
+        // V2 reads via PromoteSessionCookieToBearer middleware. See the
+        // detailed rationale on AuthController::sessionCookie.
+        $minutes = (int) config('sanctum.expiration', 1440);
+        $secure = app()->environment('production');
+        $domain = $secure ? '.credentik.com' : null;
+        $cookie = Cookie::make(
+            name: 'credentik_session',
+            value: $token,
+            minutes: $minutes,
+            path: '/',
+            domain: $domain,
+            secure: $secure,
+            httpOnly: true,
+            raw: false,
+            sameSite: 'lax',
+        );
+
         return response()->json([
             'success' => true,
             'token' => $token,
             'user' => $user->load($relations),
-        ]);
+        ])->withCookie($cookie);
     }
 
     /**

@@ -4,6 +4,7 @@ use App\Http\Middleware\EmbedCors;
 use App\Http\Middleware\EnforcePlanLimits;
 use App\Http\Middleware\EnsureAgencyRole;
 use App\Http\Middleware\EnsureWriteAccess;
+use App\Http\Middleware\PromoteSessionCookieToBearer;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -17,6 +18,14 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->trustProxies(at: '*');
+
+        // Promote the HttpOnly `credentik_session` cookie into a Bearer
+        // header on the way in so Sanctum's TokenGuard sees it normally.
+        // Runs first in the api group; dual-mode safe — clients that
+        // already send a Bearer header are untouched. Remove this
+        // middleware once all V2 sessions have migrated to cookies
+        // (~1-2 weeks after rollout).
+        $middleware->prependToGroup('api', PromoteSessionCookieToBearer::class);
 
         $middleware->alias([
             'role' => EnsureAgencyRole::class,
