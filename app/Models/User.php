@@ -92,16 +92,25 @@ class User extends Authenticatable
     public function effectiveAgencyId(?\Illuminate\Http\Request $request = null): ?int
     {
         // (1) Token ability — server-side bounded, the secure path.
-        $token = $this->currentAccessToken();
-        if ($token && method_exists($token, 'abilities')) {
-            $abilities = $token->abilities ?? [];
-            if (is_array($abilities)) {
-                foreach ($abilities as $ability) {
-                    if (is_string($ability) && str_starts_with($ability, 'impersonate:')) {
-                        return (int) substr($ability, strlen('impersonate:'));
+        // $token->abilities is a JSON-cast array on PersonalAccessToken;
+        // we access it directly (no method_exists guard — that was a
+        // bug, PersonalAccessToken has the property but not the method).
+        try {
+            $token = $this->currentAccessToken();
+            if ($token) {
+                $abilities = $token->abilities ?? null;
+                if (is_array($abilities)) {
+                    foreach ($abilities as $ability) {
+                        if (is_string($ability) && str_starts_with($ability, 'impersonate:')) {
+                            return (int) substr($ability, strlen('impersonate:'));
+                        }
                     }
                 }
             }
+        } catch (\Throwable $e) {
+            // currentAccessToken() can throw if Sanctum isn't bootstrapped
+            // (e.g. running in a worker context). Fall through to the
+            // header / default paths.
         }
         // (2) Legacy header — superadmins only.
         if ($this->isSuperAdmin() && $request) {
