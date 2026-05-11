@@ -498,6 +498,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/patient-statements', [RcmPhase2Controller::class, 'storePatientStatement']);
     Route::put('/rcm/patient-statements/{id}', [RcmPhase2Controller::class, 'updatePatientStatement']);
     Route::post('/rcm/patient-statements/generate', [RcmPhase2Controller::class, 'generatePatientStatements']);
+    Route::post('/rcm/patient-statements/{id}/send', [RcmPhase2Controller::class, 'sendPatientStatement']);
 
     Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PatientStatementEmail;
 use App\Models\AppealTemplate;
 use App\Models\BillingTask;
 use App\Models\Claim;
@@ -21,6 +22,7 @@ use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 class RcmPhase2Controller extends Controller
@@ -605,6 +607,33 @@ class RcmPhase2Controller extends Controller
             'amount_paid', 'status', 'due_date', 'notes',
         ]));
         return response()->json(['success' => true, 'data' => $st]);
+    }
+
+    public function sendPatientStatement(Request $request, int $id): JsonResponse
+    {
+        $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $email = $request->input('email') ?: $statement->patient_email;
+        if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return response()->json(['success' => false, 'message' => 'No valid patient email on this statement'], 422);
+        }
+
+        // Optional pay link surfaced in the email body. Caller passes a
+        // pre-minted PaymentLink token (or full URL); we don't auto-mint
+        // because Stripe Checkout creation has side effects and policies
+        // about when it can be re-used. The /payments/checkout endpoint
+        // already wraps that lifecycle correctly.
+        $payUrl = $request->input('pay_url');
+
+        Mail::to($email)->send(new PatientStatementEmail($statement, $payUrl));
+
+        $statement->update([
+            'last_sent_date' => now()->toDateString(),
+            'times_sent' => (int) $statement->times_sent + 1,
+            'status' => $statement->status === 'draft' ? 'sent' : $statement->status,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Statement sent', 'data' => $statement->fresh()]);
     }
 
     public function generatePatientStatements(Request $request): JsonResponse
