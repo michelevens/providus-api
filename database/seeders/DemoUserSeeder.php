@@ -68,7 +68,7 @@ class DemoUserSeeder extends Seeder
                 'last_name' => 'Demo',
                 'credentials' => 'DNP, PMHNP-BC',
                 'specialty' => 'Psychiatric Mental Health',
-                'taxonomy_code' => '363LP0808X',
+                'taxonomy' => '363LP0808X',
                 'email' => 'sarah.demo@demopsych.com',
                 'phone' => '(555) 345-6789',
                 'state' => 'FL',
