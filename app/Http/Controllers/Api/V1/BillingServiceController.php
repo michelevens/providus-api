@@ -20,7 +20,7 @@ class BillingServiceController extends Controller
 
     public function clients(Request $request): JsonResponse
     {
-        $clients = BillingClient::where('agency_id', $request->user()->agency_id)
+        $clients = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name'])
             ->orderByDesc('created_at')
             ->get();
@@ -30,7 +30,7 @@ class BillingServiceController extends Controller
 
     public function showClient(Request $request, int $id): JsonResponse
     {
-        $client = BillingClient::where('agency_id', $request->user()->agency_id)
+        $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name', 'tasks', 'activities', 'financials'])
             ->findOrFail($id);
 
@@ -72,7 +72,7 @@ class BillingServiceController extends Controller
 
     public function updateClient(Request $request, int $id): JsonResponse
     {
-        $client = BillingClient::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'organization_name' => 'sometimes|string|max:200',
@@ -103,14 +103,14 @@ class BillingServiceController extends Controller
 
     public function destroyClient(Request $request, int $id): JsonResponse
     {
-        $client = BillingClient::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $client->delete();
         return response()->json(['success' => true]);
     }
 
     public function clientStats(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $totalClients = BillingClient::where('agency_id', $agencyId)->count();
         $activeClients = BillingClient::where('agency_id', $agencyId)->where('status', 'active')->count();
@@ -137,7 +137,7 @@ class BillingServiceController extends Controller
 
     public function tasks(Request $request): JsonResponse
     {
-        $query = BillingTask::where('agency_id', $request->user()->agency_id)
+        $query = BillingTask::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name']);
 
         if ($clientId = $request->input('billing_client_id')) {
@@ -182,7 +182,7 @@ class BillingServiceController extends Controller
 
     public function updateTask(Request $request, int $id): JsonResponse
     {
-        $task = BillingTask::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $task = BillingTask::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'title' => 'sometimes|string|max:255',
@@ -210,7 +210,7 @@ class BillingServiceController extends Controller
 
     public function destroyTask(Request $request, int $id): JsonResponse
     {
-        $task = BillingTask::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $task = BillingTask::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $task->delete();
         return response()->json(['success' => true]);
     }
@@ -219,7 +219,7 @@ class BillingServiceController extends Controller
 
     public function activities(Request $request): JsonResponse
     {
-        $query = BillingActivity::where('agency_id', $request->user()->agency_id)
+        $query = BillingActivity::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name', 'creator:id,first_name,last_name']);
 
         if ($clientId = $request->input('billing_client_id')) {
@@ -271,7 +271,7 @@ class BillingServiceController extends Controller
 
     public function updateActivity(Request $request, int $id): JsonResponse
     {
-        $activity = BillingActivity::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $activity = BillingActivity::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $activity->update($request->only([
             'activity_type', 'provider_name', 'payer_name',
             'activity_date', 'amount', 'quantity', 'reference', 'notes',
@@ -281,7 +281,7 @@ class BillingServiceController extends Controller
 
     public function destroyActivity(Request $request, int $id): JsonResponse
     {
-        $activity = BillingActivity::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $activity = BillingActivity::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $activity->delete();
         return response()->json(['success' => true]);
     }
@@ -290,7 +290,7 @@ class BillingServiceController extends Controller
 
     public function financials(Request $request): JsonResponse
     {
-        $query = BillingFinancial::where('agency_id', $request->user()->agency_id)
+        $query = BillingFinancial::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name']);
 
         if ($clientId = $request->input('billing_client_id')) {
@@ -335,7 +335,7 @@ class BillingServiceController extends Controller
 
     public function updateFinancial(Request $request, int $id): JsonResponse
     {
-        $financial = BillingFinancial::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $financial = BillingFinancial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $financial->update($request->only([
             'claims_submitted', 'amount_billed', 'amount_collected',
             'denial_count', 'denied_amount', 'adjustments', 'patient_responsibility',
@@ -351,7 +351,7 @@ class BillingServiceController extends Controller
      */
     public function generateLedger(Request $request, int $clientId): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $client = BillingClient::where('agency_id', $agencyId)->findOrFail($clientId);
         $feePercent = (float) ($client->agency_fee_percent ?? 0);
         $isAgencyManaged = ($client->payment_mode ?? 'self_managed') === 'agency_managed';
@@ -409,7 +409,7 @@ class BillingServiceController extends Controller
      */
     public function getLedger(Request $request, int $clientId): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $entries = ClientPaymentLedger::where('agency_id', $agencyId)
             ->where('billing_client_id', $clientId)
             ->orderByDesc('period')
@@ -438,7 +438,7 @@ class BillingServiceController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $entry = ClientPaymentLedger::where('agency_id', $request->user()->agency_id)->findOrFail($ledgerId);
+        $entry = ClientPaymentLedger::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($ledgerId);
         $entry->update([
             'amount_remitted' => $request->amount_remitted,
             'outstanding' => round($entry->total_collected - $entry->agency_fee - $request->amount_remitted, 2),
@@ -457,7 +457,7 @@ class BillingServiceController extends Controller
     public function generateTasks(Request $request): JsonResponse
     {
       try {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
         $now = now();
         $created = 0;
@@ -644,7 +644,7 @@ class BillingServiceController extends Controller
      */
     public function dismissTask(Request $request, int $id): JsonResponse
     {
-        $task = BillingTask::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $task = BillingTask::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $task->update(['dismissed' => true, 'status' => 'cancelled']);
         return response()->json(['success' => true]);
     }

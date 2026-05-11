@@ -31,7 +31,7 @@ class ProviderProfileController extends Controller
     public function malpractice(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = MalpracticePolicy::where('agency_id', $request->user()->agency_id)
+        $data = MalpracticePolicy::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('effective_date')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -60,7 +60,7 @@ class ProviderProfileController extends Controller
     public function updateMalpractice(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $policy = MalpracticePolicy::where('agency_id', $request->user()->agency_id)
+        $policy = MalpracticePolicy::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $policy->update($request->validate([
             'carrier_name' => 'sometimes|string|max:200',
@@ -82,7 +82,7 @@ class ProviderProfileController extends Controller
     public function destroyMalpractice(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        MalpracticePolicy::where('agency_id', $request->user()->agency_id)
+        MalpracticePolicy::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -91,7 +91,7 @@ class ProviderProfileController extends Controller
     public function education(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = ProviderEducation::where('agency_id', $request->user()->agency_id)
+        $data = ProviderEducation::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('graduation_date')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -114,7 +114,7 @@ class ProviderProfileController extends Controller
     public function updateEducation(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $edu = ProviderEducation::where('agency_id', $request->user()->agency_id)
+        $edu = ProviderEducation::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $edu->update($request->validate([
             'institution_name' => 'sometimes|string|max:200',
@@ -133,7 +133,7 @@ class ProviderProfileController extends Controller
     public function destroyEducation(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        ProviderEducation::where('agency_id', $request->user()->agency_id)
+        ProviderEducation::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -142,7 +142,7 @@ class ProviderProfileController extends Controller
     public function boards(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = BoardCertification::where('agency_id', $request->user()->agency_id)
+        $data = BoardCertification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('initial_certification_date')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -166,7 +166,7 @@ class ProviderProfileController extends Controller
     public function updateBoard(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $cert = BoardCertification::where('agency_id', $request->user()->agency_id)
+        $cert = BoardCertification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $cert->update($request->validate([
             'board_name' => 'sometimes|string|max:200',
@@ -185,7 +185,7 @@ class ProviderProfileController extends Controller
     public function destroyBoard(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        BoardCertification::where('agency_id', $request->user()->agency_id)
+        BoardCertification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -194,7 +194,7 @@ class ProviderProfileController extends Controller
     public function workHistory(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = ProviderWorkHistory::where('agency_id', $request->user()->agency_id)
+        $data = ProviderWorkHistory::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('start_date')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -218,7 +218,7 @@ class ProviderProfileController extends Controller
     public function updateWorkHistory(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $wh = ProviderWorkHistory::where('agency_id', $request->user()->agency_id)
+        $wh = ProviderWorkHistory::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $wh->update($request->validate([
             'employer_name' => 'sometimes|string|max:200',
@@ -240,7 +240,7 @@ class ProviderProfileController extends Controller
     public function destroyWorkHistory(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        ProviderWorkHistory::where('agency_id', $request->user()->agency_id)
+        ProviderWorkHistory::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -249,7 +249,7 @@ class ProviderProfileController extends Controller
     public function cme(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = ProviderCme::where('agency_id', $request->user()->agency_id)
+        $data = ProviderCme::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('completion_date')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -272,7 +272,7 @@ class ProviderProfileController extends Controller
     public function updateCme(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $cme = ProviderCme::where('agency_id', $request->user()->agency_id)
+        $cme = ProviderCme::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $cme->update($request->validate([
             'course_name' => 'sometimes|string|max:200',
@@ -290,7 +290,7 @@ class ProviderProfileController extends Controller
     public function destroyCme(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        ProviderCme::where('agency_id', $request->user()->agency_id)
+        ProviderCme::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -299,7 +299,7 @@ class ProviderProfileController extends Controller
     public function references(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = ProviderReference::where('agency_id', $request->user()->agency_id)
+        $data = ProviderReference::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderByDesc('created_at')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -322,7 +322,7 @@ class ProviderProfileController extends Controller
     public function updateReference(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $ref = ProviderReference::where('agency_id', $request->user()->agency_id)
+        $ref = ProviderReference::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $ref->update($request->validate([
             'reference_name' => 'sometimes|string|max:200',
@@ -339,7 +339,7 @@ class ProviderProfileController extends Controller
     public function destroyReference(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        ProviderReference::where('agency_id', $request->user()->agency_id)
+        ProviderReference::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -348,7 +348,7 @@ class ProviderProfileController extends Controller
     public function documents(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $data = ProviderDocument::where('agency_id', $request->user()->agency_id)
+        $data = ProviderDocument::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->orderBy('document_type')->get();
         return response()->json(['success' => true, 'data' => $data]);
     }
@@ -374,7 +374,7 @@ class ProviderProfileController extends Controller
     public function updateDocument(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $doc = ProviderDocument::where('agency_id', $request->user()->agency_id)
+        $doc = ProviderDocument::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id);
         $doc->update($request->validate([
             'document_type' => 'sometimes|string|max:100',
@@ -391,7 +391,7 @@ class ProviderProfileController extends Controller
     public function destroyDocument(Request $request, int $providerId, int $id): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        ProviderDocument::where('agency_id', $request->user()->agency_id)
+        ProviderDocument::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('provider_id', $providerId)->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -400,7 +400,7 @@ class ProviderProfileController extends Controller
     public function fullProfile(Request $request, int $providerId): JsonResponse
     {
         if ($denied = $this->authorizeProviderAccess($request, $providerId)) return $denied;
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $where = fn($q) => $q->where('agency_id', $agencyId)->where('provider_id', $providerId);
 
         return response()->json([

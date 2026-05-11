@@ -102,7 +102,7 @@ class FundingController extends Controller
      */
     public function summary(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $openCount = FundingOpportunity::open()->count();
         $urgentCount = FundingOpportunity::open()
@@ -212,7 +212,7 @@ class FundingController extends Controller
      */
     public function applications(Request $request): JsonResponse
     {
-        $apps = FundingApplication::where('agency_id', $request->user()->agency_id)
+        $apps = FundingApplication::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['opportunity:id,title,source,agency_source,close_date,amount_display', 'assignee:id,first_name,last_name'])
             ->orderByRaw("CASE stage
                 WHEN 'identified' THEN 1

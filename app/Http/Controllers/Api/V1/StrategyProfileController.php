@@ -11,7 +11,7 @@ class StrategyProfileController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         // Return both global defaults and agency-specific strategies
         $strategies = StrategyProfile::where('agency_id', $agencyId)
             ->orWhereNull('agency_id')
@@ -33,7 +33,7 @@ class StrategyProfileController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $strategy = StrategyProfile::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $strategy = StrategyProfile::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $request->validate([
             'name' => 'sometimes|string|max:255',
             'description' => 'sometimes|nullable|string',
@@ -51,7 +51,7 @@ class StrategyProfileController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        StrategyProfile::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        StrategyProfile::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 }

@@ -18,7 +18,7 @@ class ContractController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Contract::where('agency_id', $request->user()->agency_id)
+        $query = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name', 'provider:id,first_name,last_name,credentials', 'items']);
 
         if ($status = $request->input('status')) $query->where('status', $status);
@@ -30,7 +30,7 @@ class ContractController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name,email,phone', 'provider:id,first_name,last_name,credentials,email', 'items.serviceCatalog', 'creator:id,first_name,last_name'])
             ->findOrFail($id);
 
@@ -65,7 +65,7 @@ class ContractController extends Controller
             'items.*.frequency' => 'nullable|string',
         ]);
 
-        $count = Contract::withTrashed()->where('agency_id', $request->user()->agency_id)->count() + 1;
+        $count = Contract::withTrashed()->where('agency_id', $request->user()->effectiveAgencyId($request))->count() + 1;
         $number = 'CTR-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $contract = Contract::create([
@@ -113,7 +113,7 @@ class ContractController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'title' => 'sometimes|string|max:255',
@@ -172,14 +172,14 @@ class ContractController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $contract->delete();
         return response()->json(['success' => true, 'message' => 'Contract deleted']);
     }
 
     public function stats(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $now = Carbon::now();
 
         $active = Contract::where('agency_id', $agencyId)->where('status', 'active')->count();
@@ -205,7 +205,7 @@ class ContractController extends Controller
 
     public function send(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with('items')
             ->findOrFail($id);
 
@@ -252,7 +252,7 @@ class ContractController extends Controller
 
     public function terminate(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $contract->update([
             'status' => 'terminated',
             'terminated_at' => now(),
@@ -264,11 +264,11 @@ class ContractController extends Controller
 
     public function generateInvoice(Request $request, int $id): JsonResponse
     {
-        $contract = Contract::where('agency_id', $request->user()->agency_id)
+        $contract = Contract::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with('items')
             ->findOrFail($id);
 
-        $count = Invoice::where('agency_id', $request->user()->agency_id)->count() + 1;
+        $count = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->count() + 1;
         $number = 'INV-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $invoice = Invoice::create([

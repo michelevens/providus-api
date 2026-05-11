@@ -16,7 +16,7 @@ class ImportController extends Controller
     // List imports
     public function index(Request $request): JsonResponse
     {
-        $imports = BulkImport::where('agency_id', $request->user()->agency_id)
+        $imports = BulkImport::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at')->get();
         return response()->json(['success' => true, 'data' => $imports]);
     }
@@ -74,7 +74,7 @@ class ImportController extends Controller
         $headers = $rows[0];
         $dataRows = array_slice($rows, 1);
         $mapping = $request->input('column_mapping');
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $import = BulkImport::create([
             'agency_id' => $agencyId,

@@ -11,7 +11,7 @@ class NotificationController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $notifications = Notification::where('agency_id', $request->user()->agency_id)
+        $notifications = Notification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->forUser($request->user()->id)
             ->orderByDesc('created_at')
             ->limit(50)
@@ -22,7 +22,7 @@ class NotificationController extends Controller
 
     public function unreadCount(Request $request): JsonResponse
     {
-        $count = Notification::where('agency_id', $request->user()->agency_id)
+        $count = Notification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->forUser($request->user()->id)
             ->unread()
             ->count();
@@ -32,7 +32,7 @@ class NotificationController extends Controller
 
     public function markRead(Request $request, int $id): JsonResponse
     {
-        $notification = Notification::where('agency_id', $request->user()->agency_id)
+        $notification = Notification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->forUser($request->user()->id)
             ->findOrFail($id);
 
@@ -43,7 +43,7 @@ class NotificationController extends Controller
 
     public function markAllRead(Request $request): JsonResponse
     {
-        Notification::where('agency_id', $request->user()->agency_id)
+        Notification::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->forUser($request->user()->id)
             ->unread()
             ->update(['read_at' => now()]);

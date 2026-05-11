@@ -12,7 +12,7 @@ class FacilityController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Facility::where('agency_id', $request->user()->agency_id);
+        $query = Facility::where('agency_id', $request->user()->effectiveAgencyId($request));
         if ($request->has('active_only')) $query->where('is_active', true);
         if ($search = $request->input('search')) {
             $query->where(function ($q) use ($search) {
@@ -60,13 +60,13 @@ class FacilityController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $facility = Facility::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $facility = Facility::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         return response()->json(['success' => true, 'data' => $facility]);
     }
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $facility = Facility::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $facility = Facility::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $request->validate([
             'name' => 'sometimes|string|max:200',
             'organization_id' => 'sometimes|nullable|integer|exists:organizations,id',
@@ -97,7 +97,7 @@ class FacilityController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        Facility::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        Facility::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 

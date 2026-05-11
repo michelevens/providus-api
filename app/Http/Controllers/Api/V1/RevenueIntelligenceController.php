@@ -17,7 +17,7 @@ class RevenueIntelligenceController extends Controller
      */
     public function dashboard(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         // Revenue from approved/credentialed applications
         $approvedApps = Application::whereIn('status', ['approved', 'credentialed'])

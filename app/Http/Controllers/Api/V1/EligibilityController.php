@@ -16,7 +16,7 @@ class EligibilityController extends Controller
     // Admin: list eligibility check history
     public function index(Request $request): JsonResponse
     {
-        $checks = EligibilityCheck::where('agency_id', $request->user()->agency_id)
+        $checks = EligibilityCheck::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at')
             ->paginate(50);
         return response()->json(['success' => true, 'data' => $checks]);

@@ -13,7 +13,7 @@ class FaqController extends Controller
     public function index(Request $request): JsonResponse
     {
         $query = Faq::where(function ($q) use ($request) {
-            $q->where('agency_id', $request->user()->agency_id)->orWhereNull('agency_id');
+            $q->where('agency_id', $request->user()->effectiveAgencyId($request))->orWhereNull('agency_id');
         })->where('is_published', true);
 
         if ($category = $request->input('category')) {
@@ -49,7 +49,7 @@ class FaqController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $faq = Faq::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $faq = Faq::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $request->validate([
             'question' => 'sometimes|string|max:500',
             'answer' => 'sometimes|string',
@@ -63,13 +63,13 @@ class FaqController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        Faq::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        Faq::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
     public function helpful(Request $request, int $id): JsonResponse
     {
-        $faq = Faq::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $faq = Faq::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $faq->increment('helpful_count');
         return response()->json(['success' => true]);
     }

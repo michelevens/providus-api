@@ -13,7 +13,7 @@ class OfficeHourController extends Controller
     // Admin: get office hours for agency
     public function index(Request $request): JsonResponse
     {
-        $hours = OfficeHour::where('agency_id', $request->user()->agency_id)
+        $hours = OfficeHour::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderBy('day_of_week')
             ->get();
         return response()->json(['success' => true, 'data' => $hours]);
@@ -30,7 +30,7 @@ class OfficeHourController extends Controller
             'hours.*.is_closed' => 'nullable|boolean',
         ]);
 
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         foreach ($request->hours as $hour) {
             OfficeHour::updateOrCreate(

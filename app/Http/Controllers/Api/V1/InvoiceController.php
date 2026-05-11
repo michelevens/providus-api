@@ -16,7 +16,7 @@ class InvoiceController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = Invoice::where('agency_id', $request->user()->agency_id)
+        $query = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name', 'items', 'payments']);
 
         if ($type = $request->input('type')) $query->where('type', $type);
@@ -28,7 +28,7 @@ class InvoiceController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::where('agency_id', $request->user()->agency_id)
+        $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization:id,name,email', 'items.serviceCatalog', 'payments', 'creator:id,first_name,last_name'])
             ->findOrFail($id);
 
@@ -58,7 +58,7 @@ class InvoiceController extends Controller
 
         // Generate invoice number
         $prefix = $request->input('type', 'invoice') === 'estimate' ? 'EST' : 'INV';
-        $count = Invoice::where('agency_id', $request->user()->agency_id)->count() + 1;
+        $count = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->count() + 1;
         $number = $prefix . '-' . str_pad($count, 5, '0', STR_PAD_LEFT);
 
         $invoice = Invoice::create([
@@ -99,7 +99,7 @@ class InvoiceController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $request->validate([
             'status' => 'sometimes|string|in:draft,sent,paid,overdue,cancelled,partial',
             'client_name' => 'sometimes|string|max:255',
@@ -145,7 +145,7 @@ class InvoiceController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $invoice->delete();
         return response()->json(['success' => true]);
     }
@@ -161,7 +161,7 @@ class InvoiceController extends Controller
             'notes' => 'nullable|string',
         ]);
 
-        $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         Payment::create([
             'agency_id' => $request->user()->agency_id,
@@ -183,7 +183,7 @@ class InvoiceController extends Controller
     // Billing dashboard stats
     public function stats(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $totalRevenue = Invoice::where('agency_id', $agencyId)->where('type', 'invoice')->sum('paid_amount');
         $outstanding = Invoice::where('agency_id', $agencyId)->where('type', 'invoice')
@@ -202,7 +202,7 @@ class InvoiceController extends Controller
     public function services(Request $request): JsonResponse
     {
         $services = ServiceCatalog::withoutGlobalScopes()->where(function ($q) use ($request) {
-            $q->where('agency_id', $request->user()->agency_id)->orWhereNull('agency_id');
+            $q->where('agency_id', $request->user()->effectiveAgencyId($request))->orWhereNull('agency_id');
         })->orderBy('name')->get();
 
         return response()->json(['success' => true, 'data' => $services]);
@@ -228,7 +228,7 @@ class InvoiceController extends Controller
 
     public function updateService(Request $request, int $id): JsonResponse
     {
-        $service = ServiceCatalog::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $service = ServiceCatalog::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $request->validate([
             'name' => 'sometimes|string|max:255',
             'code' => 'sometimes|nullable|string|max:50',
@@ -243,7 +243,7 @@ class InvoiceController extends Controller
 
     public function sendReminder(Request $request, int $id): JsonResponse
     {
-        $invoice = Invoice::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $invoice = Invoice::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         if (!$invoice->client_email) {
             return response()->json(['success' => false, 'message' => 'No client email on this invoice'], 422);

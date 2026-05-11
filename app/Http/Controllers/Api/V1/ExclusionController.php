@@ -16,7 +16,7 @@ class ExclusionController extends Controller
     // List all exclusion checks for agency
     public function index(Request $request): JsonResponse
     {
-        $query = ExclusionCheck::where('agency_id', $request->user()->agency_id)
+        $query = ExclusionCheck::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with('provider:id,first_name,last_name,npi,credentials');
 
         if ($status = $request->input('status')) {
@@ -33,7 +33,7 @@ class ExclusionController extends Controller
     // Run exclusion screening for a provider
     public function screen(Request $request, int $providerId): JsonResponse
     {
-        $provider = Provider::where('agency_id', $request->user()->agency_id)
+        $provider = Provider::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->findOrFail($providerId);
 
         $results = $this->exclusionService->runAllChecks(
@@ -73,7 +73,7 @@ class ExclusionController extends Controller
     // Batch screen all providers
     public function screenAll(Request $request): JsonResponse
     {
-        $providers = Provider::where('agency_id', $request->user()->agency_id)
+        $providers = Provider::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('is_active', true)
             ->get();
 
@@ -118,7 +118,7 @@ class ExclusionController extends Controller
     // Get screening summary/dashboard
     public function summary(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $totalProviders = Provider::where('agency_id', $agencyId)->where('is_active', true)->count();
         $screened = ExclusionCheck::where('agency_id', $agencyId)

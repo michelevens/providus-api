@@ -222,7 +222,7 @@ class ApplicationController extends Controller
 
     public function stats(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         $byStatus = Application::where('agency_id', $agencyId)
             ->selectRaw('status, count(*) as count')

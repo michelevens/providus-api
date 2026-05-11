@@ -11,7 +11,7 @@ class CommunicationLogController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $query = CommunicationLog::where('agency_id', $request->user()->agency_id)
+        $query = CommunicationLog::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with('creator:id,first_name,last_name')
             ->orderByDesc('created_at');
 
@@ -58,7 +58,7 @@ class CommunicationLogController extends Controller
 
     public function show(Request $request, int $id): JsonResponse
     {
-        $log = CommunicationLog::where('agency_id', $request->user()->agency_id)
+        $log = CommunicationLog::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with('creator:id,first_name,last_name')
             ->findOrFail($id);
 
@@ -67,7 +67,7 @@ class CommunicationLogController extends Controller
 
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $log = CommunicationLog::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $log = CommunicationLog::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $log->delete();
 
         return response()->json(['success' => true]);

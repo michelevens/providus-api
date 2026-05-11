@@ -88,7 +88,7 @@ class NotificationSendController extends Controller
      */
     public function preferences(Request $request): JsonResponse
     {
-        $prefs = NotificationPreference::where('agency_id', $request->user()->agency_id)->first();
+        $prefs = NotificationPreference::where('agency_id', $request->user()->effectiveAgencyId($request))->first();
 
         if (!$prefs) {
             $prefs = NotificationPreference::create([

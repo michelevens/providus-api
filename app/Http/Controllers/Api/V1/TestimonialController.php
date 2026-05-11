@@ -17,7 +17,7 @@ class TestimonialController extends Controller
     // Admin: list all testimonials
     public function index(Request $request): JsonResponse
     {
-        $testimonials = Testimonial::where('agency_id', $request->user()->agency_id)
+        $testimonials = Testimonial::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at')
             ->get();
         return response()->json(['success' => true, 'data' => $testimonials]);
@@ -26,7 +26,7 @@ class TestimonialController extends Controller
     // Admin: update testimonial status (approve/reject)
     public function update(Request $request, int $id): JsonResponse
     {
-        $testimonial = Testimonial::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $testimonial = Testimonial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'status' => 'required|in:pending,approved,rejected',

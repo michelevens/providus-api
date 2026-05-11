@@ -196,7 +196,7 @@ class PaymentLinkController extends Controller
 
     public function resendEmail(Request $request, int $id): JsonResponse
     {
-        $link = PaymentLink::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $link = PaymentLink::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         if (!$link->patient_email) {
             return response()->json(['success' => false, 'error' => 'no_email'], 422);
         }
@@ -285,7 +285,7 @@ class PaymentLinkController extends Controller
 
     public function refund(Request $request, int $id): JsonResponse
     {
-        $link = PaymentLink::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $link = PaymentLink::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         if ($link->status !== 'paid') {
             return response()->json(['success' => false, 'error' => 'not_paid', 'message' => 'Can only refund paid links'], 422);
         }

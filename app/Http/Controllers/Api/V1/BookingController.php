@@ -16,7 +16,7 @@ class BookingController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $bookings = Booking::where('agency_id', $request->user()->agency_id)
+        $bookings = Booking::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('appointment_date')
             ->paginate(50);
         return response()->json(['success' => true, 'data' => $bookings]);
@@ -24,7 +24,7 @@ class BookingController extends Controller
 
     public function update(Request $request, int $id): JsonResponse
     {
-        $booking = Booking::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $booking = Booking::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'status' => 'required|in:pending,confirmed,cancelled,completed,no_show',
