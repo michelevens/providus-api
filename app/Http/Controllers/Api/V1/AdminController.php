@@ -13,6 +13,8 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class AdminController extends Controller
 {
@@ -64,6 +66,100 @@ class AdminController extends Controller
             'success' => true,
             'data' => $query->orderBy('name')->get(),
         ]);
+    }
+
+    // Operator-driven tenant creation.
+    //
+    // Mirrors the public AuthController::register flow but with three
+    // differences for operator use:
+    //   1. The operator picks the initial owner's email + name; the
+    //      owner receives an invite link (NOT a generated password)
+    //      and sets their own password by accepting the invite.
+    //   2. The operator can optionally set plan_tier on creation —
+    //      defaults to 'starter' / trialing same as self-signup.
+    //   3. Audit log captures who created the tenant (Eloquent
+    //      `creating` observer auto-stamps created_by/agency_id).
+    public function createAgency(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'name'          => 'required|string|max:255',
+            'owner_email'   => 'required|email|unique:users,email',
+            'owner_first_name' => 'required|string|max:100',
+            'owner_last_name'  => 'required|string|max:100',
+            'plan_tier'     => 'sometimes|nullable|string|in:free,basic,professional,enterprise',
+            'email'         => 'sometimes|nullable|email|max:255',
+            'phone'         => 'sometimes|nullable|string|max:30',
+            'npi'           => 'sometimes|nullable|string|max:20',
+            'tax_id'        => 'sometimes|nullable|string|max:30',
+        ]);
+
+        // Slug from name with collision-avoidance, same as register().
+        $slug = Str::slug($data['name']);
+        $baseSlug = $slug;
+        $counter = 1;
+        while (Agency::where('slug', $slug)->exists()) {
+            $slug = $baseSlug . '-' . $counter++;
+        }
+
+        // Create everything in a transaction so a half-failed mint
+        // doesn't leave a dangling agency without an owner.
+        $result = DB::transaction(function () use ($data, $slug) {
+            $agency = Agency::create([
+                'name'              => $data['name'],
+                'slug'              => $slug,
+                'email'             => $data['email'] ?? $data['owner_email'],
+                'phone'             => $data['phone'] ?? null,
+                'npi'               => $data['npi'] ?? null,
+                'tax_id'            => $data['tax_id'] ?? null,
+                'plan_tier'         => $data['plan_tier'] ?? 'starter',
+                'subscription_status' => 'trialing',
+                'is_active'         => true,
+            ]);
+
+            AgencyConfig::create(['agency_id' => $agency->id]);
+
+            // Owner user, NOT yet active. Invite token generated; user
+            // sets password by accepting the invite.
+            $inviteToken = Str::random(64);
+            $user = User::create([
+                'agency_id'      => $agency->id,
+                'email'          => $data['owner_email'],
+                'password'       => Str::random(32),   // throwaway; replaced on accept
+                'first_name'     => $data['owner_first_name'],
+                'last_name'      => $data['owner_last_name'],
+                'role'           => 'owner',
+                'is_active'      => false,
+                'invite_token'   => hash('sha256', $inviteToken),
+                'invite_expires' => now()->addDays(7),
+            ]);
+
+            return ['agency' => $agency, 'user' => $user, 'inviteToken' => $inviteToken];
+        });
+
+        // Send invite email — best-effort; tenant creation already
+        // succeeded. UserInvite Mailable is the same one used by
+        // AgencyController::inviteUser.
+        $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
+        $inviteUrl = "{$frontendUrl}/#invite/{$result['inviteToken']}";
+        try {
+            Mail::to($result['user']->email)->send(
+                new \App\Mail\UserInvite($result['user'], $result['agency'], $inviteUrl)
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('createAgency: invite email failed', [
+                'agency_id' => $result['agency']->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'agency' => $result['agency'],
+                'owner' => $result['user'],
+                'invite_url' => $inviteUrl,
+            ],
+        ], 201);
     }
 
     public function agencyShow(int $id): JsonResponse

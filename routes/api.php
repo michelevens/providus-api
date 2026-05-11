@@ -622,6 +622,7 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
 
     // Agency management
     Route::get('/agencies', [AdminController::class, 'agencies']);
+    Route::post('/agencies', [AdminController::class, 'createAgency']);
     Route::get('/agencies/{id}', [AdminController::class, 'agencyShow']);
     Route::put('/agencies/{id}', [AdminController::class, 'agencyUpdate']);
     Route::get('/agencies/{id}/users', [AdminController::class, 'agencyUsers']);
