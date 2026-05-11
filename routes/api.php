@@ -627,6 +627,7 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     Route::put('/agencies/{id}', [AdminController::class, 'agencyUpdate']);
     Route::get('/agencies/{id}/users', [AdminController::class, 'agencyUsers']);
     Route::post('/agencies/{id}/impersonate', [AdminController::class, 'impersonate']);
+    Route::post('/impersonate/stop', [AdminController::class, 'impersonateStop']);
 
     // Platform-wide user management
     Route::get('/users', [AdminController::class, 'users']);

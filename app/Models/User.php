@@ -71,28 +71,46 @@ class User extends Authenticatable
     }
 
     /**
-     * Effective agency_id for a request — same as `$user->agency_id` for
-     * normal users, but for a superadmin sending the `X-Agency-Id`
-     * header (impersonation mode), returns the header value instead.
+     * Effective agency_id for a request — the actual tenant whose data
+     * the request should see. Resolved in this order:
+     *
+     *   1. If the request is authenticated with a token that carries an
+     *      `impersonate:<id>` ability, return <id>. This is the modern
+     *      path — impersonation token minted by /admin/agencies/{id}/impersonate
+     *      is the only thing that grants the ability, and it expires in
+     *      2 hours.
+     *   2. If the user is a superadmin AND the legacy `X-Agency-Id` header
+     *      is set, return that. Kept for backward compatibility with the
+     *      header-based impersonation flow shipped earlier; remove after
+     *      all V2 sessions have migrated to the token-based flow.
+     *   3. Otherwise return $this->agency_id.
      *
      * Use this in controllers that pin queries to an agency:
      *
      *     Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
-     *
-     * Without this, every controller hard-codes `$user->agency_id` which
-     * means a superadmin (agency_id often null) sees zero rows. The
-     * TenantScope global scope is one mechanism but controllers
-     * historically distrust it; this helper lets the same controllers
-     * stay strict while still honoring the impersonation header.
      */
     public function effectiveAgencyId(?\Illuminate\Http\Request $request = null): ?int
     {
+        // (1) Token ability — server-side bounded, the secure path.
+        $token = $this->currentAccessToken();
+        if ($token && method_exists($token, 'abilities')) {
+            $abilities = $token->abilities ?? [];
+            if (is_array($abilities)) {
+                foreach ($abilities as $ability) {
+                    if (is_string($ability) && str_starts_with($ability, 'impersonate:')) {
+                        return (int) substr($ability, strlen('impersonate:'));
+                    }
+                }
+            }
+        }
+        // (2) Legacy header — superadmins only.
         if ($this->isSuperAdmin() && $request) {
             $override = $request->header('X-Agency-Id');
             if ($override !== null && $override !== '') {
                 return (int) $override;
             }
         }
+        // (3) Default.
         return $this->agency_id;
     }
 

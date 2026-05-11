@@ -208,23 +208,142 @@ class AdminController extends Controller
     }
 
     // ── Impersonate ───────────────────────────────────────────
+    //
+    // Mints a short-lived (2 hour) Sanctum token with a single ability
+    // `impersonate:<agencyId>`. The V2 client swaps its cookie for the
+    // new token; backend's User::effectiveAgencyId() reads the ability
+    // and scopes all queries to that agency. Server-side bounded — when
+    // the token expires (or is revoked via /admin/impersonate-stop) the
+    // session simply 401s and the operator is bounced back to login.
+    //
+    // Previous behavior (X-Agency-Id header on the superadmin's own
+    // token) is kept as a fallback for in-flight sessions but should
+    // not be relied upon for new impersonation flows.
 
     public function impersonate(Request $request, int $agencyId): JsonResponse
     {
         $agency = Agency::findOrFail($agencyId);
         $superadmin = $request->user();
 
-        // Create a scoped token that the superadmin can use
-        // with the X-Agency-Id header for tenant scoping
+        // Revoke any prior impersonation tokens this superadmin holds
+        // so they can't accumulate stale sessions across browser tabs.
+        // We match by the token name prefix written below.
+        $superadmin->tokens()
+            ->where('name', 'like', 'impersonation:%')
+            ->delete();
+
+        // Mint the new token with a single ability that carries the
+        // tenant context. Expiry honors config('sanctum.expiration')
+        // but caps at 2 hours for impersonation specifically — operators
+        // shouldn't sit in a tenant's UI for a full day.
+        $expiresAt = now()->addHours(2);
+        $token = $superadmin->createToken(
+            "impersonation:{$agency->id}",
+            ["impersonate:{$agency->id}"],
+            $expiresAt,
+        )->plainTextToken;
+
+        // Audit-log the impersonation start so we have a record of
+        // who-as-whom-when, even if writes during impersonation later.
+        try {
+            \App\Models\AuditLog::create([
+                'agency_id' => $agency->id,
+                'user_id' => $superadmin->id,
+                'user_email' => $superadmin->email,
+                'action' => 'impersonate.start',
+                'auditable_type' => Agency::class,
+                'auditable_id' => $agency->id,
+                'new_values' => [
+                    'impersonator_id' => $superadmin->id,
+                    'impersonator_email' => $superadmin->email,
+                    'expires_at' => $expiresAt->toIso8601String(),
+                ],
+                'ip_address' => $request->ip(),
+                'user_agent' => substr((string) $request->userAgent(), 0, 200),
+            ]);
+        } catch (\Throwable $e) {
+            // Non-fatal — impersonation continues even if audit fails.
+            \Illuminate\Support\Facades\Log::warning('impersonation audit failed', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         return response()->json([
             'success' => true,
             'data' => [
                 'agency_id' => $agency->id,
                 'agency_name' => $agency->name,
                 'agency_slug' => $agency->slug,
-                'instruction' => 'Add header X-Agency-Id: ' . $agency->id . ' to scope all requests to this agency.',
+                'token' => $token,
+                'expires_at' => $expiresAt->toIso8601String(),
             ],
-        ]);
+        ])->withCookie($this->impersonationCookie($token, $expiresAt));
+    }
+
+    // Stop impersonation — revoke the impersonation token + clear the
+    // cookie. The V2 client then needs to log back in as the superadmin
+    // (their original token was implicitly invalidated when they got
+    // the impersonation token).
+    public function impersonateStop(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Revoke just the impersonation-prefixed tokens, not the
+        // operator's regular session token (if any).
+        $tokens = $user->tokens()->where('name', 'like', 'impersonation:%')->get();
+        foreach ($tokens as $t) {
+            $t->delete();
+        }
+
+        // Audit the stop. We can't reliably recover which agency
+        // was being impersonated post-revocation without parsing the
+        // token name, so we log just the count of sessions ended.
+        try {
+            \App\Models\AuditLog::create([
+                'agency_id' => null,
+                'user_id' => $user->id,
+                'user_email' => $user->email,
+                'action' => 'impersonate.stop',
+                'new_values' => [
+                    'sessions_ended' => $tokens->count(),
+                ],
+                'ip_address' => $request->ip(),
+                'user_agent' => substr((string) $request->userAgent(), 0, 200),
+            ]);
+        } catch (\Throwable $e) {}
+
+        return response()->json([
+            'success' => true,
+            'message' => "Ended {$tokens->count()} impersonation session(s).",
+        ])->withCookie(\Illuminate\Support\Facades\Cookie::forget(
+            'credentik_session',
+            '/',
+            app()->environment('production') ? '.credentik.com' : null,
+        ));
+    }
+
+    // Cookie shape for the impersonation session — same domain/secure/
+    // httponly attributes as the regular session cookie, but with the
+    // explicit 2-hour expiry baked in. Mirrors AuthController::sessionCookie
+    // (we don't share code because that's a private method on another
+    // controller and the duplication is bounded).
+    private function impersonationCookie(string $plainTextToken, \Carbon\Carbon $expiresAt): \Symfony\Component\HttpFoundation\Cookie
+    {
+        $minutes = (int) max(1, $expiresAt->diffInMinutes(now()));
+        $secure = app()->environment('production');
+        $domain = $secure ? '.credentik.com' : null;
+
+        return \Illuminate\Support\Facades\Cookie::make(
+            name: 'credentik_session',
+            value: $plainTextToken,
+            minutes: $minutes,
+            path: '/',
+            domain: $domain,
+            secure: $secure,
+            httpOnly: true,
+            raw: false,
+            sameSite: 'lax',
+        );
     }
 
     // ── All Users (platform-wide) ─────────────────────────────
