@@ -12,6 +12,7 @@ use App\Models\Provider;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class AdminController extends Controller
 {
@@ -226,6 +227,101 @@ class AdminController extends Controller
         return response()->json([
             'success' => true,
             'data' => $query->orderByDesc('created_at')->paginate(50),
+        ]);
+    }
+
+    // ── System Health ───────────────────────────────────────────
+    //
+    // Aggregates real-time signals from the platform's load-bearing
+    // subsystems: database, Stripe webhook log, audit log activity.
+    // Returns a flat JSON the V2 operator console renders directly.
+    // No expensive scans — each check is bounded (counts on indexed
+    // columns, last-24h windows). Whole call should complete in <50ms.
+
+    public function systemHealth(): JsonResponse
+    {
+        $now = now();
+        $oneDayAgo = $now->copy()->subDay();
+
+        // ── Database connectivity + size approximation ──
+        $dbOk = false;
+        $dbMs = null;
+        try {
+            $t0 = microtime(true);
+            DB::select('SELECT 1');
+            $dbMs = (int) ((microtime(true) - $t0) * 1000);
+            $dbOk = true;
+        } catch (\Throwable $e) {
+            // dbOk stays false
+        }
+
+        // ── Stripe webhook log — uses the stripe_event_log table
+        //    shipped earlier today as part of webhook idempotency. ──
+        $stripeEvents24h = 0;
+        $stripeEventTypes = [];
+        try {
+            $stripeEvents24h = DB::table('stripe_event_log')
+                ->where('processed_at', '>=', $oneDayAgo)
+                ->count();
+            $stripeEventTypes = DB::table('stripe_event_log')
+                ->select('event_type', DB::raw('count(*) as n'))
+                ->where('processed_at', '>=', $oneDayAgo)
+                ->groupBy('event_type')
+                ->orderByDesc('n')
+                ->limit(5)
+                ->get()
+                ->map(fn ($r) => ['type' => $r->event_type, 'count' => (int) $r->n])
+                ->toArray();
+        } catch (\Throwable $e) {
+            // Table missing or query failed — leave defaults
+        }
+
+        // ── Audit log activity (24h volume per action) ──
+        $auditActions = [];
+        try {
+            $auditActions = AuditLog::select('action', DB::raw('count(*) as n'))
+                ->where('created_at', '>=', $oneDayAgo)
+                ->groupBy('action')
+                ->orderByDesc('n')
+                ->get()
+                ->map(fn ($r) => ['action' => $r->action, 'count' => (int) $r->n])
+                ->toArray();
+        } catch (\Throwable $e) {}
+
+        // ── Active sessions estimate (logins in last 24h) ──
+        $loginsLast24h = 0;
+        try {
+            $loginsLast24h = User::where('last_login_at', '>=', $oneDayAgo)->count();
+        } catch (\Throwable $e) {}
+
+        // ── User growth (last 7 days) ──
+        $userGrowth7d = 0;
+        try {
+            $userGrowth7d = User::where('created_at', '>=', $now->copy()->subDays(7))->count();
+        } catch (\Throwable $e) {}
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'checked_at' => $now->toIso8601String(),
+                'database' => [
+                    'ok' => $dbOk,
+                    'latency_ms' => $dbMs,
+                ],
+                'stripe' => [
+                    'events_24h' => $stripeEvents24h,
+                    'top_event_types' => $stripeEventTypes,
+                ],
+                'audit' => [
+                    'actions_24h' => $auditActions,
+                ],
+                'sessions' => [
+                    'logins_24h' => $loginsLast24h,
+                ],
+                'growth' => [
+                    'new_users_7d' => $userGrowth7d,
+                ],
+            ],
         ]);
     }
 }

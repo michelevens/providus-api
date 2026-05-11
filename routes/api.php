@@ -615,6 +615,7 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
 
     // Platform overview
     Route::get('/stats', [AdminController::class, 'stats']);
+    Route::get('/system-health', [AdminController::class, 'systemHealth']);
 
     // Demo user seeding (superadmin only)
     Route::post('/seed-demo', [AuthController::class, 'seedDemoUsers'])->middleware('throttle:3,1');
