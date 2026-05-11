@@ -472,10 +472,15 @@ class AdminController extends Controller
         $request->validate([
             'agency_id' => 'nullable|integer',
             'user_id' => 'nullable|integer',
-            'action' => 'nullable|string|in:created,updated,deleted,restored',
+            'action' => 'nullable|string|in:created,updated,deleted,restored,impersonate.start,impersonate.stop',
             'auditable_type' => 'nullable|string',
             'from' => 'nullable|date',
             'to' => 'nullable|date',
+            // Filter to only entries written during impersonation. Useful
+            // for compliance questions like "show me everything an
+            // operator did while pretending to be a tenant in the last
+            // 30 days" without combing through normal agency activity.
+            'impersonated_only' => 'nullable|in:0,1,true,false',
         ]);
 
         $query = AuditLog::query();
@@ -491,6 +496,9 @@ class AdminController extends Controller
         if ($type = $request->input('auditable_type')) $query->where('auditable_type', $type);
         if ($from = $request->input('from')) $query->where('created_at', '>=', $from);
         if ($to = $request->input('to')) $query->where('created_at', '<=', $to);
+        if ($request->boolean('impersonated_only')) {
+            $query->whereNotNull('impersonator_user_id');
+        }
 
         return response()->json([
             'success' => true,
