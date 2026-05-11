@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Claim extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use Auditable, BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'billing_client_id', 'claim_number', 'claim_type', 'status',

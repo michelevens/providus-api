@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -15,7 +16,10 @@ class PriorAuthorization extends Model
     // `PriorAuthorization::find($id)` from a junior dev / AI session would
     // cross tenants without manual filtering. Trait is a no-op on unauth
     // requests, so no public-route impact.
-    use BelongsToAgency, HasFactory, SoftDeletes;
+    //
+    // Auditable trait records create/update/delete in audit_logs and
+    // stamps impersonator_user_id when an operator is impersonating.
+    use Auditable, BelongsToAgency, HasFactory, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'billing_client_id', 'claim_id', 'patient_name',
