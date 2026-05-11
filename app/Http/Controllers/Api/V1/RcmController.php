@@ -814,7 +814,11 @@ class RcmController extends Controller
         $byPayer = [];
 
         foreach ($claims as $c) {
-            $days = $now->diffInDays($c->date_of_service);
+            // diffInDays returns a SIGNED int — negative when the
+            // target is in the past. We want age-in-days (always
+            // positive), so abs() it. Without this, every claim with
+            // a past DOS lands in 0_30 because -347 <= 30 is true.
+            $days = (int) abs($now->diffInDays($c->date_of_service));
             $bucket = $days <= 30 ? '0_30' : ($days <= 60 ? '31_60' : ($days <= 90 ? '61_90' : '91_plus'));
             $buckets[$bucket][] = $c;
             $payer = $c->payer_name ?: 'Unknown';
@@ -830,7 +834,7 @@ class RcmController extends Controller
 
         return response()->json(['success' => true, 'data' => [
             'total_ar' => $claims->sum('balance'),
-            'avg_days_in_ar' => $claims->count() > 0 ? round($claims->avg(fn($c) => $now->diffInDays($c->date_of_service))) : 0,
+            'avg_days_in_ar' => $claims->count() > 0 ? round($claims->avg(fn($c) => abs($now->diffInDays($c->date_of_service)))) : 0,
             'claim_count' => $claims->count(),
             'buckets' => [
                 '0_30' => ['count' => count($buckets['0_30']), 'total' => collect($buckets['0_30'])->sum('balance')],
