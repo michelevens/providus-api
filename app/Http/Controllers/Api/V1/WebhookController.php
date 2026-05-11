@@ -133,7 +133,7 @@ class WebhookController extends Controller
         Webhook::findOrFail($id);
 
         $deliveries = WebhookDelivery::where('webhook_id', $id)
-            ->where('agency_id', $request->user()->agency_id)
+            ->where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at')
             ->limit((int) min($request->input('limit', 100), 500))
             ->get();

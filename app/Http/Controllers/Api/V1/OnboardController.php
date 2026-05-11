@@ -15,7 +15,7 @@ class OnboardController extends Controller
     // List tokens for authenticated user's agency
     public function index(Request $request): JsonResponse
     {
-        $tokens = OnboardToken::where('agency_id', $request->user()->agency_id)
+        $tokens = OnboardToken::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at')
             ->get();
         return response()->json(['success' => true, 'data' => $tokens]);
@@ -43,7 +43,7 @@ class OnboardController extends Controller
     // Delete/revoke a token
     public function destroy(Request $request, int $id): JsonResponse
     {
-        $token = OnboardToken::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $token = OnboardToken::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $token->delete();
         return response()->json(['success' => true]);
     }

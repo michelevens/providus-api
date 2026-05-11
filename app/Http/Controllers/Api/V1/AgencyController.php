@@ -103,7 +103,7 @@ class AgencyController extends Controller
 
     public function listUsers(Request $request): JsonResponse
     {
-        $users = User::where('agency_id', $request->user()->agency_id)
+        $users = User::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['organization', 'provider'])
             ->get();
 
@@ -126,7 +126,7 @@ class AgencyController extends Controller
             return response()->json(['success' => false, 'message' => 'Only owners can assign the owner role.'], 403);
         }
 
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         // Enforce user plan limit
         $agency = \App\Models\Agency::find($agencyId);
@@ -217,7 +217,7 @@ class AgencyController extends Controller
 
     public function updateUser(Request $request, int $id): JsonResponse
     {
-        $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $user = User::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         $request->validate([
             'first_name' => 'sometimes|string|max:100',
@@ -248,7 +248,7 @@ class AgencyController extends Controller
             return response()->json(['success' => false, 'message' => 'Only owners can change another owner\'s role.'], 403);
         }
 
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
 
         // Validate organization belongs to this agency
         if ($request->has('organization_id') && $request->organization_id) {
@@ -288,7 +288,7 @@ class AgencyController extends Controller
 
     public function deleteUser(Request $request, int $id): JsonResponse
     {
-        $user = User::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $user = User::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
         // Cannot delete superadmin or agency-owner accounts
         if ($user->isSuperAdmin()) {
