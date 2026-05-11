@@ -3,11 +3,12 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PaymentLinkReminder;
 use App\Models\PaymentLink;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Stripe\Checkout\Session as StripeSession;
 use Stripe\Stripe;
 
@@ -201,7 +202,7 @@ class PaymentLinkController extends Controller
         }
         if ($link->status === 'paid' || $link->status === 'refunded') {
             // Don't re-email patients for already-settled invoices — it's
-            // confusing UX and we've seen the V2 button get double-clicked.
+            // confusing UX and the V2 button has been double-clicked in QA.
             return response()->json([
                 'success' => false,
                 'error'   => 'already_settled',
@@ -209,11 +210,12 @@ class PaymentLinkController extends Controller
             ], 422);
         }
 
-        $apiKey = config('services.resend.key');
-        if (!$apiKey) {
-            // Service-unavailable rather than masking with success — V2 can
-            // surface a real error instead of pretending the email went.
-            Log::warning('Payment link resend skipped: RESEND_KEY not configured', ['link_id' => $link->id]);
+        // Email driver guard. Resend transport is wired in config/mail.php
+        // but the API key lives in RESEND_API_KEY env. If it's unset on a
+        // given environment, fail loudly (503) instead of pretending the
+        // email went — V2 surfaces a real error to the user.
+        if (!config('services.resend.key')) {
+            Log::warning('Payment link resend skipped: RESEND_API_KEY not configured', ['link_id' => $link->id]);
             return response()->json([
                 'success' => false,
                 'error'   => 'email_not_configured',
@@ -222,96 +224,49 @@ class PaymentLinkController extends Controller
         }
 
         $agency = $request->user()->agency;
-        $agencyName = $agency?->company_display_name ?: $agency?->name ?: 'Your provider';
-        $publicUrl = config('app.frontend_url', 'https://app.credentik.com') . '/v2/#/pay/' . $link->public_token;
-        $amount = number_format((float) $link->amount, 2);
-        $fromAddress = config('mail.from.address', 'noreply@credentik.com');
-        // Use a per-agency from-name when we can — Resend supports
-        // "Name <addr>" syntax. e() guards against agency names containing
-        // the < > " characters that would otherwise break the header.
-        $fromHeader = sprintf('%s <%s>', e($agencyName), $fromAddress);
+        $publicUrl = config('app.frontend_url', 'https://app.credentik.com')
+                   . '/v2/#/pay/' . $link->public_token;
 
-        $descLabel = match ($link->target_type) {
-            'patient_statement' => 'patient statement',
-            'invoice'           => 'invoice',
-            default             => 'patient balance',
-        };
-
-        // Inline HTML matches the welcome-email shape used by register().
-        // Patient-facing — keep it short, plain, and link-prominent.
-        $html = '<div style="font-family:Inter,Arial,sans-serif;max-width:560px;margin:0 auto;padding:40px 20px;color:#111827;">'
-              . '<div style="text-align:center;margin-bottom:32px;">'
-              . '<div style="display:inline-block;background:#0891b2;color:#fff;font-size:20px;font-weight:700;padding:10px 18px;border-radius:10px;">' . e($agencyName) . '</div>'
-              . '</div>'
-              . '<h1 style="font-size:22px;font-weight:700;color:#111827;margin:0 0 12px;">Payment reminder</h1>'
-              . '<p style="font-size:15px;color:#4b5563;line-height:1.6;margin:0 0 18px;">A payment of <strong style="color:#111827;">$' . e($amount) . '</strong> is awaiting your action on your ' . e($descLabel) . '.</p>'
-              . '<div style="text-align:center;margin:32px 0;">'
-              . '<a href="' . e($publicUrl) . '" style="display:inline-block;background:#0891b2;color:#fff;padding:14px 28px;border-radius:10px;font-weight:600;font-size:15px;text-decoration:none;">Pay $' . e($amount) . ' now</a>'
-              . '</div>'
-              . '<p style="font-size:13px;color:#6b7280;line-height:1.6;margin:0 0 8px;">Or paste this secure link into your browser:</p>'
-              . '<p style="font-size:12px;color:#0891b2;word-break:break-all;margin:0 0 24px;"><a href="' . e($publicUrl) . '" style="color:#0891b2;">' . e($publicUrl) . '</a></p>'
-              . '<hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;">'
-              . '<p style="font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">Payments are processed securely by Stripe. If you have questions, reply to this email.</p>'
-              . '</div>';
-
-        $resendId = null;
-        $status = 'queued';
         try {
-            $response = Http::withToken($apiKey)
-                ->timeout(10)
-                ->post('https://api.resend.com/emails', [
-                    'from'     => $fromHeader,
-                    'to'       => [$link->patient_email],
-                    'subject'  => 'Payment reminder from ' . $agencyName . ' — $' . $amount,
-                    'html'     => $html,
-                    'reply_to' => $agency?->email ?: null,
-                ]);
-
-            if ($response->successful()) {
-                $resendId = $response->json('id');
-                $status = 'sent';
-            } else {
-                $status = 'failed';
-                Log::warning('Payment link resend failed at Resend', [
-                    'link_id' => $link->id,
-                    'status'  => $response->status(),
-                    // Body may contain Resend's structured error — useful
-                    // for triage. No patient PII in the body itself.
-                    'body'    => substr((string) $response->body(), 0, 500),
-                ]);
-                return response()->json([
-                    'success' => false,
-                    'error'   => 'email_send_failed',
-                    'message' => 'Email provider rejected the message. Please verify the patient email and try again.',
-                ], 502);
-            }
+            // The Mailable owns layout, branding, and copy. Forces the
+            // 'resend' mailer regardless of MAIL_MAILER env value so this
+            // path doesn't silently fall back to the 'log' driver.
+            Mail::mailer('resend')
+                ->to($link->patient_email)
+                ->send(new PaymentLinkReminder($link, $publicUrl, $agency));
         } catch (\Throwable $e) {
-            Log::error('Payment link resend exception', [
+            Log::error('Payment link resend send failed', [
                 'link_id' => $link->id,
-                'error'   => $e->getMessage(),
+                'error'   => substr($e->getMessage(), 0, 500),
             ]);
             return response()->json([
                 'success' => false,
-                'error'   => 'email_send_exception',
-                'message' => 'Could not reach the email provider. Please try again in a moment.',
+                'error'   => 'email_send_failed',
+                'message' => 'Could not deliver the email. Please verify the patient email and try again.',
             ], 502);
         }
 
-        // Best-effort log — failure here shouldn't block the success response
-        // since the email already went out.
+        // Best-effort audit log. Failure here doesn't roll back the send —
+        // the email already left, so we still report success to V2.
         try {
+            $amount = number_format((float) $link->amount, 2);
+            $agencyName = $agency?->company_display_name ?: $agency?->name ?: 'Credentik';
             \App\Models\NotificationLogEntry::create([
                 'agency_id'       => $link->agency_id,
                 'type'            => 'payment_link_resend',
                 'recipient_email' => $link->patient_email,
                 'recipient_name'  => $link->patient_name,
-                'subject'         => 'Payment reminder from ' . $agencyName . ' — $' . $amount,
-                'body'            => $html,
-                'status'          => $status === 'sent' ? 'delivered' : $status,
-                'resend_id'       => $resendId,
+                'subject'         => "Payment reminder from {$agencyName} — \${$amount}",
+                // body intentionally omitted — the full HTML lives in the
+                // Blade template and re-rendering it just for the log is
+                // wasteful. The metadata + recipient + subject is enough
+                // for audit purposes.
+                'body'            => 'See template: emails.payment-link-reminder',
+                'status'          => 'delivered',
                 'metadata'        => [
                     'payment_link_id' => $link->id,
                     'public_token'    => $link->public_token,
+                    'amount'          => (float) $link->amount,
                 ],
             ]);
         } catch (\Throwable $e) {
@@ -324,7 +279,6 @@ class PaymentLinkController extends Controller
                 'sent'          => true,
                 'patient_email' => $link->patient_email,
                 'public_token'  => $link->public_token,
-                'resend_id'     => $resendId,
             ],
         ]);
     }
