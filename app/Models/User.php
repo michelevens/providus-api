@@ -70,6 +70,32 @@ class User extends Authenticatable
         return $this->role === 'superadmin';
     }
 
+    /**
+     * Effective agency_id for a request — same as `$user->agency_id` for
+     * normal users, but for a superadmin sending the `X-Agency-Id`
+     * header (impersonation mode), returns the header value instead.
+     *
+     * Use this in controllers that pin queries to an agency:
+     *
+     *     Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
+     *
+     * Without this, every controller hard-codes `$user->agency_id` which
+     * means a superadmin (agency_id often null) sees zero rows. The
+     * TenantScope global scope is one mechanism but controllers
+     * historically distrust it; this helper lets the same controllers
+     * stay strict while still honoring the impersonation header.
+     */
+    public function effectiveAgencyId(?\Illuminate\Http\Request $request = null): ?int
+    {
+        if ($this->isSuperAdmin() && $request) {
+            $override = $request->header('X-Agency-Id');
+            if ($override !== null && $override !== '') {
+                return (int) $override;
+            }
+        }
+        return $this->agency_id;
+    }
+
     public function isAgency(): bool
     {
         return in_array($this->role, ['superadmin', 'owner', 'agency']);
