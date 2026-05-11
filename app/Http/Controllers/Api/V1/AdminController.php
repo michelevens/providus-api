@@ -178,6 +178,59 @@ class AdminController extends Controller
         return response()->json(['success' => true, 'data' => $user]);
     }
 
+    // Reset a user's 2FA — for operators rescuing locked-out users.
+    // Wipes the encrypted secret + recovery codes so the user can sign
+    // in with email/password and re-enroll. Caller MUST verify identity
+    // out-of-band (phone callback, etc.) before doing this.
+    public function userResetMfa(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        if ($user->role === 'superadmin' && $user->id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot reset another superadmin\'s 2FA via the API. Use artisan.',
+            ], 403);
+        }
+
+        $user->update([
+            'two_factor_enabled' => false,
+            'two_factor_secret' => null,
+            'two_factor_recovery_codes' => null,
+            'two_factor_confirmed_at' => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => '2FA reset. User must re-enroll on next login.',
+        ]);
+    }
+
+    // Force-logout: revoke every Sanctum token for the user. Their
+    // current sessions (web + mobile) drop to 401 on the next request.
+    // The HttpOnly cookie also stops working since it carries a
+    // revoked token. Used for compromised accounts or post-firing
+    // off-boarding when the agency-level user-delete isn't enough.
+    public function userForceLogout(Request $request, int $id): JsonResponse
+    {
+        $user = User::findOrFail($id);
+
+        if ($user->role === 'superadmin' && $user->id !== $request->user()->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cannot force-logout another superadmin via the API. Use artisan.',
+            ], 403);
+        }
+
+        $count = $user->tokens()->count();
+        $user->tokens()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => "Revoked {$count} session(s). User will be logged out within seconds.",
+        ]);
+    }
+
     // ── Activity Log ─────────────────────────────────────────────
 
     public function auditLog(Request $request): JsonResponse

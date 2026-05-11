@@ -630,6 +630,8 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     // Platform-wide user management
     Route::get('/users', [AdminController::class, 'users']);
     Route::put('/users/{id}', [AdminController::class, 'userUpdate']);
+    Route::post('/users/{id}/reset-mfa', [AdminController::class, 'userResetMfa']);
+    Route::post('/users/{id}/force-logout', [AdminController::class, 'userForceLogout']);
 
     // Audit log (activity log)
     Route::get('/audit-log', [AdminController::class, 'auditLog']);
