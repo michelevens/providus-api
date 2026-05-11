@@ -7,6 +7,7 @@ use App\Models\Agency;
 use App\Models\PaymentLink;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Stripe\Stripe;
 use Stripe\Webhook;
@@ -27,6 +28,32 @@ class StripeWebhookController extends Controller
         } catch (\Exception $e) {
             Log::warning('Stripe webhook signature verification failed: ' . $e->getMessage());
             return response('Invalid signature', 400);
+        }
+
+        // Idempotency: Stripe retries deliveries for up to 3 days on any
+        // non-2xx response. The PaymentLink handler has a status-machine
+        // guard but the subscription handlers do unconditional updates,
+        // so a retry of `customer.subscription.deleted` for an agency
+        // that has since re-subscribed would overwrite live state with
+        // stale "canceled". Insert-on-event-id; if the unique constraint
+        // fires we've seen this event and short-circuit with 200 so
+        // Stripe stops retrying. Done BEFORE method dispatch so it
+        // covers every handler (current and future).
+        try {
+            DB::table('stripe_event_log')->insert([
+                'event_id'     => $event->id,
+                'event_type'   => $event->type,
+                'processed_at' => now(),
+            ]);
+        } catch (\Illuminate\Database\QueryException $e) {
+            // SQLSTATE 23000 / 23505 = unique violation = already processed.
+            // Any other error is unexpected; let it bubble so Stripe retries.
+            $sqlState = $e->getCode();
+            if (in_array((string) $sqlState, ['23000', '23505'], true)) {
+                Log::info("Stripe: event {$event->id} already processed, skipping");
+                return response('OK (duplicate)', 200);
+            }
+            throw $e;
         }
 
         $method = 'handle' . str_replace('.', '', ucwords($event->type, '.'));

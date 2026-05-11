@@ -21,6 +21,7 @@ use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 
 class RcmPhase2Controller extends Controller
 {
@@ -276,14 +277,23 @@ class RcmPhase2Controller extends Controller
     // Already partially built in RcmController — this adds batch allocation
     public function batchAllocatePayment(Request $request): JsonResponse
     {
+        $aid = $request->user()->agency_id;
+        // SECURITY: every cross-table id MUST be tenant-scoped via
+        // Rule::exists()->where('agency_id', $aid). Bare `exists:claims,id`
+        // validates global existence, so an attacker could POST a victim
+        // tenant's claim_id and create an orphan PaymentAllocation row
+        // pointing at it — corrupts the victim's payment totals if anyone
+        // later joins through `claim_payment_id`, and pollutes our own
+        // tenant's payment summary. The downstream `Claim::find()` here
+        // returns null due to BelongsToAgency, so the balance update is
+        // silently skipped — but the orphan row IS written. Plug both.
         $request->validate([
-            'payment_id' => 'required|exists:claim_payments,id',
+            'payment_id' => ['required', Rule::exists('claim_payments', 'id')->where('agency_id', $aid)],
             'allocations' => 'required|array|min:1',
-            'allocations.*.claim_id' => 'required|exists:claims,id',
+            'allocations.*.claim_id' => ['required', Rule::exists('claims', 'id')->where('agency_id', $aid)],
             'allocations.*.paid_amount' => 'required|numeric|min:0',
         ]);
 
-        $aid = $request->user()->agency_id;
         $payment = \App\Models\ClaimPayment::where('agency_id', $aid)->findOrFail($request->payment_id);
         $allocated = 0;
         $claimsFlippedToPaid = [];
@@ -768,9 +778,19 @@ class RcmPhase2Controller extends Controller
 
     public function uploadEra(Request $request): JsonResponse
     {
+        $aid = $request->user()->agency_id;
+        // 50 MB cap — a real 835 file from a payer is usually under 5 MB.
+        // Unbounded file size + file_get_contents below = trivial OOM DoS
+        // (PHP fatal "Allowed memory size exhausted" → Railway worker recycle).
+        // mimes is best-effort: X12/EDI isn't a standard mime type, so we
+        // allow common text/plain plus extension hints. The parser itself
+        // validates ISA segments before doing real work.
         $request->validate([
-            'file' => 'required|file',
-            'billing_client_id' => 'nullable|integer|exists:billing_clients,id',
+            'file' => 'required|file|max:51200|mimes:txt,edi,835,x12,dat',
+            // SECURITY: tenant-scope the billing_client lookup. A bare
+            // `exists` lets an attacker post their ERA against another
+            // agency's billing_client and cross-attribute payments.
+            'billing_client_id' => ['nullable', 'integer', Rule::exists('billing_clients', 'id')->where('agency_id', $aid)],
         ]);
 
         $rawX12 = file_get_contents($request->file('file')->getRealPath());
@@ -779,9 +799,11 @@ class RcmPhase2Controller extends Controller
 
     public function postEra(Request $request): JsonResponse
     {
+        $aid = $request->user()->agency_id;
+        // 10 MB inline cap — strings are heavier than files in memory.
         $request->validate([
-            'era_data' => 'required|string',
-            'billing_client_id' => 'nullable|integer|exists:billing_clients,id',
+            'era_data' => 'required|string|max:10485760',
+            'billing_client_id' => ['nullable', 'integer', Rule::exists('billing_clients', 'id')->where('agency_id', $aid)],
         ]);
         return $this->runEraImport($request, $request->input('era_data'));
     }

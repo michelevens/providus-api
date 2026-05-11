@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -9,7 +10,13 @@ use Illuminate\Support\Str;
 
 class PaymentLink extends Model
 {
-    use HasFactory, SoftDeletes;
+    // BelongsToAgency adds the global TenantScope. The scope is a no-op on
+    // unauthenticated requests (the public /payments/status/{token} route),
+    // so the patient-facing token lookup still works — but any future
+    // authenticated `PaymentLink::find($id)` is automatically tenant-scoped.
+    // Defense-in-depth so a junior dev or AI session can't accidentally
+    // skip the manual `where('agency_id', ...)` controllers do today.
+    use BelongsToAgency, HasFactory, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'billing_client_id', 'target_type', 'target_id',
