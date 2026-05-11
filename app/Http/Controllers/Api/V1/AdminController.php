@@ -198,6 +198,265 @@ class AdminController extends Controller
 
     // ── Agency Users (cross-agency) ───────────────────────────
 
+    // Subscription detail for one tenant. Aggregates the Stripe fields
+    // on the Agency model + recent stripe_event_log entries that match
+    // the agency's customer or subscription id. Operator drill-in for
+    // "what does Stripe think about this tenant?"
+
+    public function agencySubscription(int $id): JsonResponse
+    {
+        $agency = Agency::findOrFail($id);
+
+        // Recent Stripe events touching this tenant. We don't store
+        // agency_id on stripe_event_log (it's a Stripe-side mirror), so
+        // we filter by joining on the JSON payload metadata if needed.
+        // Simpler v1: just list ALL recent webhook events globally and
+        // tag them by event_type. Operator can correlate by timestamp.
+        $recentEvents = collect();
+        try {
+            $recentEvents = \Illuminate\Support\Facades\DB::table('stripe_event_log')
+                ->select('event_id', 'event_type', 'processed_at')
+                ->orderByDesc('processed_at')
+                ->limit(20)
+                ->get();
+        } catch (\Throwable $e) {}
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'plan_tier' => $agency->plan_tier,
+                'subscription_status' => $agency->subscription_status,
+                'trial_ends_at' => $agency->trial_ends_at,
+                'subscription_ends_at' => $agency->subscription_ends_at,
+                'stripe_customer_id' => $agency->stripe_customer_id,
+                'stripe_subscription_id' => $agency->stripe_subscription_id,
+                'stripe_price_id' => $agency->stripe_price_id,
+                // "Recent Stripe activity" — the operator scans for
+                // anomalies (e.g. lots of subscription.updated in a row).
+                'recent_stripe_events' => $recentEvents,
+            ],
+        ]);
+    }
+
+    // Compliance summary for one tenant. Aggregates signals from
+    // existing models (License, DeaRegistration, Application,
+    // ClaimDenial, AuditLog) into a single "where does this tenant
+    // need attention?" snapshot. No new tables — everything below
+    // already exists; we just join it.
+
+    public function agencyCompliance(int $id): JsonResponse
+    {
+        $now = now();
+        $thirtyDaysOut = $now->copy()->addDays(30);
+        $sixtyDaysOut = $now->copy()->addDays(60);
+        $ninetyDaysAgo = $now->copy()->subDays(90);
+        $sevenDaysAgo = $now->copy()->subDays(7);
+
+        // Licenses expiring in 30 days.
+        $expiringLicenses30 = \App\Models\License::withoutGlobalScopes()
+            ->where('agency_id', $id)
+            ->whereNotNull('expiration_date')
+            ->where('expiration_date', '<=', $thirtyDaysOut)
+            ->where('expiration_date', '>=', $now)
+            ->orderBy('expiration_date')
+            ->limit(20)
+            ->get(['id', 'provider_id', 'state', 'license_number', 'expiration_date']);
+
+        $expiringLicenses60 = \App\Models\License::withoutGlobalScopes()
+            ->where('agency_id', $id)
+            ->whereNotNull('expiration_date')
+            ->where('expiration_date', '>', $thirtyDaysOut)
+            ->where('expiration_date', '<=', $sixtyDaysOut)
+            ->count();
+
+        // Already-expired licenses (red flag).
+        $expiredLicenses = \App\Models\License::withoutGlobalScopes()
+            ->where('agency_id', $id)
+            ->whereNotNull('expiration_date')
+            ->where('expiration_date', '<', $now)
+            ->count();
+
+        // DEAs expiring soon.
+        $expiringDeas = 0;
+        try {
+            $expiringDeas = \App\Models\DeaRegistration::withoutGlobalScopes()
+                ->where('agency_id', $id)
+                ->whereNotNull('expiration_date')
+                ->where('expiration_date', '<=', $thirtyDaysOut)
+                ->where('expiration_date', '>=', $now)
+                ->count();
+        } catch (\Throwable $e) {}
+
+        // Stale applications: in 'in_review' or 'pending_info' for > 90 days
+        // since submitted. Same definition Command Center uses.
+        $staleApplications = \App\Models\Application::withoutGlobalScopes()
+            ->where('agency_id', $id)
+            ->whereIn('status', ['in_review', 'pending_info'])
+            ->whereNotNull('submitted_date')
+            ->where('submitted_date', '<', $ninetyDaysAgo)
+            ->count();
+
+        // Denial volume in last 7 days.
+        $recentDenials = 0;
+        try {
+            $recentDenials = \App\Models\ClaimDenial::withoutGlobalScopes()
+                ->where('agency_id', $id)
+                ->where('created_at', '>=', $sevenDaysAgo)
+                ->count();
+        } catch (\Throwable $e) {}
+
+        // Audit activity in last 7 days — proxy for "how active is this
+        // tenant?" Healthy tenants generate audit events; quiet ones
+        // are worth a check-in.
+        $auditActivity7d = AuditLog::where('agency_id', $id)
+            ->where('created_at', '>=', $sevenDaysAgo)
+            ->count();
+
+        // Impersonation activity in last 30 days. Tells the operator
+        // if anyone (themselves or another superadmin) has been doing
+        // support work on this tenant.
+        $impersonationActivity30d = AuditLog::where('agency_id', $id)
+            ->whereNotNull('impersonator_user_id')
+            ->where('created_at', '>=', $now->copy()->subDays(30))
+            ->count();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'licenses' => [
+                    'expired' => $expiredLicenses,
+                    'expiring_30d' => $expiringLicenses30->count(),
+                    'expiring_60d' => $expiringLicenses60,
+                    'list_30d' => $expiringLicenses30,
+                ],
+                'deas' => [
+                    'expiring_30d' => $expiringDeas,
+                ],
+                'applications' => [
+                    'stale' => $staleApplications,
+                ],
+                'denials' => [
+                    'last_7_days' => $recentDenials,
+                ],
+                'activity' => [
+                    'audit_events_7d' => $auditActivity7d,
+                    'impersonation_events_30d' => $impersonationActivity30d,
+                ],
+            ],
+        ]);
+    }
+
+    // Notes (operator-only CRM) ──────────────────────────────────────
+    //
+    // List, create, update, delete operator-only notes about a tenant.
+    // NOT visible to the tenant; just for the platform team to remember
+    // context across sessions ("considering downgrading", "renewal
+    // call next Tuesday", "billing dispute").
+
+    public function agencyNotes(int $id): JsonResponse
+    {
+        $notes = \App\Models\AgencyNote::where('agency_id', $id)
+            ->orderByDesc('is_pinned')
+            ->orderByDesc('created_at')
+            ->get();
+        return response()->json(['success' => true, 'data' => $notes]);
+    }
+
+    public function createAgencyNote(Request $request, int $id): JsonResponse
+    {
+        $data = $request->validate([
+            'body' => 'required|string|max:5000',
+            'tag' => 'nullable|string|max:40',
+            'is_pinned' => 'sometimes|boolean',
+        ]);
+        \App\Models\Agency::findOrFail($id); // 404 if agency missing
+        $note = \App\Models\AgencyNote::create([
+            'agency_id' => $id,
+            'author_user_id' => $request->user()->id,
+            'author_email' => $request->user()->email,
+            'body' => $data['body'],
+            'tag' => $data['tag'] ?? null,
+            'is_pinned' => $data['is_pinned'] ?? false,
+        ]);
+        return response()->json(['success' => true, 'data' => $note], 201);
+    }
+
+    public function updateAgencyNote(Request $request, int $id, int $noteId): JsonResponse
+    {
+        $note = \App\Models\AgencyNote::where('agency_id', $id)->where('id', $noteId)->firstOrFail();
+        $data = $request->validate([
+            'body' => 'sometimes|string|max:5000',
+            'tag' => 'sometimes|nullable|string|max:40',
+            'is_pinned' => 'sometimes|boolean',
+        ]);
+        $note->update($data);
+        return response()->json(['success' => true, 'data' => $note]);
+    }
+
+    public function destroyAgencyNote(int $id, int $noteId): JsonResponse
+    {
+        $note = \App\Models\AgencyNote::where('agency_id', $id)->where('id', $noteId)->firstOrFail();
+        $note->delete();
+        return response()->json(['success' => true]);
+    }
+
+    // Webhooks for a given tenant + recent delivery stats. Used by the
+    // operator-console Agency Detail → Webhooks tab. Aggregates the
+    // existing per-webhook view (operator-facing, cross-tenant) so the
+    // operator can debug a tenant's integrations without impersonating.
+    public function agencyWebhooks(int $id): JsonResponse
+    {
+        $webhooks = \App\Models\Webhook::withoutGlobalScopes()
+            ->where('agency_id', $id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        // Per-webhook stats: count of deliveries in the last 7 days, last failure, last success.
+        $sevenDaysAgo = now()->subDays(7);
+        $webhooks->transform(function ($w) use ($sevenDaysAgo) {
+            $deliveries = \App\Models\WebhookDelivery::where('webhook_id', $w->id)
+                ->where('created_at', '>=', $sevenDaysAgo);
+            $lastSuccess = \App\Models\WebhookDelivery::where('webhook_id', $w->id)
+                ->where('status', 'success')
+                ->orderByDesc('created_at')
+                ->first();
+            $lastFailure = \App\Models\WebhookDelivery::where('webhook_id', $w->id)
+                ->where('status', '!=', 'success')
+                ->orderByDesc('created_at')
+                ->first();
+            // Strip secret entirely from operator-console responses —
+            // operators don't need it; just expose a fingerprint.
+            $w->secret_preview = $w->secret ? substr($w->secret, 0, 8) . '...' : null;
+            unset($w->secret);
+            $w->deliveries_7d = $deliveries->count();
+            $w->failures_7d = (clone $deliveries)->where('status', '!=', 'success')->count();
+            $w->last_success_at = $lastSuccess?->created_at;
+            $w->last_failure_at = $lastFailure?->created_at;
+            $w->last_failure_status = $lastFailure?->status;
+            return $w;
+        });
+
+        return response()->json(['success' => true, 'data' => $webhooks]);
+    }
+
+    // Recent deliveries for ONE webhook. Operator drill-down — see the
+    // last N attempts with their HTTP status, latency, and response
+    // body excerpt for triage. Per-tenant filter via parent agency_id
+    // not strictly needed since webhook_id is enough but checked
+    // defensively.
+    public function webhookDeliveries(Request $request, int $agencyId, int $webhookId): JsonResponse
+    {
+        $webhook = \App\Models\Webhook::withoutGlobalScopes()
+            ->where('agency_id', $agencyId)
+            ->where('id', $webhookId)
+            ->firstOrFail();
+        $deliveries = \App\Models\WebhookDelivery::where('webhook_id', $webhook->id)
+            ->orderByDesc('created_at')
+            ->limit((int) min($request->input('limit', 50), 200))
+            ->get();
+        return response()->json(['success' => true, 'data' => $deliveries]);
+    }
+
     public function agencyUsers(int $id): JsonResponse
     {
         $users = User::where('agency_id', $id)

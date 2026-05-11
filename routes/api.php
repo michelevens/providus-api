@@ -626,6 +626,14 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     Route::get('/agencies/{id}', [AdminController::class, 'agencyShow']);
     Route::put('/agencies/{id}', [AdminController::class, 'agencyUpdate']);
     Route::get('/agencies/{id}/users', [AdminController::class, 'agencyUsers']);
+    Route::get('/agencies/{id}/webhooks', [AdminController::class, 'agencyWebhooks']);
+    Route::get('/agencies/{id}/webhooks/{webhookId}/deliveries', [AdminController::class, 'webhookDeliveries']);
+    Route::get('/agencies/{id}/notes', [AdminController::class, 'agencyNotes']);
+    Route::post('/agencies/{id}/notes', [AdminController::class, 'createAgencyNote']);
+    Route::put('/agencies/{id}/notes/{noteId}', [AdminController::class, 'updateAgencyNote']);
+    Route::delete('/agencies/{id}/notes/{noteId}', [AdminController::class, 'destroyAgencyNote']);
+    Route::get('/agencies/{id}/subscription', [AdminController::class, 'agencySubscription']);
+    Route::get('/agencies/{id}/compliance', [AdminController::class, 'agencyCompliance']);
     Route::post('/agencies/{id}/impersonate', [AdminController::class, 'impersonate']);
     Route::post('/impersonate/stop', [AdminController::class, 'impersonateStop']);
 
