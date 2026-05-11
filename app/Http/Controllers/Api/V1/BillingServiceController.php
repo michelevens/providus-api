@@ -11,6 +11,7 @@ use App\Models\Claim;
 use App\Models\ClaimDenial;
 use App\Models\ClaimPayment;
 use App\Models\ClientPaymentLedger;
+use App\Services\BrandingResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -106,6 +107,79 @@ class BillingServiceController extends Controller
         $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $client->delete();
         return response()->json(['success' => true]);
+    }
+
+    // ── Per-practice branding override ──
+    // GET returns BOTH the raw billing-client overrides (so the UI can
+    // show what's been set vs inherited) AND the resolved brand (so the
+    // UI can preview what a patient will actually see). Two-shape
+    // response avoids a second roundtrip for the preview.
+
+    public function getClientBranding(Request $request, int $id): JsonResponse
+    {
+        $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+        $resolved = BrandingResolver::forBillingClient($client);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'overrides' => [
+                    'display_name' => $client->display_name,
+                    'primary_color' => $client->primary_color,
+                    'accent_color' => $client->accent_color,
+                    'logo_url' => $client->logo_url,
+                    'public_email' => $client->public_email,
+                    'public_phone' => $client->public_phone,
+                    'address_street' => $client->address_street,
+                    'address_city' => $client->address_city,
+                    'address_state' => $client->address_state,
+                    'address_zip' => $client->address_zip,
+                    'email_footer' => $client->email_footer,
+                ],
+                'resolved' => $resolved,
+            ],
+        ]);
+    }
+
+    public function updateClientBranding(Request $request, int $id): JsonResponse
+    {
+        $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $request->validate([
+            'display_name' => 'nullable|string|max:200',
+            // Hex colors only — same validation as the agency Branding endpoint.
+            'primary_color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
+            'accent_color' => 'nullable|regex:/^#[0-9A-Fa-f]{6}$/',
+            // logo_url can be a full URL or a data: URI for small inline logos.
+            // 2MB cap keeps anyone from stuffing huge base64 into the DB.
+            'logo_url' => 'nullable|string|max:2097152',
+            'public_email' => 'nullable|email|max:200',
+            'public_phone' => 'nullable|string|max:30',
+            'address_street' => 'nullable|string|max:200',
+            'address_city' => 'nullable|string|max:100',
+            'address_state' => 'nullable|string|size:2',
+            'address_zip' => 'nullable|string|max:12',
+            'email_footer' => 'nullable|string|max:1000',
+        ]);
+
+        // Nullables that arrive as empty string should null out the
+        // override, NOT save "". Filter empties.
+        $fields = collect($request->only([
+            'display_name', 'primary_color', 'accent_color', 'logo_url',
+            'public_email', 'public_phone',
+            'address_street', 'address_city', 'address_state', 'address_zip',
+            'email_footer',
+        ]))->map(fn ($v) => $v === '' ? null : $v)->all();
+
+        $client->update($fields);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'overrides' => $fields,
+                'resolved' => BrandingResolver::forBillingClient($client->fresh()),
+            ],
+        ]);
     }
 
     public function clientStats(Request $request): JsonResponse

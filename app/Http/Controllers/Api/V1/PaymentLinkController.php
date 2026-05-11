@@ -177,6 +177,19 @@ class PaymentLinkController extends Controller
             'invoice'           => 'Invoice',
             default             => 'Patient Balance',
         };
+        // Branding — resolved via the precedence chain (practice override
+        // → agency → Credentik default). Public-safe subset only: name,
+        // colors, logo. Operator-internal fields (email_footer, address)
+        // intentionally omitted from the unauthenticated response since
+        // an attacker harvesting tokens shouldn't get a tenant directory.
+        $brand = \App\Services\BrandingResolver::forPaymentLink($link);
+        $publicBranding = [
+            'name' => $brand['name'],
+            'primary_color' => $brand['primary_color'],
+            'accent_color' => $brand['accent_color'],
+            'logo_url' => $brand['logo_url'],
+        ];
+
         return response()->json([
             'success' => true,
             'data'    => [
@@ -190,6 +203,7 @@ class PaymentLinkController extends Controller
                 // had it via the link they clicked.
                 'checkout_url' => $link->checkout_url,
                 'description'  => $descLabel,
+                'branding'     => $publicBranding,
             ],
         ]);
     }

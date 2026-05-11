@@ -19,6 +19,13 @@ class BillingClient extends Model
         'billing_platform', 'monthly_fee', 'fee_structure',
         'payment_mode', 'agency_fee_percent',
         'status', 'start_date', 'notes', 'created_by',
+        // Per-practice branding overrides. Optional — when set, surfaces
+        // on patient-facing artifacts instead of the agency's brand.
+        // BrandingResolver handles the precedence chain.
+        'display_name', 'primary_color', 'accent_color', 'logo_url',
+        'public_email', 'public_phone',
+        'address_street', 'address_city', 'address_state', 'address_zip',
+        'email_footer',
     ];
 
     protected $casts = [

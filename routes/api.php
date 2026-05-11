@@ -413,6 +413,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/billing-clients/{id}', [BillingServiceController::class, 'destroyClient']);
     Route::post('/billing-clients/{id}/generate-ledger', [BillingServiceController::class, 'generateLedger']);
     Route::get('/billing-clients/{id}/ledger', [BillingServiceController::class, 'getLedger']);
+    Route::get('/billing-clients/{id}/branding', [BillingServiceController::class, 'getClientBranding']);
+    Route::put('/billing-clients/{id}/branding', [BillingServiceController::class, 'updateClientBranding']);
     Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance']);
 
     Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);

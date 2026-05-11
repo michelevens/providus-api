@@ -2,8 +2,8 @@
 
 namespace App\Mail;
 
-use App\Models\Agency;
 use App\Models\PatientStatement;
+use App\Services\BrandingResolver;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -14,7 +14,11 @@ class PatientStatementEmail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public Agency $agency;
+    /** Resolved brand for THIS statement — practice override if set,
+     *  agency fallback otherwise. Blade template still receives an
+     *  `$agency`-shaped stdClass via BrandingResolver::asAgencyObject
+     *  so emails.layout's existing $agency-typed accessors keep working. */
+    public object $agency;
 
     /** Optional payment link surfaced in the email — caller can mint one
      *  via PaymentLinkController and pass the URL through. */
@@ -23,17 +27,14 @@ class PatientStatementEmail extends Mailable
     public function __construct(public PatientStatement $statement, ?string $payUrl = null)
     {
         $this->payUrl = $payUrl;
-        // Resolve sending tenant for the branded layout. Falls back to a
-        // bare Agency model when something has detached the statement from
-        // its tenant — emails.layout already degrades gracefully.
-        $this->agency = Agency::find($statement->agency_id) ?? new Agency(['name' => 'Credentik']);
+        $brand = BrandingResolver::forStatement($statement);
+        $this->agency = BrandingResolver::asAgencyObject($brand);
     }
 
     public function envelope(): Envelope
     {
-        $tenant = $this->agency->company_display_name ?: $this->agency->name;
         $patient = $this->statement->patient_name ?: 'patient';
-        return new Envelope(subject: "Statement of Account for {$patient} — {$tenant}");
+        return new Envelope(subject: "Statement of Account for {$patient} — {$this->agency->name}");
     }
 
     public function content(): Content
