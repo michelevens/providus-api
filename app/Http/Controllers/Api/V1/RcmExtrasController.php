@@ -36,7 +36,7 @@ class RcmExtrasController extends Controller
 
     public function listAuthorizations(Request $request): JsonResponse
     {
-        $query = PriorAuthorization::where('agency_id', $request->user()->agency_id)
+        $query = PriorAuthorization::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->orderByDesc('created_at');
 
         if ($status = $request->query('status'))     $query->where('status', $status);
@@ -52,7 +52,7 @@ class RcmExtrasController extends Controller
 
     public function storeAuthorization(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $data = $request->validate([
             'patient_name'         => 'nullable|string|max:255',
             'patient_member_id'    => 'nullable|string|max:100',
@@ -85,7 +85,7 @@ class RcmExtrasController extends Controller
 
     public function updateAuthorization(Request $request, int $id): JsonResponse
     {
-        $auth = PriorAuthorization::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $auth = PriorAuthorization::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $data = $request->validate([
             'patient_name'         => 'sometimes|nullable|string|max:255',
             'authorization_number' => 'sometimes|string|max:100',
@@ -104,7 +104,7 @@ class RcmExtrasController extends Controller
 
     public function destroyAuthorization(Request $request, int $id): JsonResponse
     {
-        PriorAuthorization::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        PriorAuthorization::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -167,7 +167,7 @@ class RcmExtrasController extends Controller
 
     public function importClaims(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $request->validate([
             'file' => 'required|file|max:10240|mimes:csv,txt,xlsx',
             'billing_client_id' => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $aid)],
@@ -231,7 +231,7 @@ class RcmExtrasController extends Controller
 
     public function importCharges(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $request->validate([
             'file' => 'required|file|max:10240|mimes:csv,txt,xlsx',
             'billing_client_id' => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $aid)],
@@ -296,7 +296,7 @@ class RcmExtrasController extends Controller
 
     public function availityPull(Request $request): JsonResponse
     {
-        $cfg = ClearinghouseConfig::where('agency_id', $request->user()->agency_id)->first();
+        $cfg = ClearinghouseConfig::where('agency_id', $request->user()->effectiveAgencyId($request))->first();
         if (!$cfg || !$cfg->connected) {
             return response()->json([
                 'success' => false,
@@ -314,7 +314,7 @@ class RcmExtrasController extends Controller
     public function eraPull(Request $request): JsonResponse
     {
         // Same gating as availityPull
-        $cfg = ClearinghouseConfig::where('agency_id', $request->user()->agency_id)->first();
+        $cfg = ClearinghouseConfig::where('agency_id', $request->user()->effectiveAgencyId($request))->first();
         if (!$cfg || !$cfg->connected) {
             return response()->json([
                 'success' => false,

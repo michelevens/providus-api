@@ -31,7 +31,7 @@ class RcmPhase2Controller extends Controller
 
     public function feeSchedules(Request $request): JsonResponse
     {
-        $query = FeeSchedule::where('agency_id', $request->user()->agency_id);
+        $query = FeeSchedule::where('agency_id', $request->user()->effectiveAgencyId($request));
         if ($p = $request->input('payer_name')) $query->where('payer_name', $p);
         if ($c = $request->input('cpt_code')) $query->where('cpt_code', $c);
         return response()->json(['success' => true, 'data' => $query->orderBy('payer_name')->orderBy('cpt_code')->get()]);
@@ -49,7 +49,7 @@ class RcmPhase2Controller extends Controller
 
     public function updateFeeSchedule(Request $request, int $id): JsonResponse
     {
-        $fs = FeeSchedule::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $fs = FeeSchedule::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $fs->update($request->only([
             'billing_client_id', 'payer_name', 'cpt_code', 'cpt_description', 'modifier',
             'contracted_rate', 'expected_allowed', 'effective_date', 'termination_date', 'plan_type', 'notes',
@@ -59,14 +59,14 @@ class RcmPhase2Controller extends Controller
 
     public function destroyFeeSchedule(Request $request, int $id): JsonResponse
     {
-        FeeSchedule::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        FeeSchedule::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
     public function bulkImportFeeSchedules(Request $request): JsonResponse
     {
         $request->validate(['schedules' => 'required|array|min:1|max:500']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
         $created = 0;
         foreach ($request->schedules as $row) {
@@ -85,7 +85,7 @@ class RcmPhase2Controller extends Controller
 
     public function workQueues(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $now = now();
 
         // AR Follow-Up Queue: claims >30 days with balance, no recent followup
@@ -155,7 +155,7 @@ class RcmPhase2Controller extends Controller
 
     public function appealTemplates(Request $request): JsonResponse
     {
-        $templates = AppealTemplate::where('agency_id', $request->user()->agency_id)->orderBy('name')->get();
+        $templates = AppealTemplate::where('agency_id', $request->user()->effectiveAgencyId($request))->orderBy('name')->get();
         return response()->json(['success' => true, 'data' => $templates]);
     }
 
@@ -170,21 +170,21 @@ class RcmPhase2Controller extends Controller
 
     public function updateAppealTemplate(Request $request, int $id): JsonResponse
     {
-        $t = AppealTemplate::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $t = AppealTemplate::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $t->update($request->only(['name', 'denial_category', 'template_type', 'subject', 'body', 'required_attachments', 'is_default']));
         return response()->json(['success' => true, 'data' => $t]);
     }
 
     public function destroyAppealTemplate(Request $request, int $id): JsonResponse
     {
-        AppealTemplate::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        AppealTemplate::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
     public function generateAppealLetter(Request $request): JsonResponse
     {
         $request->validate(['denial_id' => 'required', 'template_id' => 'required']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $denial = ClaimDenial::where('agency_id', $aid)->with(['claim.billingClient', 'claim.serviceLines'])->findOrFail($request->denial_id);
         $template = AppealTemplate::where('agency_id', $aid)->findOrFail($request->template_id);
         $claim = $denial->claim;
@@ -238,7 +238,7 @@ class RcmPhase2Controller extends Controller
     // Auto-escalate denials approaching deadline
     public function escalateDenials(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $escalated = 0;
 
         // Find denials with deadlines in next 7 days that haven't been escalated
@@ -277,7 +277,7 @@ class RcmPhase2Controller extends Controller
     // Already partially built in RcmController — this adds batch allocation
     public function batchAllocatePayment(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         // SECURITY: every cross-table id MUST be tenant-scoped via
         // Rule::exists()->where('agency_id', $aid). Bare `exists:claims,id`
         // validates global existence, so an attacker could POST a victim
@@ -347,7 +347,7 @@ class RcmPhase2Controller extends Controller
 
     public function followups(Request $request): JsonResponse
     {
-        $query = PayerFollowup::where('agency_id', $request->user()->agency_id)
+        $query = PayerFollowup::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number,patient_name,payer_name,balance']);
         if ($cid = $request->input('claim_id')) $query->where('claim_id', $cid);
         if ($request->input('due_only')) $query->where('followup_completed', false)->whereNotNull('followup_date')->where('followup_date', '<=', now());
@@ -357,7 +357,7 @@ class RcmPhase2Controller extends Controller
     public function storeFollowup(Request $request): JsonResponse
     {
         $request->validate(['claim_id' => 'required|exists:claims,id', 'notes' => 'required|string']);
-        $claim = Claim::where('agency_id', $request->user()->agency_id)->findOrFail($request->claim_id);
+        $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($request->claim_id);
         $f = PayerFollowup::create(['agency_id' => $request->user()->agency_id, 'created_by' => $request->user()->id, 'payer_name' => $claim->payer_name, ...$request->only([
             'claim_id', 'contact_method', 'payer_rep', 'reference_number', 'outcome', 'notes', 'followup_date',
         ])]);
@@ -366,14 +366,14 @@ class RcmPhase2Controller extends Controller
 
     public function updateFollowup(Request $request, int $id): JsonResponse
     {
-        $f = PayerFollowup::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $f = PayerFollowup::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $f->update($request->only(['contact_method', 'payer_rep', 'reference_number', 'outcome', 'notes', 'followup_date', 'followup_completed']));
         return response()->json(['success' => true, 'data' => $f]);
     }
 
     public function destroyFollowup(Request $request, int $id): JsonResponse
     {
-        PayerFollowup::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        PayerFollowup::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -383,7 +383,7 @@ class RcmPhase2Controller extends Controller
 
     public function detectUnderpayments(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
 
         // Get all fee schedules for this agency
@@ -428,7 +428,7 @@ class RcmPhase2Controller extends Controller
 
     public function underpayments(Request $request): JsonResponse
     {
-        $query = UnderpaymentFlag::where('agency_id', $request->user()->agency_id)
+        $query = UnderpaymentFlag::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number,patient_name,payer_name,total_charges,total_paid']);
         if ($s = $request->input('status')) $query->where('status', $s);
         return response()->json(['success' => true, 'data' => $query->orderByDesc('variance')->get()]);
@@ -436,7 +436,7 @@ class RcmPhase2Controller extends Controller
 
     public function updateUnderpayment(Request $request, int $id): JsonResponse
     {
-        $flag = UnderpaymentFlag::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $flag = UnderpaymentFlag::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $data = $request->only(['status', 'notes']);
         if (in_array($data['status'] ?? '', ['reviewed', 'resolved', 'accepted']) && !$flag->reviewed_at) {
             $data['reviewed_by'] = $request->user()->id;
@@ -452,7 +452,7 @@ class RcmPhase2Controller extends Controller
 
     public function exportClaims(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $query = Claim::where('agency_id', $aid)->with(['serviceLines']);
         if ($s = $request->input('status')) $query->where('status', $s);
         if ($from = $request->input('from_date')) $query->where('date_of_service', '>=', $from);
@@ -482,7 +482,7 @@ class RcmPhase2Controller extends Controller
 
     public function exportDenials(Request $request): JsonResponse
     {
-        $denials = ClaimDenial::where('agency_id', $request->user()->agency_id)
+        $denials = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number,patient_name,payer_name,total_charges'])
             ->get()
             ->map(fn($d) => [
@@ -509,7 +509,7 @@ class RcmPhase2Controller extends Controller
     public function generateClientReport(Request $request): JsonResponse
     {
         $request->validate(['billing_client_id' => 'required', 'period' => 'required|string|size:7']); // e.g. 2026-03
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $clientId = $request->billing_client_id;
         $period = $request->period;
 
@@ -569,7 +569,7 @@ class RcmPhase2Controller extends Controller
 
     public function clientReports(Request $request): JsonResponse
     {
-        $query = ClientReport::where('agency_id', $request->user()->agency_id)->with('billingClient:id,organization_name');
+        $query = ClientReport::where('agency_id', $request->user()->effectiveAgencyId($request))->with('billingClient:id,organization_name');
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         return response()->json(['success' => true, 'data' => $query->orderByDesc('period')->get()]);
     }
@@ -580,7 +580,7 @@ class RcmPhase2Controller extends Controller
 
     public function patientStatements(Request $request): JsonResponse
     {
-        $query = PatientStatement::where('agency_id', $request->user()->agency_id);
+        $query = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request));
         if ($s = $request->input('status')) $query->where('status', $s);
         return response()->json(['success' => true, 'data' => $query->orderByDesc('created_at')->get()]);
     }
@@ -598,7 +598,7 @@ class RcmPhase2Controller extends Controller
 
     public function updatePatientStatement(Request $request, int $id): JsonResponse
     {
-        $st = PatientStatement::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $st = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $st->update($request->only([
             'patient_name', 'patient_email', 'patient_phone', 'patient_address',
             'total_charges', 'insurance_paid', 'adjustments', 'patient_balance',
@@ -609,7 +609,7 @@ class RcmPhase2Controller extends Controller
 
     public function generatePatientStatements(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
 
         // Auto-generate statements for claims with patient responsibility OR unpaid balance
@@ -657,14 +657,14 @@ class RcmPhase2Controller extends Controller
 
     public function eligibilityChecks(Request $request): JsonResponse
     {
-        $query = EligibilityCheck::where('agency_id', $request->user()->agency_id);
+        $query = EligibilityCheck::where('agency_id', $request->user()->effectiveAgencyId($request));
         return response()->json(['success' => true, 'data' => $query->orderByDesc('created_at')->limit(100)->get()]);
     }
 
     public function checkEligibility(Request $request): JsonResponse
     {
         $request->validate(['patient_name' => 'required', 'payer_name' => 'required']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
 
         $check = EligibilityCheck::create(['agency_id' => $aid, 'created_by' => $request->user()->id, 'status' => 'pending', ...$request->only([
             'billing_client_id', 'patient_name', 'patient_dob', 'member_id',
@@ -683,7 +683,7 @@ class RcmPhase2Controller extends Controller
 
     public function updateEligibilityCheck(Request $request, int $id): JsonResponse
     {
-        $check = EligibilityCheck::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $check = EligibilityCheck::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $check->update($request->only([
             'status', 'is_active', 'coverage_start', 'coverage_end', 'plan_name', 'plan_type',
             'group_number', 'copay', 'deductible', 'deductible_met', 'out_of_pocket_max', 'oop_met', 'error_message',
@@ -778,7 +778,7 @@ class RcmPhase2Controller extends Controller
 
     public function uploadEra(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         // 50 MB cap — a real 835 file from a payer is usually under 5 MB.
         // Unbounded file size + file_get_contents below = trivial OOM DoS
         // (PHP fatal "Allowed memory size exhausted" → Railway worker recycle).
@@ -799,7 +799,7 @@ class RcmPhase2Controller extends Controller
 
     public function postEra(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         // 10 MB inline cap — strings are heavier than files in memory.
         $request->validate([
             'era_data' => 'required|string|max:10485760',
@@ -988,7 +988,7 @@ class RcmPhase2Controller extends Controller
     public function import837(Request $request): JsonResponse
     {
         $request->validate(['claims' => 'required|array|min:1']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
         $clientId = $request->input('billing_client_id');
         $imported = 0;
@@ -1092,7 +1092,7 @@ class RcmPhase2Controller extends Controller
 
     public function denialRiskAnalysis(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
 
         // Analyze historical denial patterns
         $denials = ClaimDenial::where('agency_id', $aid)
@@ -1178,7 +1178,7 @@ class RcmPhase2Controller extends Controller
     public function preSubmissionCheck(Request $request): JsonResponse
     {
         $request->validate(['payer_name' => 'required', 'cpt_code' => 'required']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
 
         $payer = $request->payer_name;
         $cpt = $request->cpt_code;
@@ -1233,17 +1233,17 @@ class RcmPhase2Controller extends Controller
 
     public function payerRules(Request $request): JsonResponse
     {
-        $rules = PayerRule::where('agency_id', $request->user()->agency_id)->orderBy('payer_name')->get();
+        $rules = PayerRule::where('agency_id', $request->user()->effectiveAgencyId($request))->orderBy('payer_name')->get();
         return response()->json(['success' => true, 'data' => $rules]);
     }
 
     public function showPayerRule(Request $request, string $payerName): JsonResponse
     {
-        $rule = PayerRule::where('agency_id', $request->user()->agency_id)
+        $rule = PayerRule::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->where('payer_name', $payerName)->first();
 
         // Also pull live stats for this payer
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $claims = Claim::where('agency_id', $aid)->where('payer_name', $payerName)->get();
         $denials = ClaimDenial::where('agency_id', $aid)
             ->whereHas('claim', fn($q) => $q->where('payer_name', $payerName))->get();
@@ -1291,7 +1291,7 @@ class RcmPhase2Controller extends Controller
 
     public function updatePayerRule(Request $request, int $id): JsonResponse
     {
-        $rule = PayerRule::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $rule = PayerRule::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $rule->update($request->only([
             'payer_name', 'timely_filing_days', 'appeal_filing_days', 'corrected_claim_days',
             'portal_url', 'provider_phone', 'claims_address', 'appeals_address', 'appeals_fax',
@@ -1304,7 +1304,7 @@ class RcmPhase2Controller extends Controller
 
     public function destroyPayerRule(Request $request, int $id): JsonResponse
     {
-        PayerRule::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        PayerRule::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -1312,7 +1312,7 @@ class RcmPhase2Controller extends Controller
     public function checkPayerRules(Request $request): JsonResponse
     {
         $request->validate(['payer_name' => 'required', 'date_of_service' => 'required|date']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $rule = PayerRule::where('agency_id', $aid)->where('payer_name', $request->payer_name)->first();
 
         $warnings = [];
@@ -1359,7 +1359,7 @@ class RcmPhase2Controller extends Controller
 
     public function detectDuplicates(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $claims = Claim::where('agency_id', $aid)->get();
 
         $duplicates = [];
@@ -1410,7 +1410,7 @@ class RcmPhase2Controller extends Controller
 
     public function providerFeedback(Request $request): JsonResponse
     {
-        $query = ProviderFeedback::where('agency_id', $request->user()->agency_id)
+        $query = ProviderFeedback::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number', 'denial:id,denial_category,denial_code']);
         if ($p = $request->input('provider_name')) $query->where('provider_name', $p);
         if ($s = $request->input('status')) $query->where('status', $s);
@@ -1433,7 +1433,7 @@ class RcmPhase2Controller extends Controller
 
     public function updateProviderFeedback(Request $request, int $id): JsonResponse
     {
-        $fb = ProviderFeedback::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $fb = ProviderFeedback::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $fb->update($request->only(['status', 'sent_date', 'provider_response']));
         return response()->json(['success' => true, 'data' => $fb]);
     }
@@ -1441,7 +1441,7 @@ class RcmPhase2Controller extends Controller
     // Auto-generate feedback from denials with coding/documentation issues
     public function autoGenerateFeedback(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $uid = $request->user()->id;
 
         $codingDenials = ClaimDenial::where('agency_id', $aid)
@@ -1499,7 +1499,7 @@ class RcmPhase2Controller extends Controller
     public function realTimeEligibility(Request $request): JsonResponse
     {
         $request->validate(['patient_name' => 'required', 'payer_name' => 'required', 'member_id' => 'required']);
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $config = $request->user()->agency->config ?? null;
         $stediNpi = $config->stedi_npi ?? null;
 
@@ -1578,7 +1578,7 @@ class RcmPhase2Controller extends Controller
 
     public function extractPayerPolicy(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $ai = new AiService();
 
         if ($request->has('pdf_url')) {
@@ -1634,7 +1634,7 @@ class RcmPhase2Controller extends Controller
      */
     public function autoReconcile(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
 
         $unlinkedCharges = \App\Models\ChargeEntry::where('agency_id', $aid)
             ->whereNull('claim_id')
@@ -1685,7 +1685,7 @@ class RcmPhase2Controller extends Controller
      */
     public function syncChargeStatuses(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $claims = Claim::where('agency_id', $aid)->get()->keyBy('id');
         $charges = \App\Models\ChargeEntry::where('agency_id', $aid)->whereNotNull('claim_id')->get();
 
@@ -1711,7 +1711,7 @@ class RcmPhase2Controller extends Controller
      */
     public function reconciliationReport(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $now = now();
 
         $charges = \App\Models\ChargeEntry::where('agency_id', $aid)->get();

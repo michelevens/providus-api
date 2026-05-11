@@ -20,7 +20,7 @@ class RcmController extends Controller
 
     public function claims(Request $request): JsonResponse
     {
-        $query = Claim::where('agency_id', $request->user()->agency_id)
+        $query = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name', 'serviceLines']);
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
@@ -32,7 +32,7 @@ class RcmController extends Controller
 
     public function showClaim(Request $request, int $id): JsonResponse
     {
-        $claim = Claim::where('agency_id', $request->user()->agency_id)
+        $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name', 'serviceLines', 'denials', 'paymentAllocations', 'followups'])
             ->findOrFail($id);
         return response()->json(['success' => true, 'data' => $claim]);
@@ -45,7 +45,7 @@ class RcmController extends Controller
             'service_lines' => 'nullable|array',
             'service_lines.*.cpt_code' => 'required_with:service_lines|string|max:10',
         ]);
-        $count = Claim::where('agency_id', $request->user()->agency_id)->count() + 1;
+        $count = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->count() + 1;
         $claim = Claim::create([
             'agency_id' => $request->user()->agency_id,
             'claim_number' => 'CLM-' . str_pad($count, 6, '0', STR_PAD_LEFT),
@@ -75,7 +75,7 @@ class RcmController extends Controller
 
     public function updateClaim(Request $request, int $id): JsonResponse
     {
-        $claim = Claim::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $oldStatus = $claim->status;
         $claim->update($request->only([
             'billing_client_id', 'claim_type', 'status', 'provider_id', 'provider_name',
@@ -103,7 +103,7 @@ class RcmController extends Controller
 
     public function destroyClaim(Request $request, int $id): JsonResponse
     {
-        Claim::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -111,7 +111,7 @@ class RcmController extends Controller
     {
         $request->validate(['claims' => 'required|array|min:1|max:500']);
 
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $userId = $request->user()->id;
         $baseCount = Claim::where('agency_id', $agencyId)->count();
         $created = 0;
@@ -234,7 +234,7 @@ class RcmController extends Controller
      */
     public function purgeAllClaims(Request $request): JsonResponse
     {
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $confirm = $request->input('confirm');
         if ($confirm !== 'DELETE_ALL_CLAIMS') {
             return response()->json(['success' => false, 'message' => 'Send {"confirm":"DELETE_ALL_CLAIMS"} to proceed'], 422);
@@ -270,7 +270,7 @@ class RcmController extends Controller
 
     public function claimStats(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $claims = Claim::where('agency_id', $aid)->get();
         $totalClaims = $claims->count();
         $totalCharged = $claims->sum(fn($c) => (float) $c->total_charges);
@@ -320,7 +320,7 @@ class RcmController extends Controller
 
     public function denials(Request $request): JsonResponse
     {
-        $query = ClaimDenial::where('agency_id', $request->user()->agency_id)
+        $query = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number,payer_name,patient_name,total_charges', 'billingClient:id,organization_name']);
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
@@ -335,7 +335,7 @@ class RcmController extends Controller
             'denial_category' => 'required|string|max:30',
             'denial_reason' => 'required|string|max:500',
         ]);
-        $claim = Claim::where('agency_id', $request->user()->agency_id)->findOrFail($request->claim_id);
+        $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($request->claim_id);
         $denial = ClaimDenial::create([
             'agency_id' => $request->user()->agency_id,
             'billing_client_id' => $claim->billing_client_id,
@@ -355,7 +355,7 @@ class RcmController extends Controller
 
     public function updateDenial(Request $request, int $id): JsonResponse
     {
-        $denial = ClaimDenial::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $data = $request->only([
             'denial_category', 'denial_code', 'denial_reason', 'denied_amount', 'status', 'priority',
             'appeal_deadline', 'appeal_level', 'appeal_submitted_date', 'recovered_amount',
@@ -370,13 +370,13 @@ class RcmController extends Controller
 
     public function destroyDenial(Request $request, int $id): JsonResponse
     {
-        ClaimDenial::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
     public function denialStats(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $total = ClaimDenial::where('agency_id', $aid)->count();
         $open = ClaimDenial::where('agency_id', $aid)->whereIn('status', ['new', 'in_review', 'appeal_in_progress', 'pending_response'])->count();
         $totalDenied = ClaimDenial::where('agency_id', $aid)->sum('denied_amount');
@@ -400,7 +400,7 @@ class RcmController extends Controller
 
     public function payments(Request $request): JsonResponse
     {
-        $query = ClaimPayment::where('agency_id', $request->user()->agency_id)
+        $query = ClaimPayment::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name', 'allocations.claim:id,claim_number']);
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
@@ -465,7 +465,7 @@ class RcmController extends Controller
     public function bulkMatchPayments(Request $request): JsonResponse
     {
         $request->validate(['payments' => 'required|array|min:1|max:500']);
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $matched = 0;
         $created = 0;
         $errors = [];
@@ -693,7 +693,7 @@ class RcmController extends Controller
 
     public function updatePayment(Request $request, int $id): JsonResponse
     {
-        $payment = ClaimPayment::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $payment = ClaimPayment::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $payment->update($request->only([
             'billing_client_id', 'payer_name', 'payment_type', 'check_number',
             'trace_number', 'payment_date', 'deposit_date', 'total_amount', 'status', 'notes',
@@ -703,7 +703,7 @@ class RcmController extends Controller
 
     public function destroyPayment(Request $request, int $id): JsonResponse
     {
-        ClaimPayment::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        ClaimPayment::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -711,7 +711,7 @@ class RcmController extends Controller
 
     public function charges(Request $request): JsonResponse
     {
-        $query = ChargeEntry::where('agency_id', $request->user()->agency_id)
+        $query = ChargeEntry::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name']);
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
@@ -740,7 +740,7 @@ class RcmController extends Controller
 
     public function updateCharge(Request $request, int $id): JsonResponse
     {
-        $charge = ChargeEntry::where('agency_id', $request->user()->agency_id)->findOrFail($id);
+        $charge = ChargeEntry::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $charge->update($request->only([
             'billing_client_id', 'provider_id', 'provider_name', 'patient_name', 'payer_name',
             'date_of_service', 'cpt_code', 'cpt_description', 'modifiers', 'icd_codes',
@@ -752,14 +752,14 @@ class RcmController extends Controller
 
     public function destroyCharge(Request $request, int $id): JsonResponse
     {
-        ChargeEntry::where('agency_id', $request->user()->agency_id)->findOrFail($id)->delete();
+        ChargeEntry::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
 
     public function bulkImportCharges(Request $request): JsonResponse
     {
         $request->validate(['charges' => 'required|array|min:1|max:500']);
-        $agencyId = $request->user()->agency_id;
+        $agencyId = $request->user()->effectiveAgencyId($request);
         $userId = $request->user()->id;
         $created = 0;
         $errors = [];
@@ -803,7 +803,7 @@ class RcmController extends Controller
 
     public function arAging(Request $request): JsonResponse
     {
-        $aid = $request->user()->agency_id;
+        $aid = $request->user()->effectiveAgencyId($request);
         $openStatuses = ['submitted', 'acknowledged', 'pending', 'partial_paid', 'in_process'];
         $claims = Claim::where('agency_id', $aid)->whereIn('status', $openStatuses)
             ->with(['billingClient:id,organization_name'])->where('balance', '>', 0)
