@@ -118,9 +118,14 @@ class RcmController extends Controller
         $errors = [];
 
         foreach ($request->claims as $i => $row) {
+            // Per-row transaction so a constraint failure on the optional
+            // denial/service-line inserts after the claim row commits
+            // doesn't leave an orphaned claim without its companion records.
             try {
+                \DB::beginTransaction();
                 if (empty($row['date_of_service'])) {
                     $errors[] = "Row " . ($i + 1) . ": date_of_service is required";
+                    \DB::rollBack();
                     continue;
                 }
                 // Use source claim number if available, otherwise auto-generate
@@ -138,6 +143,7 @@ class RcmController extends Controller
                 }
                 if ($dupeByNumber->exists()) {
                     $errors[] = "Row " . ($i + 1) . ": duplicate claim ({$claimNumber} on {$row['date_of_service']})";
+                    \DB::rollBack();
                     continue;
                 }
                 // Duplicate check 2: same patient + date_of_service + total_charges (cross-source)
@@ -148,6 +154,7 @@ class RcmController extends Controller
                         ->where('total_charges', (float) $row['total_charges']);
                     if ($dupeByPatient->exists()) {
                         $errors[] = "Row " . ($i + 1) . ": duplicate (same patient/DOS/charges as existing claim)";
+                        \DB::rollBack();
                         continue;
                     }
                 }
@@ -215,7 +222,9 @@ class RcmController extends Controller
                 }
 
                 $created++;
+                \DB::commit();
             } catch (\Exception $e) {
+                \DB::rollBack();
                 $errors[] = "Row " . ($i + 1) . ": " . $e->getMessage();
             }
         }
@@ -596,40 +605,57 @@ class RcmController extends Controller
             }
         }
 
-        $payment = ClaimPayment::create([
-            'agency_id' => $agencyId,
-            'created_by' => $request->user()->id,
-            'remaining_amount' => $request->total_amount,
-            ...$request->only([
-                'billing_client_id', 'payer_name', 'payment_type', 'check_number',
-                'trace_number', 'payment_date', 'deposit_date', 'total_amount', 'notes',
-            ]),
-        ]);
-        $claimsFlippedToPaid = [];
-        if ($request->has('allocations')) {
-            $claimIds = array_filter(array_column($request->allocations, 'claim_id'));
-            $claimsById = Claim::whereIn('id', $claimIds)->get()->keyBy('id');
+        // Atomicity: payment + every allocation + every claim status flip
+        // must commit together. Without the transaction a partial failure
+        // (e.g. one PaymentAllocation insert violates a check constraint
+        // mid-loop) leaves an orphaned payment row with some allocations
+        // applied and some not, plus inconsistent claim balances.
+        [$payment, $claimsFlippedToPaid] = \DB::transaction(function () use ($request, $agencyId) {
+            $payment = ClaimPayment::create([
+                'agency_id' => $agencyId,
+                'created_by' => $request->user()->id,
+                'remaining_amount' => $request->total_amount,
+                ...$request->only([
+                    'billing_client_id', 'payer_name', 'payment_type', 'check_number',
+                    'trace_number', 'payment_date', 'deposit_date', 'total_amount', 'notes',
+                ]),
+            ]);
+            $claimsFlippedToPaid = [];
+            if ($request->has('allocations')) {
+                $claimIds = array_filter(array_column($request->allocations, 'claim_id'));
+                // Explicit agency filter (defense-in-depth — TenantScope
+                // already does this, but a future withoutGlobalScopes()
+                // somewhere could regress it).
+                $claimsById = Claim::whereIn('id', $claimIds)
+                    ->where('agency_id', $agencyId)
+                    ->get()
+                    ->keyBy('id');
 
-            foreach ($request->allocations as $alloc) {
-                PaymentAllocation::create(['claim_payment_id' => $payment->id, ...$alloc]);
-                $claim = $claimsById->get($alloc['claim_id'] ?? null);
-                if (!$claim) continue;
+                foreach ($request->allocations as $alloc) {
+                    PaymentAllocation::create(['claim_payment_id' => $payment->id, ...$alloc]);
+                    $claim = $claimsById->get($alloc['claim_id'] ?? null);
+                    if (!$claim) continue;
 
-                $oldStatus = $claim->status;
-                $claim->total_paid = ($claim->total_paid ?? 0) + ($alloc['paid_amount'] ?? 0);
-                $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
-                if ($claim->balance <= 0) $claim->status = 'paid';
-                elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
-                $claim->paid_date = $request->payment_date;
-                $claim->save();
+                    $oldStatus = $claim->status;
+                    $claim->total_paid = ($claim->total_paid ?? 0) + ($alloc['paid_amount'] ?? 0);
+                    $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
+                    if ($claim->balance <= 0) $claim->status = 'paid';
+                    elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
+                    $claim->paid_date = $request->payment_date;
+                    $claim->save();
 
-                if ($oldStatus !== 'paid' && $claim->status === 'paid') {
-                    $claimsFlippedToPaid[] = $claim;
+                    if ($oldStatus !== 'paid' && $claim->status === 'paid') {
+                        $claimsFlippedToPaid[] = $claim;
+                    }
                 }
+                $payment->recalculate();
             }
-            $payment->recalculate();
-        }
+            return [$payment, $claimsFlippedToPaid];
+        });
 
+        // Webhooks fire AFTER the commit so receivers never see a payment
+        // that gets rolled back. A failed webhook delivery doesn't
+        // poison the write.
         WebhookDispatcher::dispatch($payment->agency_id, WebhookDispatcher::PAYMENT_POSTED, WebhookPayloads::payment($payment));
         foreach ($claimsFlippedToPaid as $c) {
             WebhookDispatcher::dispatch($c->agency_id, WebhookDispatcher::CLAIM_PAID, $this->claimWebhookData($c));
@@ -653,13 +679,20 @@ class RcmController extends Controller
         $errors = [];
 
         foreach ($request->payments as $i => $row) {
+            // Per-row transaction: if any DB write inside this iteration
+            // fails (constraint violation, FK conflict, etc.) the row
+            // rolls back cleanly. The outer loop continues with the next
+            // row — so one bad row in a 500-row CSV doesn't lose the
+            // other 499. The error is recorded in $errors for the caller.
             try {
+                \DB::beginTransaction();
                 $patientName = $row['patient_name'] ?? null;
                 $dos = $row['date_of_service'] ?? null;
                 $claimNumber = $row['claim_number'] ?? null;
 
                 if (!$dos) {
                     $errors[] = "Row " . ($i + 1) . ": date_of_service required";
+                    \DB::rollBack();
                     continue;
                 }
 
@@ -729,6 +762,14 @@ class RcmController extends Controller
                 }
 
                 if ($claim) {
+                    // Defense-in-depth: TenantScope already covers this,
+                    // but every $claim sourced from the match branches
+                    // above must belong to the effective agency.
+                    if ((int) $claim->agency_id !== $agencyId) {
+                        $errors[] = "Row " . ($i + 1) . ": claim not in your agency";
+                        \DB::rollBack();
+                        continue;
+                    }
                     // Update existing claim with payment data
                     $oldStatus = $claim->status;
                     $createdPaymentForWebhook = null;
@@ -859,7 +900,9 @@ class RcmController extends Controller
                     $this->fireClaimStatusEvent($newClaim, null);
                     $created++;
                 }
+                \DB::commit();
             } catch (\Exception $e) {
+                \DB::rollBack();
                 $errors[] = "Row " . ($i + 1) . ": " . $e->getMessage();
             }
         }
