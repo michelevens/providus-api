@@ -406,6 +406,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Billing Services Management ──
     Route::get('/billing-clients/stats', [BillingServiceController::class, 'clientStats']);
+    Route::get('/billing-clients/cross-practice', [BillingServiceController::class, 'crossPracticeView']);
     Route::get('/billing-clients', [BillingServiceController::class, 'clients']);
     Route::get('/billing-clients/{id}', [BillingServiceController::class, 'showClient']);
     Route::post('/billing-clients', [BillingServiceController::class, 'storeClient']);

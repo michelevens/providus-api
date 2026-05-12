@@ -207,6 +207,201 @@ class BillingServiceController extends Controller
         ]]);
     }
 
+    /**
+     * Cross-practice portfolio view — one row per BillingClient with
+     * computed KPIs from the claim ledger. The Agency Owner's Monday
+     * morning screen. All math comes from Claim (the source of truth)
+     * not BillingFinancial (the rollup table) so windows are exact.
+     *
+     * Window param: 7 / 30 / 90 / ytd. Defaults to 30.
+     *
+     * For each practice we compute:
+     *   - billed: sum total_charges of claims submitted in window
+     *   - collected: sum total_paid of claims paid in window
+     *   - collection_pct: collected / billed
+     *   - ar_total: outstanding balance on open claims (any DOS)
+     *   - ar_90plus: outstanding balance on claims >90 days old
+     *   - open_denials: count + dollar amount of unworked denials
+     *   - days_in_ar: avg age of open-balance claims
+     *   - clean_claim_rate: paid_on_first_pass / submitted
+     *   - last_activity_at: most recent claim event (any kind)
+     *   - health_score: 0-100 composite (higher = healthier)
+     *   - action_chip: derived label for the operator
+     *
+     * Health score: deliberately simple weighted average so an operator
+     * can mentally reverse-engineer the number. Not a black-box ML score.
+     *   40% collection_pct (target 95%+)
+     *   20% inverse of days_in_ar (target <30d)
+     *   20% inverse of denial_rate (target <5%)
+     *   20% inverse of ar_90plus_pct (target <10%)
+     */
+    public function crossPracticeView(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $window = (string) $request->input('window', '30');
+
+        $cutoff = match ($window) {
+            '7' => now()->subDays(7),
+            '90' => now()->subDays(90),
+            'ytd' => now()->startOfYear(),
+            default => now()->subDays(30),
+        };
+
+        $clients = BillingClient::where('agency_id', $agencyId)->get();
+        $rows = [];
+        $portfolio = ['billed' => 0.0, 'collected' => 0.0, 'ar_total' => 0.0, 'ar_90plus' => 0.0, 'denials_open' => 0, 'denials_open_amount' => 0.0];
+
+        foreach ($clients as $client) {
+            $claimsQuery = Claim::where('agency_id', $agencyId)
+                ->where('billing_client_id', $client->id);
+
+            // Window-scoped figures
+            $billed = (clone $claimsQuery)
+                ->whereNotNull('submitted_at')
+                ->where('submitted_at', '>=', $cutoff)
+                ->sum('total_charges');
+
+            $collected = (clone $claimsQuery)
+                ->whereNotNull('paid_at')
+                ->where('paid_at', '>=', $cutoff)
+                ->sum('total_paid');
+
+            $submittedCount = (clone $claimsQuery)
+                ->whereNotNull('submitted_at')
+                ->where('submitted_at', '>=', $cutoff)
+                ->count();
+
+            $cleanCount = (clone $claimsQuery)
+                ->whereNotNull('submitted_at')
+                ->where('submitted_at', '>=', $cutoff)
+                ->whereDoesntHave('denials')
+                ->count();
+
+            $cleanRate = $submittedCount > 0
+                ? round(($cleanCount / $submittedCount) * 100, 1)
+                : null;
+
+            // Open A/R (any DOS, balance > 0, not paid)
+            $openClaims = (clone $claimsQuery)
+                ->whereIn('status', ['submitted', 'acknowledged', 'pending', 'partial_paid', 'in_process'])
+                ->where('balance', '>', 0)
+                ->get(['id', 'balance', 'date_of_service']);
+
+            $arTotal = (float) $openClaims->sum('balance');
+            $ar90plus = (float) $openClaims->filter(function ($c) {
+                if (!$c->date_of_service) return false;
+                return abs(now()->diffInDays($c->date_of_service)) > 90;
+            })->sum('balance');
+
+            $daysInAr = $openClaims->count() > 0
+                ? round($openClaims->avg(fn ($c) => $c->date_of_service ? abs(now()->diffInDays($c->date_of_service)) : 0))
+                : 0;
+
+            // Open denials
+            $openDenials = ClaimDenial::whereHas('claim', function ($q) use ($agencyId, $client) {
+                $q->where('agency_id', $agencyId)->where('billing_client_id', $client->id);
+            })
+                ->whereIn('status', ['open', 'in_review', 'appealed'])
+                ->get(['id', 'denied_amount']);
+
+            $denialCount = $openDenials->count();
+            $denialAmount = (float) $openDenials->sum('denied_amount');
+
+            // Health score components (each 0-100)
+            $collectionPct = $billed > 0 ? min(100.0, ($collected / $billed) * 100) : ($submittedCount === 0 ? 100 : 0);
+            $arHealthScore = $daysInAr > 0 ? max(0.0, 100.0 - ($daysInAr / 60) * 100) : 100.0;  // 60d = 0, 0d = 100
+            $denialRate = $submittedCount > 0 ? ($denialCount / max(1, $submittedCount)) * 100 : 0;
+            $denialHealthScore = max(0.0, 100.0 - ($denialRate / 0.10));  // 10% = 0, 0% = 100
+            $ar90pct = $arTotal > 0 ? ($ar90plus / $arTotal) * 100 : 0;
+            $ar90HealthScore = max(0.0, 100.0 - ($ar90pct / 0.30));  // 30% = 0, 0% = 100
+
+            $health = round(
+                0.40 * $collectionPct
+                + 0.20 * $arHealthScore
+                + 0.20 * $denialHealthScore
+                + 0.20 * $ar90HealthScore
+            );
+
+            // Action chip — most-urgent finding wins
+            $action = self::deriveAction($health, $ar90pct, $denialCount, $denialAmount, $daysInAr, $submittedCount);
+
+            // Last activity = most-recent claim updated_at on this practice
+            $lastActivity = (clone $claimsQuery)
+                ->orderByDesc('updated_at')
+                ->value('updated_at');
+
+            $rows[] = [
+                'id' => $client->id,
+                'name' => $client->display_name ?: $client->organization_name,
+                'status' => $client->status,
+                'health_score' => $health,
+                'billed' => round($billed, 2),
+                'collected' => round($collected, 2),
+                'collection_pct' => round($collectionPct, 1),
+                'ar_total' => round($arTotal, 2),
+                'ar_90plus' => round($ar90plus, 2),
+                'ar_90plus_pct' => round($ar90pct, 1),
+                'days_in_ar' => $daysInAr,
+                'open_denials' => $denialCount,
+                'open_denials_amount' => round($denialAmount, 2),
+                'clean_claim_rate' => $cleanRate,
+                'submitted_count' => $submittedCount,
+                'last_activity_at' => $lastActivity,
+                'action' => $action,
+            ];
+
+            $portfolio['billed'] += $billed;
+            $portfolio['collected'] += $collected;
+            $portfolio['ar_total'] += $arTotal;
+            $portfolio['ar_90plus'] += $ar90plus;
+            $portfolio['denials_open'] += $denialCount;
+            $portfolio['denials_open_amount'] += $denialAmount;
+        }
+
+        // Portfolio rollup
+        $portfolio['collection_pct'] = $portfolio['billed'] > 0
+            ? round(($portfolio['collected'] / $portfolio['billed']) * 100, 1)
+            : 0;
+        $portfolio['practices_total'] = count($rows);
+        $portfolio['practices_at_risk'] = collect($rows)->filter(fn ($r) => $r['health_score'] < 60)->count();
+        $portfolio['avg_days_in_ar'] = collect($rows)->avg('days_in_ar') ?: 0;
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'window' => $window,
+                'as_of' => now()->toIso8601String(),
+                'portfolio' => array_map(fn ($v) => is_float($v) ? round($v, 2) : $v, $portfolio),
+                'practices' => $rows,
+            ],
+        ]);
+    }
+
+    /** Returns one of: 'healthy', 'review_denials', 'chase_ar', 'aging_ar',
+     *  'low_volume', 'stalled', 'critical'. Caller decides chip colors. */
+    private static function deriveAction(int $health, float $ar90pct, int $denialCount, float $denialAmount, int $daysInAr, int $submittedCount): string
+    {
+        if ($submittedCount === 0) {
+            return 'stalled';  // no claim activity in window
+        }
+        if ($health < 40) {
+            return 'critical';
+        }
+        if ($denialCount >= 5 || $denialAmount > 2000) {
+            return 'review_denials';
+        }
+        if ($ar90pct >= 25) {
+            return 'aging_ar';
+        }
+        if ($daysInAr >= 45) {
+            return 'chase_ar';
+        }
+        if ($submittedCount < 5) {
+            return 'low_volume';
+        }
+        return 'healthy';
+    }
+
     // ── Billing Tasks ──
 
     public function tasks(Request $request): JsonResponse
