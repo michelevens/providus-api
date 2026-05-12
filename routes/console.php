@@ -45,6 +45,12 @@ Schedule::command('licenses:verify')->weeklyOn(1, '03:00');               // Bul
 Schedule::command('followups:send-reminders')->dailyAt('08:30');          // Overdue + upcoming (3 day) follow-ups
 Schedule::command('tasks:send-reminders')->dailyAt('09:00');              // Overdue + due-today tasks
 
+// ── A/R Follow-up Task Generation ──
+// Daily scan for open claims that crossed 30/60/90 day age cliffs without
+// payer activity. Creates BillingTask rows so the RCM team has a worklist.
+// Dedup is built-in (one task per claim+bucket), so re-runs are no-ops.
+Schedule::command('ar:generate-followup-tasks')->dailyAt('07:15');
+
 // ── Application Monitoring ──
 Schedule::command('applications:escalate-stale --days=30')->dailyAt('09:30'); // Flag apps with no activity in 30 days
 
