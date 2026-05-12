@@ -878,6 +878,12 @@ class RcmController extends Controller
         $now = now();
         $buckets = ['0_30' => [], '31_60' => [], '61_90' => [], '91_plus' => []];
         $byPayer = [];
+        // New: aggregate by the rendering provider too. Operators care
+        // because some providers consistently have downstream billing
+        // problems (bad documentation, wrong taxonomy, missing modifier
+        // habits). A by-provider rollup surfaces those patterns without
+        // requiring a separate report.
+        $byProvider = [];
 
         foreach ($claims as $c) {
             // diffInDays returns a SIGNED int — negative when the
@@ -887,16 +893,41 @@ class RcmController extends Controller
             $days = (int) abs($now->diffInDays($c->date_of_service));
             $bucket = $days <= 30 ? '0_30' : ($days <= 60 ? '31_60' : ($days <= 90 ? '61_90' : '91_plus'));
             $buckets[$bucket][] = $c;
+
             $payer = $c->payer_name ?: 'Unknown';
             if (!isset($byPayer[$payer])) $byPayer[$payer] = ['payer' => $payer, 'total' => 0, 'count' => 0, 'days_sum' => 0];
             $byPayer[$payer]['total'] += $c->balance;
             $byPayer[$payer]['count']++;
             $byPayer[$payer]['days_sum'] += $days;
+
+            $provider = $c->rendering_provider_name ?: ($c->provider_name ?: 'Unknown');
+            if (!isset($byProvider[$provider])) {
+                $byProvider[$provider] = [
+                    'provider' => $provider,
+                    'total' => 0,
+                    'count' => 0,
+                    'days_sum' => 0,
+                    'oldest_days' => 0,
+                ];
+            }
+            $byProvider[$provider]['total'] += $c->balance;
+            $byProvider[$provider]['count']++;
+            $byProvider[$provider]['days_sum'] += $days;
+            if ($days > $byProvider[$provider]['oldest_days']) {
+                $byProvider[$provider]['oldest_days'] = $days;
+            }
         }
         foreach ($byPayer as &$p) {
             $p['avg_days'] = $p['count'] > 0 ? round($p['days_sum'] / $p['count']) : 0;
             unset($p['days_sum']);
         }
+        unset($p); // break reference
+
+        foreach ($byProvider as &$pr) {
+            $pr['avg_days'] = $pr['count'] > 0 ? round($pr['days_sum'] / $pr['count']) : 0;
+            unset($pr['days_sum']);
+        }
+        unset($pr);
 
         return response()->json(['success' => true, 'data' => [
             'total_ar' => $claims->sum('balance'),
@@ -909,6 +940,7 @@ class RcmController extends Controller
                 '91_plus' => ['count' => count($buckets['91_plus']), 'total' => collect($buckets['91_plus'])->sum('balance')],
             ],
             'by_payer' => array_values($byPayer),
+            'by_provider' => array_values($byProvider),
             'claims' => $claims,
         ]]);
     }
