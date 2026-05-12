@@ -558,8 +558,46 @@ class RcmController extends Controller
             'payment_date' => 'required|date',
             'total_amount' => 'required|numeric|min:0.01',
         ]);
+
+        // Duplicate-entry guard. The same payment can be entered twice
+        // through two different surfaces — once via "Collect Payment" on
+        // a patient page, once via "Record Payment" on the Payments tab.
+        // We block silent dupes when the same (agency, payer, reference#,
+        // amount) hits within ±2 days. Pass force=true to override (rare:
+        // legitimate two-check payments with identical refs and amounts).
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $ref = $request->input('check_number') ?: $request->input('trace_number');
+        if ($ref && !$request->boolean('force')) {
+            $window = [
+                \Carbon\Carbon::parse($request->payment_date)->subDays(2),
+                \Carbon\Carbon::parse($request->payment_date)->addDays(2),
+            ];
+            $duplicate = ClaimPayment::where('agency_id', $agencyId)
+                ->where(function ($q) use ($ref) {
+                    $q->where('check_number', $ref)->orWhere('trace_number', $ref);
+                })
+                ->where('total_amount', $request->total_amount)
+                ->whereBetween('payment_date', $window)
+                ->first();
+
+            if ($duplicate) {
+                return response()->json([
+                    'success' => false,
+                    'message' => sprintf(
+                        'A matching payment already exists (id %d, %s, $%s on %s). Pass force=true to record it anyway.',
+                        $duplicate->id,
+                        $duplicate->payer_name ?: 'no payer',
+                        number_format((float) $duplicate->total_amount, 2),
+                        optional($duplicate->payment_date)->format('Y-m-d') ?: '?',
+                    ),
+                    'error' => 'duplicate_payment',
+                    'existing_payment_id' => $duplicate->id,
+                ], 409);
+            }
+        }
+
         $payment = ClaimPayment::create([
-            'agency_id' => $request->user()->effectiveAgencyId($request),
+            'agency_id' => $agencyId,
             'created_by' => $request->user()->id,
             'remaining_amount' => $request->total_amount,
             ...$request->only([
