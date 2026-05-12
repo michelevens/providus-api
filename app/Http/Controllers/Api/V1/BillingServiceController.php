@@ -257,23 +257,23 @@ class BillingServiceController extends Controller
 
             // Window-scoped figures
             $billed = (clone $claimsQuery)
-                ->whereNotNull('submitted_at')
-                ->where('submitted_at', '>=', $cutoff)
+                ->whereNotNull('submitted_date')
+                ->where('submitted_date', '>=', $cutoff)
                 ->sum('total_charges');
 
             $collected = (clone $claimsQuery)
-                ->whereNotNull('paid_at')
-                ->where('paid_at', '>=', $cutoff)
+                ->whereNotNull('paid_date')
+                ->where('paid_date', '>=', $cutoff)
                 ->sum('total_paid');
 
             $submittedCount = (clone $claimsQuery)
-                ->whereNotNull('submitted_at')
-                ->where('submitted_at', '>=', $cutoff)
+                ->whereNotNull('submitted_date')
+                ->where('submitted_date', '>=', $cutoff)
                 ->count();
 
             $cleanCount = (clone $claimsQuery)
-                ->whereNotNull('submitted_at')
-                ->where('submitted_at', '>=', $cutoff)
+                ->whereNotNull('submitted_date')
+                ->where('submitted_date', '>=', $cutoff)
                 ->whereDoesntHave('denials')
                 ->count();
 
