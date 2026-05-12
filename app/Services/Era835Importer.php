@@ -197,6 +197,11 @@ class Era835Importer
                     }
                 }
                 $adjustmentByGroup = $this->sumAdjustmentsByGroup($allCasAdjustments);
+                // Within CO, separate contractual (CARC 45) from denied
+                // (every other CO code). The sum equals adjustment_amount,
+                // so the legacy column stays correct for any reader that
+                // still uses it.
+                [$contractualAmount, $deniedAmount] = $this->splitContractualVsDenied($allCasAdjustments);
 
                 $allocation = PaymentAllocation::create([
                     'claim_payment_id'        => $payment->id,
@@ -206,6 +211,8 @@ class Era835Importer
                     'allowed_amount'          => $clp['charged_amount'] - ($adjustmentByGroup['CO'] ?? 0),
                     'paid_amount'             => $clp['paid_amount'],
                     'adjustment_amount'       => $adjustmentByGroup['CO'] ?? 0,
+                    'contractual_amount'      => $contractualAmount,
+                    'denied_amount'           => $deniedAmount,
                     'patient_responsibility'  => $clp['patient_responsibility'] ?: ($adjustmentByGroup['PR'] ?? 0),
                     // Stash full CARC breakdown as JSON string — schema column is varchar.
                     // Use the merged set (claim-level + line-level CAS) so the
@@ -430,6 +437,34 @@ class Era835Importer
             $sum[$g] = ($sum[$g] ?? 0) + $a['amount'];
         }
         return $sum;
+    }
+
+    /** Within the CO (Contractual Obligation) group, split CARC 45
+     *  (contractual fee-schedule adjustment — normal expected discount)
+     *  from every other CO code (CO-50 medical necessity, CO-29 timely
+     *  filing, CO-97 bundled, etc — these represent lost revenue).
+     *
+     *  Reporting wants to surface "denied_amount" without including
+     *  routine contractual writes the agency was never going to collect.
+     *  Returns [contractual_co_sum, denied_co_sum]. Adding the two back
+     *  together = the legacy adjustment_amount.
+     *
+     *  @return array{0:float, 1:float}
+     */
+    private function splitContractualVsDenied(array $adjustments): array
+    {
+        $contractual = 0.0;
+        $denied = 0.0;
+        foreach ($adjustments as $a) {
+            if (($a['group'] ?? null) !== 'CO') continue;
+            $amount = (float) ($a['amount'] ?? 0);
+            if (($a['code'] ?? null) === '45') {
+                $contractual += $amount;
+            } else {
+                $denied += $amount;
+            }
+        }
+        return [$contractual, $denied];
     }
 
     private function enrichAdjustments(array $adjustments, $carcMap): array
