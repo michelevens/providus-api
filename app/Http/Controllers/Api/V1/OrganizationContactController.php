@@ -30,7 +30,7 @@ class OrganizationContactController extends Controller
         ]);
 
         $data['organization_id'] = $organizationId;
-        $data['agency_id'] = $request->user()->agency_id;
+        $data['agency_id'] = $request->user()->effectiveAgencyId($request);
 
         $contact = OrganizationContact::create($data);
 

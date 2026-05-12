@@ -16,11 +16,7 @@ class AiController extends Controller
 
     private function resolveAgencyId(Request $request): int
     {
-        $user = $request->user();
-        $agencyId = $user->agency_id;
-        if (!$agencyId && $user->role === 'superadmin' && $request->header('X-Agency-Id')) {
-            $agencyId = (int) $request->header('X-Agency-Id');
-        }
+        $agencyId = $request->user()->effectiveAgencyId($request);
         abort_unless($agencyId, 400, 'No agency context.');
         return $agencyId;
     }

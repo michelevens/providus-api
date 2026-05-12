@@ -21,7 +21,7 @@ class ShareLinkController extends Controller
         $token = Str::random(48);
 
         $link = ShareLink::create([
-            'agency_id'   => $request->user()->agency_id,
+            'agency_id'   => $request->user()->effectiveAgencyId($request),
             'provider_id' => $providerId,
             'token'       => $token,
             'created_by'  => $request->user()->email,

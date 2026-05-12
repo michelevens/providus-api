@@ -20,8 +20,10 @@ class ProviderController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        // Enforce plan limit
-        $agency = Agency::find($request->user()->agency_id);
+        // Enforce plan limit against the effective tenant so impersonated
+        // operators don't hit the superadmin's home-agency limit instead
+        // of the tenant they're acting as.
+        $agency = Agency::find($request->user()->effectiveAgencyId($request));
         if ($agency && !$request->user()->isSuperAdmin()) {
             $limit = $agency->planLimit('providers');
             if ($limit !== -1 && $agency->providers()->count() >= $limit) {

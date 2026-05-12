@@ -859,7 +859,7 @@ class RcmPhase2Controller extends Controller
         $user = $request->user();
         $importer = new Era835Importer(
             $rawX12,
-            $user->agency_id,
+            $user->effectiveAgencyId($request),
             $user->id,
             $request->input('billing_client_id'),
         );

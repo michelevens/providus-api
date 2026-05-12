@@ -34,7 +34,7 @@ class ApiKeyController extends Controller
         $plainSecret = 'cs_' . Str::random(48);
 
         $apiKey = ApiKey::create([
-            'agency_id'   => $request->user()->agency_id,
+            'agency_id'   => $request->user()->effectiveAgencyId($request),
             'name'        => $data['name'],
             'key'         => $plainKey,
             'secret_hash' => bcrypt($plainSecret),

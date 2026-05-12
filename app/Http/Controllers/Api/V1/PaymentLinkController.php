@@ -73,6 +73,7 @@ class PaymentLinkController extends Controller
         Stripe::setApiKey($secret);
 
         $user = $request->user();
+        $agencyId = $user->effectiveAgencyId($request);
         // Default success/cancel URLs land on V2's public pay pages
         $base = config('app.frontend_url', 'https://app.credentik.com') . '/v2/#';
         $successUrl = $data['success_url'] ?? ($base . '/pay/success?token={CHECKOUT_SESSION_ID}');
@@ -81,7 +82,7 @@ class PaymentLinkController extends Controller
         // Create the payment_links row FIRST so we have the public_token to
         // embed in the Stripe metadata for round-trip lookups.
         $link = PaymentLink::create([
-            'agency_id'      => $user->agency_id,
+            'agency_id'      => $agencyId,
             'target_type'    => $data['target_type'],
             'target_id'      => $data['target_id'] ?? null,
             'patient_name'   => $data['patient_name'] ?? null,
@@ -117,7 +118,7 @@ class PaymentLinkController extends Controller
                 'success_url'    => $successUrl,
                 'cancel_url'     => $cancelUrl,
                 'metadata' => [
-                    'agency_id'      => (string) $user->agency_id,
+                    'agency_id'      => (string) $agencyId,
                     'payment_link_id'=> (string) $link->id,
                     'public_token'   => $link->public_token,
                     'target_type'    => $data['target_type'],

@@ -243,7 +243,7 @@ class FundingController extends Controller
             'assigned_to' => 'nullable|exists:users,id',
         ]);
 
-        $validated['agency_id'] = $request->user()->agency_id;
+        $validated['agency_id'] = $request->user()->effectiveAgencyId($request);
         $validated['stage'] = $validated['stage'] ?? 'identified';
 
         $app = FundingApplication::create($validated);

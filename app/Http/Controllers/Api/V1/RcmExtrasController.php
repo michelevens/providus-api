@@ -75,7 +75,7 @@ class RcmExtrasController extends Controller
             'billing_client_id'    => ['nullable','integer', Rule::exists('billing_clients','id')->where('agency_id', $agencyId)],
         ]);
 
-        $data['agency_id']  = $request->user()->agency_id;
+        $data['agency_id']  = $request->user()->effectiveAgencyId($request);
         $data['created_by'] = $request->user()->id;
         $data['status']     = $data['status'] ?? 'active';
 

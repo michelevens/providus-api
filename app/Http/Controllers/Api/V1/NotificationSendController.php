@@ -57,7 +57,7 @@ class NotificationSendController extends Controller
         }
 
         $logEntry = NotificationLogEntry::create([
-            'agency_id'       => $request->user()->agency_id,
+            'agency_id'       => $request->user()->effectiveAgencyId($request),
             'type'            => $data['type'],
             'recipient_email' => $data['recipientEmail'],
             'recipient_name'  => $data['recipientName'] ?? null,
@@ -92,7 +92,7 @@ class NotificationSendController extends Controller
 
         if (!$prefs) {
             $prefs = NotificationPreference::create([
-                'agency_id'              => $request->user()->agency_id,
+                'agency_id'              => $request->user()->effectiveAgencyId($request),
                 'status_changes'         => true,
                 'license_expiration'     => true,
                 'license_expiration_days' => 30,

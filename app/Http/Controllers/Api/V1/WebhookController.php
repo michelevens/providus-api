@@ -37,7 +37,7 @@ class WebhookController extends Controller
         WebhookUrlGuard::assertSafe($data['url']);
 
         $webhook = Webhook::create([
-            'agency_id'  => $request->user()->agency_id,
+            'agency_id'  => $request->user()->effectiveAgencyId($request),
             'url'        => $data['url'],
             'secret'     => $data['secret'] ?? 'whsec_' . Str::random(32),
             'events'     => $data['events'],
