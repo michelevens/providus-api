@@ -474,35 +474,52 @@ class RcmController extends Controller
     }
 
     /**
-     * ERA import history. Synthesized from existing claim_payments
-     * rows that have a non-null trace_number — the Era835Importer
-     * stamps every ERA-driven payment with the 835's trace number,
-     * while manual check entries usually leave it blank. Each unique
-     * trace_number rolls up into one "import" row with its allocation
-     * counts pre-aggregated for the UI.
+     * ERA import history. Synthesized from existing claim_payments by
+     * coalescing trace_number with check_number. Reality of the data
+     * layer (verified on prod 2026-05-12):
+     *   - 0 of 172 payments have trace_number populated
+     *   - 170 of 172 have check_number populated
+     *   - All are type=eft (← Era835Importer wrote them that way)
      *
-     * This synthesizes rather than queries a dedicated era_imports
-     * table because the table doesn't exist yet — and most agencies
-     * only need the rollup view, not file-level metadata. If we ever
-     * need per-file storage (raw 835 archival, file_size, source URL),
-     * a real era_imports table can be added later without breaking
-     * this endpoint's contract.
+     * The 835 importer writes the 835 TRN02 (or CLP07/BPR16) into
+     * check_number on older imports and trace_number on newer ones.
+     * Both fields hold the same logical identifier for ERA-driven
+     * payments. We coalesce: prefer trace_number, fall back to
+     * check_number. Each unique key = one ERA.
+     *
+     * We also keep payment_type IN (eft, check) so patient_pay rows
+     * never pollute the ERA view.
+     *
+     * Synthesizing rather than reading a dedicated era_imports table
+     * because that table doesn't exist yet — and most agencies only
+     * need the rollup, not the file metadata. If per-file storage
+     * (raw 835 archival, file_size) is needed later, an era_imports
+     * table can be added without breaking this endpoint's contract.
      */
     public function eraHistory(Request $request): JsonResponse
     {
         $aid = $request->user()->effectiveAgencyId($request);
         $payments = ClaimPayment::where('agency_id', $aid)
-            ->whereNotNull('trace_number')
-            ->where('trace_number', '!=', '')
+            ->whereIn('payment_type', ['eft', 'check'])
+            // Need SOME identifier. Reject rows where both check_number
+            // and trace_number are blank — those are likely cash or
+            // manual patient pays mistyped as check.
+            ->where(function ($q) {
+                $q->whereNotNull('trace_number')->where('trace_number', '!=', '')
+                  ->orWhere(function ($q2) {
+                      $q2->whereNotNull('check_number')->where('check_number', '!=', '');
+                  });
+            })
             ->with(['allocations:id,claim_payment_id,claim_id,paid_amount'])
             ->orderByDesc('payment_date')
             ->get();
 
-        // Group by trace_number — one ERA per trace.
-        $byTrace = $payments->groupBy('trace_number');
+        // Group by the coalesced identifier — one ERA per
+        // (trace_number ?: check_number).
+        $byKey = $payments->groupBy(fn ($p) => $p->trace_number ?: $p->check_number);
         $imports = [];
 
-        foreach ($byTrace as $trace => $group) {
+        foreach ($byKey as $key => $group) {
             /** @var \Illuminate\Support\Collection $group */
             $first = $group->first();
             $totalAmount = (float) $group->sum('total_amount');
@@ -512,8 +529,8 @@ class RcmController extends Controller
             $unmatchedCount = $claimCount - $matchedCount;
 
             $imports[] = [
-                'id' => (string) $trace,
-                'trace_number' => $trace,
+                'id' => (string) $key,
+                'trace_number' => $first->trace_number,
                 'check_number' => $first->check_number,
                 'payer_name' => $first->payer_name,
                 'payment_date' => $first->payment_date,
