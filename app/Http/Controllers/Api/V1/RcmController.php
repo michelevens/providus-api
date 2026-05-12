@@ -473,6 +473,65 @@ class RcmController extends Controller
         return response()->json(['success' => true, 'data' => $query->orderByDesc('payment_date')->get()]);
     }
 
+    /**
+     * ERA import history. Synthesized from existing claim_payments
+     * rows that have a non-null trace_number — the Era835Importer
+     * stamps every ERA-driven payment with the 835's trace number,
+     * while manual check entries usually leave it blank. Each unique
+     * trace_number rolls up into one "import" row with its allocation
+     * counts pre-aggregated for the UI.
+     *
+     * This synthesizes rather than queries a dedicated era_imports
+     * table because the table doesn't exist yet — and most agencies
+     * only need the rollup view, not file-level metadata. If we ever
+     * need per-file storage (raw 835 archival, file_size, source URL),
+     * a real era_imports table can be added later without breaking
+     * this endpoint's contract.
+     */
+    public function eraHistory(Request $request): JsonResponse
+    {
+        $aid = $request->user()->effectiveAgencyId($request);
+        $payments = ClaimPayment::where('agency_id', $aid)
+            ->whereNotNull('trace_number')
+            ->where('trace_number', '!=', '')
+            ->with(['allocations:id,claim_payment_id,claim_id,paid_amount'])
+            ->orderByDesc('payment_date')
+            ->get();
+
+        // Group by trace_number — one ERA per trace.
+        $byTrace = $payments->groupBy('trace_number');
+        $imports = [];
+
+        foreach ($byTrace as $trace => $group) {
+            /** @var \Illuminate\Support\Collection $group */
+            $first = $group->first();
+            $totalAmount = (float) $group->sum('total_amount');
+            $totalPosted = (float) $group->sum('posted_amount');
+            $claimCount = $group->reduce(fn ($carry, $p) => $carry + $p->allocations->count(), 0);
+            $matchedCount = $group->reduce(fn ($carry, $p) => $carry + $p->allocations->where('claim_id', '!=', null)->count(), 0);
+            $unmatchedCount = $claimCount - $matchedCount;
+
+            $imports[] = [
+                'id' => (string) $trace,
+                'trace_number' => $trace,
+                'check_number' => $first->check_number,
+                'payer_name' => $first->payer_name,
+                'payment_date' => $first->payment_date,
+                'imported_at' => $first->posted_at ?: $first->created_at,
+                'created_at' => $first->created_at,
+                'total_amount' => $totalAmount,
+                'posted_amount' => $totalPosted,
+                'claim_count' => $claimCount,
+                'matched_count' => $matchedCount,
+                'unmatched_count' => $unmatchedCount,
+                'posted' => $matchedCount,
+                'status' => $unmatchedCount > 0 ? 'partial' : 'posted',
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $imports]);
+    }
+
     public function storePayment(Request $request): JsonResponse
     {
         $request->validate([
