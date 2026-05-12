@@ -601,6 +601,23 @@ class RcmPhase2Controller extends Controller
     public function updatePatientStatement(Request $request, int $id): JsonResponse
     {
         $st = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        // Write-off approval gate. Same threshold as denial write-offs:
+        // above $500, only agency-owner roles can mark a statement as
+        // written_off. Staff billers see a 403. Junior staff shouldn't
+        // be able to silently close out large patient balances.
+        $newStatus = $request->input('status');
+        if ($newStatus === 'written_off' && $st->status !== 'written_off') {
+            $amount = (float) ($request->input('patient_balance', $st->patient_balance));
+            if (!\App\Support\WriteOffApproval::canApprove($request->user(), $amount)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                    'error' => 'writeoff_requires_approval',
+                ], 403);
+            }
+        }
+
         $st->update($request->only([
             'patient_name', 'patient_email', 'patient_phone', 'patient_address',
             'total_charges', 'insurance_paid', 'adjustments', 'patient_balance',

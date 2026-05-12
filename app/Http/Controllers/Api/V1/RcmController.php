@@ -361,6 +361,22 @@ class RcmController extends Controller
             'appeal_deadline', 'appeal_level', 'appeal_submitted_date', 'recovered_amount',
             'appeal_notes', 'resolution_notes', 'assigned_to',
         ]);
+
+        // Write-off approval gate. Above $500, only agency-owner roles
+        // can complete a write-off; staff billers see a 403 with a
+        // suggestion to ask an owner. Prevents silent compliance gaps
+        // where junior staff close out large denials without sign-off.
+        if (($data['status'] ?? null) === 'written_off') {
+            $amount = (float) ($data['denied_amount'] ?? $denial->denied_amount);
+            if (!\App\Support\WriteOffApproval::canApprove($request->user(), $amount)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                    'error' => 'writeoff_requires_approval',
+                ], 403);
+            }
+        }
+
         if (in_array($data['status'] ?? '', ['resolved_won', 'resolved_lost', 'resolved_partial', 'written_off']) && !$denial->resolved_at) {
             $data['resolved_at'] = now();
         }
