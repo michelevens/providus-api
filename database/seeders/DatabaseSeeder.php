@@ -20,6 +20,10 @@ class DatabaseSeeder extends Seeder
             // Global reference data (no tenant scope)
             StateSeeder::class,
             PayerSeeder::class,
+            // 253 BH-relevant payers (IDs 100+) that used to live as a
+            // client-side JS file; now sourced from the DB so V1 + V2
+            // see the same catalog without merge-on-boot drift.
+            SupplementalPayerSeeder::class,
             TaxonomyCodeSeeder::class,
             TelehealthPolicySeeder::class,
             DocumentTypeSeeder::class,
