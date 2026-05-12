@@ -552,7 +552,9 @@ class RcmController extends Controller
     public function storePayment(Request $request): JsonResponse
     {
         $request->validate([
-            'payment_type' => 'required|in:check,eft,virtual_card,patient,ach',
+            // Added 'wire' for large self-pay / out-of-network arrangements
+            // and 'cash' for in-office collections. Existing types unchanged.
+            'payment_type' => 'required|in:check,eft,virtual_card,patient,ach,wire,cash',
             'payment_date' => 'required|date',
             'total_amount' => 'required|numeric|min:0.01',
         ]);
