@@ -449,6 +449,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
     Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial']);
+    // Spawn a corrected claim from a denial — clones service lines,
+    // links lineage, leaves status=draft for the biller to fix and
+    // re-submit. Endpoint sits next to the denial CRUD because the
+    // denial drives the correction workflow.
+    Route::post('/rcm/denials/{id}/create-corrected-claim', [RcmController::class, 'createCorrectedClaim']);
 
     Route::get('/rcm/payments', [RcmController::class, 'payments']);
     Route::post('/rcm/payments', [RcmController::class, 'storePayment']);

@@ -390,6 +390,56 @@ class RcmController extends Controller
         return response()->json(['success' => true]);
     }
 
+    /**
+     * Create a corrected claim from a denial. Clones the patient,
+     * provider, payer, DOS, and service lines from the original claim,
+     * leaves status=draft so the operator can edit (fix the modifier,
+     * coding error, etc) before resubmitting, and links the new claim
+     * back to the original + the denial that triggered it.
+     *
+     * The link enables three things:
+     *   1. "How many times has this same DOS been re-billed?" view
+     *   2. Trending: "we keep coding 99214 wrong for BCBS"
+     *   3. Audit: writing off the original denial AFTER the corrected
+     *      claim is submitted is the right action — UI can prompt for it
+     */
+    public function createCorrectedClaim(Request $request, int $denialId): JsonResponse
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($denialId);
+        $original = $denial->claim()->with('serviceLines')->firstOrFail();
+
+        // Build a new claim from the original. We deliberately don't
+        // copy: status (defaults to 'draft'), claim_number (will be
+        // regenerated on submit), submitted_date / paid_date / etc.,
+        // total_paid (zero on a fresh claim), and audit fields.
+        $newClaim = $original->replicate([
+            'claim_number', 'status', 'submitted_date', 'acknowledged_date',
+            'adjudicated_date', 'paid_date', 'check_number', 'total_paid',
+            'denial_reason', 'denial_codes', 'appeal_deadline', 'balance',
+        ]);
+        $newClaim->status = 'draft';
+        $newClaim->balance = $newClaim->total_charges;
+        $newClaim->original_claim_id = $original->id;
+        $newClaim->corrected_from_denial_id = $denial->id;
+        $newClaim->created_by = $request->user()->id;
+        $newClaim->notes = trim(($newClaim->notes ?? '') . "\n\nCorrected from claim #{$original->id} after denial #{$denial->id}: {$denial->denial_code} {$denial->denial_reason}");
+        $newClaim->save();
+
+        // Clone service lines so the biller has the same CPT/modifier
+        // skeleton to edit. Without this they'd have to re-enter
+        // every line from scratch.
+        foreach ($original->serviceLines as $line) {
+            $cloned = $line->replicate(['paid_amount']);
+            $cloned->claim_id = $newClaim->id;
+            $cloned->save();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $newClaim->fresh()->load('serviceLines'),
+        ], 201);
+    }
+
     public function denialStats(Request $request): JsonResponse
     {
         $aid = $request->user()->effectiveAgencyId($request);
