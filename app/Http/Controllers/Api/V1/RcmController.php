@@ -35,7 +35,18 @@ class RcmController extends Controller
     public function showClaim(Request $request, int $id): JsonResponse
     {
         $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
-            ->with(['billingClient:id,organization_name', 'serviceLines', 'denials', 'paymentAllocations', 'followups'])
+            ->with([
+                'billingClient:id,organization_name',
+                'serviceLines',
+                'denials',
+                // Pull the parent ClaimPayment with each allocation so V2
+                // can render a "Paid via check #X" link straight to the
+                // payment detail page. Without this, the claim shows it
+                // was paid but the operator can't trace which check it
+                // came from without leaving the page.
+                'paymentAllocations.payment:id,check_number,trace_number,payment_type,payment_date,total_amount,payer_name,status',
+                'followups',
+            ])
             ->findOrFail($id);
         return response()->json(['success' => true, 'data' => $claim]);
     }
