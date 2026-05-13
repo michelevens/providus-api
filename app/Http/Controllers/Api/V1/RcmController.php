@@ -1048,6 +1048,12 @@ class RcmController extends Controller
                 'check_number' => $first->check_number,
                 'payer_name' => $first->payer_name,
                 'payment_date' => $first->payment_date,
+                // Deposit date — what your bank says, set manually by
+                // the operator after reconciling against the bank
+                // statement. Pulled from the primary (oldest) payment
+                // in the group. Often null today because ERA imports
+                // and CSV bulk-matches don't set it automatically.
+                'deposit_date' => $first->deposit_date,
                 'imported_at' => $first->posted_at ?: $first->created_at,
                 'created_at' => $first->created_at,
                 'total_amount' => $totalAmount,
