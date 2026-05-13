@@ -338,10 +338,21 @@ class BillingServiceController extends Controller
         }
 
         // ─── Agency fees this period (for context, not invoice replacement) ─
-        $financials = BillingFinancial::where('billing_client_id', $client->id)
-            ->whereBetween('period_start', [$start, $end])
-            ->get();
-        $feesThisPeriod = round($financials->sum('agency_fee'), 2);
+        // BillingFinancial.period is a 'YYYY-MM' string, not a date range.
+        // No dedicated agency_fee column either — the recurring agency
+        // fee lives on billing_clients.monthly_fee. For percentage-based
+        // arrangements (agency_fee_percent on the client), apply that
+        // to the period's amount_collected if a financial row exists.
+        $periodKey = $start->format('Y-m');
+        $financial = BillingFinancial::where('billing_client_id', $client->id)
+            ->where('period', $periodKey)
+            ->first();
+        $monthlyFee = (float) ($client->monthly_fee ?? 0);
+        $pctFee = 0.0;
+        if ($financial && $client->agency_fee_percent) {
+            $pctFee = (float) $financial->amount_collected * ((float) $client->agency_fee_percent / 100);
+        }
+        $feesThisPeriod = round($monthlyFee + $pctFee, 2);
 
         return response()->json([
             'success' => true,
