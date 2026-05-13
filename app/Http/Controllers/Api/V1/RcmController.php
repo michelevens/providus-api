@@ -1189,20 +1189,33 @@ class RcmController extends Controller
         $request->validate([
             'payments' => 'required|array|min:1|max:500',
             // Optional reconciliation map: { "checkNumber": expectedTotal }.
-            // After the row loop, each ClaimPayment we touched gets
-            // recalculate()'d, then we compare its summed allocations
-            // against the expected total the operator supplied (which
-            // they read directly from the check face / EOB header).
-            // Mismatches → status='unbalanced' + included in response.
-            // Without this, the CSV path silently trusts "sum of rows"
-            // as the check total — which is wrong when the CSV is
-            // paginated or filtered (the 802379101 incident).
             'check_totals' => 'nullable|array',
             'check_totals.*' => 'numeric',
+            // Gate for CSV-created records. We learned the hard way
+            // (see 802379101 + the 42 date_unverified flags 2026-05-13)
+            // that CSV bulk-imports treated as authoritative produce
+            // a long tail of incorrect data: dates defaulted to
+            // import-day, totals derived from "sum of CSV rows" rather
+            // than check face value, missing claims when the export was
+            // paginated. The fix isn't more patches — it's restricting
+            // CSV to a reconciliation tool, not a posting one.
+            //
+            // Default behavior (safe): match rows against EXISTING
+            // ClaimPayment + Claim records, update where applicable,
+            // do NOT mint new ones. The operator gets a report of
+            // what would have been created and re-runs with the flag
+            // if they truly want to. For real posting they should
+            // be using the 835 ERA importer or Availity API pull.
+            'allow_create_payments' => 'nullable|boolean',
+            'allow_create_claims' => 'nullable|boolean',
         ]);
         $agencyId = $request->user()->effectiveAgencyId($request);
+        $allowCreatePayments = $request->boolean('allow_create_payments');
+        $allowCreateClaims = $request->boolean('allow_create_claims');
         $matched = 0;
         $created = 0;
+        $skippedPaymentCreates = [];
+        $skippedClaimCreates = [];
         $errors = [];
         // Track every ClaimPayment touched during the loop so we can
         // recalculate() each at the end. Without this, posted_amount
@@ -1357,27 +1370,55 @@ class RcmController extends Controller
                             }
                         }
 
-                        // Truly new payment — mint a synthetic check number.
-                        if (!$existingPayment && !$checkNumber) {
-                            $payDate = $row['paid_date'] ?? now()->toDateString();
-                            $datePart = str_replace('-', '', substr($payDate, 0, 10));
-                            $seqNum = ClaimPayment::where('agency_id', $agencyId)
-                                ->where('check_number', 'LIKE', "PAY-{$datePart}-%")
-                                ->count() + 1;
-                            $checkNumber = "PAY-{$datePart}-" . str_pad($seqNum, 3, '0', STR_PAD_LEFT);
-                            $claim->check_number = $checkNumber;
-                        }
                         if (!$existingPayment) {
+                            // No matching ClaimPayment in our DB. By
+                            // default we DO NOT create one from the
+                            // CSV — the operator should be uploading
+                            // an 835 / pulling from Availity for posting.
+                            // CSV is a reconciliation tool, not a
+                            // source of authoritative payment dates +
+                            // totals. Skip the row and report it.
+                            if (!$allowCreatePayments) {
+                                $skippedPaymentCreates[] = [
+                                    'row' => $i + 1,
+                                    'claim_number' => $claim->claim_number,
+                                    'patient' => $claim->patient_name,
+                                    'check_number' => $checkNumber,
+                                    'paid_amount' => $paidAmount,
+                                    'reason' => 'no_matching_payment_in_db',
+                                ];
+                                \DB::rollBack();
+                                continue;
+                            }
+
+                            // Operator explicitly opted in. Mint a
+                            // synthetic check# if the CSV didn't supply one.
+                            if (!$checkNumber) {
+                                $payDate = $row['paid_date'] ?? now()->toDateString();
+                                $datePart = str_replace('-', '', substr($payDate, 0, 10));
+                                $seqNum = ClaimPayment::where('agency_id', $agencyId)
+                                    ->where('check_number', 'LIKE', "PAY-{$datePart}-%")
+                                    ->count() + 1;
+                                $checkNumber = "PAY-{$datePart}-" . str_pad($seqNum, 3, '0', STR_PAD_LEFT);
+                                $claim->check_number = $checkNumber;
+                            }
                             $existingPayment = ClaimPayment::create([
                                 'agency_id' => $agencyId,
                                 'created_by' => $request->user()->id,
                                 'payer_name' => $row['payer_name'] ?? $claim->payer_name,
                                 'payment_type' => 'eft',
                                 'check_number' => $checkNumber,
-                                'payment_date' => $row['paid_date'] ?? now()->toDateString(),
+                                // Operator-supplied paid_date OR null.
+                                // We deliberately don't fall back to now()
+                                // anymore — that's how 42 payments got
+                                // wrong dates last time. If the row has
+                                // no date, the payment gets created with
+                                // payment_date=null and status='date_unverified'
+                                // so it surfaces in the queue for review.
+                                'payment_date' => $row['paid_date'] ?? null,
                                 'total_amount' => $paidAmount,
                                 'remaining_amount' => 0,
-                                'status' => 'posted',
+                                'status' => ($row['paid_date'] ?? null) ? 'posted' : 'date_unverified',
                             ]);
                             $createdPaymentForWebhook = $existingPayment;
                         } else {
@@ -1435,7 +1476,26 @@ class RcmController extends Controller
 
                     $matched++;
                 } else {
-                    // No match — create as new claim
+                    // No matching claim in our DB. Same default-safe
+                    // policy as payments: CSV is a reconciliation tool,
+                    // not a posting one. Don't mint a claim from a
+                    // CSV row without explicit opt-in. The operator
+                    // should be submitting claims via 837 and reading
+                    // payments back via 835.
+                    if (!$allowCreateClaims) {
+                        $skippedClaimCreates[] = [
+                            'row' => $i + 1,
+                            'claim_number' => $row['claim_number'] ?? null,
+                            'patient' => $patientName,
+                            'dos' => $dos,
+                            'total_charges' => (float) ($row['total_charges'] ?? 0),
+                            'reason' => 'no_matching_claim_in_db',
+                        ];
+                        \DB::rollBack();
+                        continue;
+                    }
+
+                    // Operator opted in. Same body as before.
                     $totalCharges = (float) ($row['total_charges'] ?? 0);
                     $totalPaid = (float) ($row['total_paid'] ?? $row['paid_amount'] ?? 0);
                     $status = strtolower($row['status'] ?? '');
@@ -1460,7 +1520,12 @@ class RcmController extends Controller
                         'total_paid' => $totalPaid,
                         'patient_responsibility' => (float) ($row['patient_responsibility'] ?? 0),
                         'balance' => $totalCharges - $totalPaid,
-                        'paid_date' => $row['paid_date'] ?? ($totalPaid > 0 ? now()->toDateString() : null),
+                        // No more fall-back to now() when paid_date is
+                        // missing — that defaulting is what created the
+                        // 42 wrong-dated payments. If no source date,
+                        // leave it null and the operator sees the claim
+                        // in a date_unverified state.
+                        'paid_date' => $row['paid_date'] ?? null,
                         'check_number' => $row['check_number'] ?? null,
                         'denial_reason' => $row['denial_reason'] ?? null,
                         'submission_method' => 'electronic',
@@ -1532,6 +1597,20 @@ class RcmController extends Controller
             // (or when no check_totals were supplied at all).
             'unbalanced' => $unbalanced,
             'recalculated_payment_ids' => array_keys($touchedPaymentIds),
+            // Rows the CSV would have created brand-new records for.
+            // We refuse by default (CSV is reconciliation, not posting)
+            // and surface them here so the operator sees what got
+            // skipped. Re-run with allow_create_payments=true and/or
+            // allow_create_claims=true to opt in. The right answer
+            // for ongoing posting is uploading the 835 / pulling
+            // from Availity instead.
+            'skipped_payment_creates' => $skippedPaymentCreates,
+            'skipped_claim_creates' => $skippedClaimCreates,
+            'csv_create_gate' => [
+                'allow_create_payments' => $allowCreatePayments,
+                'allow_create_claims' => $allowCreateClaims,
+                'hint' => 'CSV bulk-match defaults to MATCH-ONLY mode. Use the 835 ERA upload or the Availity pull for new payment posting. To create from CSV anyway, re-submit with allow_create_payments=true.',
+            ],
         ], 201);
     }
 
