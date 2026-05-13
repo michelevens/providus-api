@@ -527,6 +527,22 @@ class AdminController extends Controller
             ]);
         }
 
+        // Parallel entry in auth_events so impersonation shows up
+        // alongside logins/logouts in the security timeline.
+        \App\Support\AuthEventLogger::record(
+            'impersonation_started',
+            $superadmin->id,
+            $agency->id,
+            $superadmin->email,
+            [
+                'target_agency_id' => $agency->id,
+                'target_agency_name' => $agency->name,
+                'expires_at' => $expiresAt->toIso8601String(),
+            ],
+            $superadmin->id,
+            $request,
+        );
+
         return response()->json([
             'success' => true,
             'data' => [
@@ -570,6 +586,16 @@ class AdminController extends Controller
                 'user_agent' => substr((string) $request->userAgent(), 0, 200),
             ]);
         } catch (\Throwable $e) {}
+
+        \App\Support\AuthEventLogger::record(
+            'impersonation_ended',
+            $user->id,
+            null,
+            $user->email,
+            ['sessions_ended' => $tokens->count()],
+            $user->id,
+            $request,
+        );
 
         return response()->json([
             'success' => true,
@@ -757,6 +783,53 @@ class AdminController extends Controller
         if ($to = $request->input('to')) $query->where('created_at', '<=', $to);
         if ($request->boolean('impersonated_only')) {
             $query->whereNotNull('impersonator_user_id');
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $query->orderByDesc('created_at')->paginate(50),
+        ]);
+    }
+
+    // ── Auth events (login/logout/2FA/impersonation/password) ──
+    //
+    // Distinct from audit_logs because the shape is different — many
+    // entries have no auditable model (failed logins, lockouts) and we
+    // want to query them on email + ip patterns. Both surfaces live in
+    // the operator console; auditors use them for different questions:
+    //   audit_logs   — "what data changed?"
+    //   auth_events  — "who got in, who tried and failed, when?"
+    public function authEvents(Request $request): JsonResponse
+    {
+        $request->validate([
+            'agency_id' => 'nullable|integer',
+            'user_id' => 'nullable|integer',
+            'email' => 'nullable|string',
+            'event_type' => 'nullable|string',
+            'from' => 'nullable|date',
+            'to' => 'nullable|date',
+            'failures_only' => 'nullable|in:0,1,true,false',
+        ]);
+
+        $query = \App\Models\AuthEvent::query()
+            ->with(['user:id,email,first_name,last_name', 'impersonator:id,email']);
+
+        // Non-superadmins see only their own agency's events.
+        if (!$request->user()->isSuperAdmin()) {
+            $query->where('agency_id', $request->user()->agency_id);
+        } elseif ($agencyId = $request->input('agency_id')) {
+            $query->where('agency_id', $agencyId);
+        }
+
+        if ($userId = $request->input('user_id')) $query->where('user_id', $userId);
+        if ($email = $request->input('email')) $query->where('email', 'ILIKE', "%{$email}%");
+        if ($eventType = $request->input('event_type')) $query->where('event_type', $eventType);
+        if ($from = $request->input('from')) $query->where('created_at', '>=', $from);
+        if ($to = $request->input('to')) $query->where('created_at', '<=', $to);
+        // Quick filter for "show me brute-force / lockout / 2FA failure
+        // attempts" — the security-team default view.
+        if ($request->boolean('failures_only')) {
+            $query->whereIn('event_type', ['login_failed', 'two_factor_failed', 'lockout']);
         }
 
         return response()->json([

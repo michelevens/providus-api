@@ -110,12 +110,30 @@ class AuthController extends Controller
         $user = User::where('email', $request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
+            \App\Support\AuthEventLogger::record(
+                'login_failed',
+                $user?->id,
+                $user?->agency_id,
+                $request->email,
+                ['reason' => $user ? 'bad_password' : 'unknown_email'],
+                null,
+                $request,
+            );
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
         if (!$user->is_active) {
+            \App\Support\AuthEventLogger::record(
+                'login_failed',
+                $user->id,
+                $user->agency_id,
+                $request->email,
+                ['reason' => 'deactivated'],
+                null,
+                $request,
+            );
             throw ValidationException::withMessages([
                 'email' => ['Your account has been deactivated.'],
             ]);
@@ -129,6 +147,15 @@ class AuthController extends Controller
                 '2fa_session:' . hash('sha256', $loginToken),
                 ['user_id' => $user->id],
                 now()->addMinutes(5)
+            );
+            \App\Support\AuthEventLogger::record(
+                'two_factor_required',
+                $user->id,
+                $user->agency_id,
+                $user->email,
+                null,
+                null,
+                $request,
             );
             return response()->json([
                 'success' => true,
@@ -146,6 +173,16 @@ class AuthController extends Controller
         }
         $token = $user->createToken('auth-token')->plainTextToken;
 
+        \App\Support\AuthEventLogger::record(
+            'login_success',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            ['method' => 'password'],
+            null,
+            $request,
+        );
+
         return response()->json([
             'success' => true,
             'token' => $token,
@@ -161,7 +198,18 @@ class AuthController extends Controller
      */
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()->delete();
+        $user = $request->user();
+        $user->currentAccessToken()->delete();
+
+        \App\Support\AuthEventLogger::record(
+            'logout',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            null,
+            null,
+            $request,
+        );
 
         return response()
             ->json(['success' => true, 'message' => 'Logged out'])
@@ -261,6 +309,16 @@ class AuthController extends Controller
         $user->update(['last_login_at' => now()]);
         $token = $user->createToken('demo-token')->plainTextToken;
 
+        \App\Support\AuthEventLogger::record(
+            'login_success',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            ['method' => 'demo'],
+            null,
+            $request,
+        );
+
         return response()->json([
             'success' => true,
             'token' => $token,
@@ -292,6 +350,16 @@ class AuthController extends Controller
 
         Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
 
+        \App\Support\AuthEventLogger::record(
+            'password_reset_requested',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            null,
+            null,
+            $request,
+        );
+
         return response()->json(['success' => true, 'message' => 'If that email exists, a reset link has been sent.']);
     }
 
@@ -320,6 +388,16 @@ class AuthController extends Controller
             'password_reset_token' => null,
             'password_reset_expires' => null,
         ]);
+
+        \App\Support\AuthEventLogger::record(
+            'password_reset_completed',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            null,
+            null,
+            $request,
+        );
 
         return response()->json(['success' => true, 'message' => 'Password has been reset. You can now login.']);
     }

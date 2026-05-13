@@ -173,6 +173,15 @@ class TwoFactorController extends Controller
         // Try TOTP first
         if (strlen($code) === 6 && $this->verifyTotp($secret, $code)) {
             Cache::forget($cacheKey);
+            \App\Support\AuthEventLogger::record(
+                'two_factor_success',
+                $user->id,
+                $user->agency_id,
+                $user->email,
+                ['method' => 'totp'],
+                null,
+                $request,
+            );
             return $this->issueToken($user);
         }
 
@@ -185,10 +194,28 @@ class TwoFactorController extends Controller
                     'two_factor_recovery_codes' => Crypt::encryptString(json_encode(array_values($hashedCodes))),
                 ]);
                 Cache::forget($cacheKey);
+                \App\Support\AuthEventLogger::record(
+                    'two_factor_success',
+                    $user->id,
+                    $user->agency_id,
+                    $user->email,
+                    ['method' => 'recovery_code', 'remaining_codes' => count($hashedCodes)],
+                    null,
+                    $request,
+                );
                 return $this->issueToken($user);
             }
         }
 
+        \App\Support\AuthEventLogger::record(
+            'two_factor_failed',
+            $user->id,
+            $user->agency_id,
+            $user->email,
+            null,
+            null,
+            $request,
+        );
         return response()->json(['success' => false, 'message' => 'Invalid verification code'], 422);
     }
 

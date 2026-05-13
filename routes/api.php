@@ -184,6 +184,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
         // Audit logs (agency-scoped)
         Route::get('/audit-logs', [AdminController::class, 'auditLogs']);
+        // Auth events — login/logout/2FA/impersonation/password lifecycle
+        Route::get('/auth-events', [AdminController::class, 'authEvents']);
     });
 
     // Onboarding token management
@@ -669,6 +671,8 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
     Route::get('/audit-log', [AdminController::class, 'auditLog']);
     // Audit logs (model-level change tracking)
     Route::get('/audit-logs', [AdminController::class, 'auditLogs']);
+    // Auth events — login/logout/2FA/impersonation/password lifecycle
+    Route::get('/auth-events', [AdminController::class, 'authEvents']);
 
     // Master Data CRUD
     Route::prefix('master-data')->group(function () {
