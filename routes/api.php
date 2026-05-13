@@ -441,6 +441,18 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/claims', [RcmController::class, 'storeClaim']);
     Route::put('/rcm/claims/{id}', [RcmController::class, 'updateClaim']);
     Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim']);
+    // Dedicated write-off endpoint — enforces the $500 owner-approval
+    // threshold and keeps adjustments/balance math + note marker in
+    // one server-side transaction. Returns 403 with the structured
+    // error 'writeoff_requires_approval' when the user lacks the role.
+    Route::post('/rcm/claims/{id}/write-off', [RcmController::class, 'writeOffClaim']);
+    // Below-threshold staff can request approval; the request rides
+    // on billing_tasks with category='writeoff_approval'. Owners see
+    // the pending queue at /rcm/write-off-requests and approve/reject.
+    Route::post('/rcm/claims/{id}/write-off/request', [RcmController::class, 'requestWriteOff']);
+    Route::get('/rcm/write-off-requests', [RcmController::class, 'listWriteOffRequests']);
+    Route::post('/rcm/write-off-requests/{taskId}/approve', [RcmController::class, 'approveWriteOffRequest']);
+    Route::post('/rcm/write-off-requests/{taskId}/reject', [RcmController::class, 'rejectWriteOffRequest']);
     Route::post('/rcm/claims/bulk-import', [RcmController::class, 'bulkImportClaims']);
     Route::post('/rcm/claims/purge', [RcmController::class, 'purgeAllClaims']);
 

@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\BillingTask;
 use App\Models\ChargeEntry;
 use App\Models\Claim;
 use App\Models\ClaimDenial;
 use App\Models\ClaimPayment;
 use App\Models\ClaimServiceLine;
 use App\Models\PaymentAllocation;
+use App\Models\User;
 use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
@@ -77,6 +79,23 @@ class RcmController extends Controller
     {
         $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $oldStatus = $claim->status;
+
+        // Mirror the write-off approval gate from writeOffClaim — a
+        // generic PUT shouldn't be a back door around the threshold.
+        // Triggers only when status is flipping TO written_off (not on
+        // edits to already-written-off claims).
+        if ($request->input('status') === 'written_off' && $oldStatus !== 'written_off') {
+            $amount = (float) ($request->input('balance', $claim->balance));
+            if (!\App\Support\WriteOffApproval::canApprove($request->user(), $amount)) {
+                return response()->json([
+                    'success' => false,
+                    'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                    'error' => 'writeoff_requires_approval',
+                    'threshold_usd' => \App\Support\WriteOffApproval::THRESHOLD_USD,
+                ], 403);
+            }
+        }
+
         $claim->update($request->only([
             'billing_client_id', 'claim_type', 'status', 'provider_id', 'provider_name',
             'patient_name', 'patient_dob', 'patient_member_id', 'payer_name', 'payer_id_number',
@@ -105,6 +124,416 @@ class RcmController extends Controller
     {
         Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Write off a claim balance.
+     *
+     * Adds {amount} to claim.adjustments, recalculates balance, and
+     * (when balance reaches 0) flips status to written_off. Above the
+     * WriteOffApproval threshold ($500), only agency-owner roles can
+     * complete this — staff billers get a 403 with the structured
+     * error 'writeoff_requires_approval' so the UI can prompt the
+     * operator to ask an owner.
+     *
+     * The reason text is appended to claim.notes with a marker line
+     * (\"[WRITE-OFF $X by user on date]\") so the history is queryable
+     * later without a separate write_offs table. Auditable trait on
+     * the Claim model records the full before/after diff in audit_logs.
+     */
+    public function writeOffClaim(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'required|string|max:1000',
+            'category' => 'nullable|string|max:50', // small_balance, charity, bad_debt, contractual, etc.
+        ]);
+        $amount = (float) $request->input('amount');
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId($request);
+
+        if (!\App\Support\WriteOffApproval::canApprove($user, $amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                'error' => 'writeoff_requires_approval',
+                'threshold_usd' => \App\Support\WriteOffApproval::THRESHOLD_USD,
+            ], 403);
+        }
+
+        $claim = Claim::where('agency_id', $agencyId)->findOrFail($id);
+
+        // Don't allow writing off more than the outstanding balance —
+        // would put adjustments above charges and produce a negative
+        // balance which the UI can't reason about.
+        $outstanding = (float) $claim->balance;
+        if ($amount > $outstanding + 0.005) {
+            return response()->json([
+                'success' => false,
+                'message' => sprintf(
+                    'Write-off amount $%s exceeds the outstanding balance of $%s.',
+                    number_format($amount, 2),
+                    number_format($outstanding, 2),
+                ),
+                'error' => 'writeoff_exceeds_balance',
+            ], 422);
+        }
+
+        $this->applyWriteOff($claim, $amount, (string) $request->input('reason'), $request->input('category'), $user, $user);
+
+        $claim->load(['serviceLines', 'billingClient:id,organization_name']);
+        return response()->json(['success' => true, 'data' => $claim]);
+    }
+
+    /**
+     * Apply the actual write-off math. Extracted so both the direct
+     * writeOffClaim flow and the approveWriteOffRequest queue flow
+     * land on identical math, marker formatting, and webhook firing.
+     *
+     * $appliedBy is the user whose name appears on the marker line —
+     * for direct write-offs this equals $approver; for queued
+     * approvals it's the approver, with the original requester
+     * referenced inside the reason text.
+     */
+    private function applyWriteOff(Claim $claim, float $amount, string $reason, ?string $category, User $appliedBy, User $approver): void
+    {
+        \DB::transaction(function () use ($claim, $amount, $reason, $category, $appliedBy, $approver) {
+            $oldStatus = $claim->status;
+            $stamp = now()->format('Y-m-d');
+            $byLabel = $appliedBy->id === $approver->id
+                ? ($appliedBy->email ?: ('user#' . $appliedBy->id))
+                : sprintf(
+                    '%s (approved by %s)',
+                    $appliedBy->email ?: ('user#' . $appliedBy->id),
+                    $approver->email ?: ('user#' . $approver->id),
+                );
+            $marker = sprintf(
+                '[WRITE-OFF $%s%s by %s on %s] %s',
+                number_format($amount, 2),
+                $category ? " · {$category}" : '',
+                $byLabel,
+                $stamp,
+                trim($reason),
+            );
+            $claim->adjustments = ((float) $claim->adjustments) + $amount;
+            $claim->balance = ((float) $claim->total_charges) - ((float) $claim->total_paid) - ((float) $claim->adjustments);
+            if ($claim->balance <= 0.005) {
+                $claim->balance = 0;
+                $claim->status = 'written_off';
+            }
+            $claim->notes = $claim->notes
+                ? rtrim($claim->notes) . "\n" . $marker
+                : $marker;
+            $claim->save();
+
+            $this->fireClaimStatusEvent($claim, $oldStatus);
+        });
+    }
+
+    // ── Write-off approval queue ──
+    // Staff billers below the approval threshold ($500) submit
+    // requests via POST /rcm/claims/{id}/write-off/request. The
+    // request rides on the existing billing_tasks table with
+    // category='writeoff_approval' and a JSON sentinel encoded into
+    // description. Owners see the queue at GET /rcm/write-off-requests
+    // and approve/reject. On approve, the same applyWriteOff() path
+    // runs so the math + audit + webhooks are identical to a direct
+    // owner write-off.
+    private const WO_SENTINEL = '<<WRITEOFF_REQUEST';
+    private const WO_SENTINEL_CLOSE = '>>';
+
+    private function woEncode(array $payload): string
+    {
+        return self::WO_SENTINEL . ' ' . json_encode($payload, JSON_UNESCAPED_SLASHES) . self::WO_SENTINEL_CLOSE;
+    }
+
+    private function woDecode(?string $description): ?array
+    {
+        if (!$description) return null;
+        $start = strpos($description, self::WO_SENTINEL);
+        if ($start === false) return null;
+        $jsonStart = $start + strlen(self::WO_SENTINEL) + 1;
+        $end = strpos($description, self::WO_SENTINEL_CLOSE, $jsonStart);
+        if ($end === false) return null;
+        $json = substr($description, $jsonStart, $end - $jsonStart);
+        $decoded = json_decode($json, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    public function requestWriteOff(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'amount' => 'required|numeric|min:0.01',
+            'reason' => 'required|string|max:1000',
+            'category' => 'nullable|string|max:50',
+        ]);
+        $amount = (float) $request->input('amount');
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId($request);
+
+        // If the user could just approve it themselves, skip the
+        // queue entirely — they shouldn't have to wait on their own
+        // approval. Routes the call through the direct endpoint
+        // semantically by returning a hint.
+        if (\App\Support\WriteOffApproval::canApprove($user, $amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'You can complete this write-off directly — no request needed.',
+                'error' => 'can_approve_directly',
+            ], 422);
+        }
+
+        $claim = Claim::where('agency_id', $agencyId)->findOrFail($id);
+        $outstanding = (float) $claim->balance;
+        if ($amount > $outstanding + 0.005) {
+            return response()->json([
+                'success' => false,
+                'message' => sprintf(
+                    'Requested write-off $%s exceeds the outstanding balance of $%s.',
+                    number_format($amount, 2),
+                    number_format($outstanding, 2),
+                ),
+                'error' => 'writeoff_exceeds_balance',
+            ], 422);
+        }
+
+        // Dedup: if there's already a pending request for this claim,
+        // surface that instead of creating a second one. Owners get
+        // one queue item per claim, not three.
+        $existing = BillingTask::where('agency_id', $agencyId)
+            ->where('category', 'writeoff_approval')
+            ->where('claim_id', $claim->id)
+            ->whereIn('status', ['pending', 'in_progress'])
+            ->first();
+        if ($existing) {
+            return response()->json([
+                'success' => false,
+                'message' => 'A write-off request for this claim is already pending owner approval.',
+                'error' => 'request_already_pending',
+                'existing_task_id' => $existing->id,
+            ], 409);
+        }
+
+        $reason = trim((string) $request->input('reason'));
+        $category = $request->input('category');
+        $payload = [
+            'amount' => $amount,
+            'reason' => $reason,
+            'category' => $category,
+            'claim_id' => $claim->id,
+            'claim_number' => $claim->claim_number,
+            'patient_name' => $claim->patient_name,
+            'payer_name' => $claim->payer_name,
+            'outstanding' => $outstanding,
+            'requested_by' => $user->id,
+            'requested_by_email' => $user->email,
+            'requested_at' => now()->toIso8601String(),
+        ];
+        $description = sprintf(
+            "Staff biller %s is requesting approval to write off \$%s on claim %s (%s, %s). Reason: %s\n\n%s",
+            $user->email ?: ('user#' . $user->id),
+            number_format($amount, 2),
+            $claim->claim_number ?: '#' . $claim->id,
+            $claim->patient_name ?: 'patient',
+            $claim->payer_name ?: 'payer',
+            $reason,
+            $this->woEncode($payload),
+        );
+
+        $task = BillingTask::create([
+            'agency_id' => $agencyId,
+            'billing_client_id' => $claim->billing_client_id,
+            'claim_id' => $claim->id,
+            'title' => sprintf('Approve $%s write-off — %s', number_format($amount, 2), $claim->patient_name ?: ('claim ' . ($claim->claim_number ?: $claim->id))),
+            'description' => $description,
+            'provider_name' => $claim->provider_name,
+            'category' => 'writeoff_approval',
+            'priority' => $amount >= 2000 ? 'urgent' : 'high',
+            'status' => 'pending',
+            'due_date' => now()->addDays(3)->toDateString(),
+            'created_by' => $user->id,
+            'source' => 'writeoff_request',
+            'source_key' => 'writeoff:' . $claim->id,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $task], 201);
+    }
+
+    public function listWriteOffRequests(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $status = $request->input('status', 'pending'); // pending | completed | cancelled | all
+        $q = BillingTask::where('agency_id', $agencyId)
+            ->where('category', 'writeoff_approval')
+            ->orderByDesc('created_at');
+        if ($status !== 'all') {
+            $q->where('status', $status);
+        }
+        $tasks = $q->limit(200)->get()->map(function ($t) {
+            $payload = $this->woDecode($t->description) ?? [];
+            return [
+                'id' => $t->id,
+                'title' => $t->title,
+                'status' => $t->status,
+                'priority' => $t->priority,
+                'claim_id' => $t->claim_id,
+                'billing_client_id' => $t->billing_client_id,
+                'due_date' => $t->due_date,
+                'created_at' => $t->created_at,
+                'completed_at' => $t->completed_at,
+                'created_by' => $t->created_by,
+                'assigned_to' => $t->assigned_to,
+                'amount' => $payload['amount'] ?? null,
+                'reason' => $payload['reason'] ?? null,
+                'category' => $payload['category'] ?? null,
+                'claim_number' => $payload['claim_number'] ?? null,
+                'patient_name' => $payload['patient_name'] ?? null,
+                'payer_name' => $payload['payer_name'] ?? null,
+                'outstanding' => $payload['outstanding'] ?? null,
+                'requested_by_email' => $payload['requested_by_email'] ?? null,
+                'requested_at' => $payload['requested_at'] ?? null,
+            ];
+        });
+
+        return response()->json(['success' => true, 'data' => $tasks]);
+    }
+
+    public function approveWriteOffRequest(Request $request, int $taskId): JsonResponse
+    {
+        $approver = $request->user();
+        $agencyId = $approver->effectiveAgencyId($request);
+        $task = BillingTask::where('agency_id', $agencyId)
+            ->where('category', 'writeoff_approval')
+            ->findOrFail($taskId);
+
+        if ($task->status === 'completed' || $task->status === 'cancelled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This request has already been ' . $task->status . '.',
+                'error' => 'request_already_resolved',
+            ], 409);
+        }
+
+        $payload = $this->woDecode($task->description);
+        if (!$payload || !isset($payload['amount'], $payload['claim_id'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Request payload is corrupt — cannot complete write-off.',
+                'error' => 'payload_corrupt',
+            ], 422);
+        }
+
+        $amount = (float) $payload['amount'];
+
+        // The approver themselves must clear the threshold — a staff
+        // user can't "approve" their own request for $1,500 by
+        // hitting this endpoint.
+        if (!\App\Support\WriteOffApproval::canApprove($approver, $amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                'error' => 'writeoff_requires_approval',
+                'threshold_usd' => \App\Support\WriteOffApproval::THRESHOLD_USD,
+            ], 403);
+        }
+
+        $claim = Claim::where('agency_id', $agencyId)->find($payload['claim_id']);
+        if (!$claim) {
+            // Claim deleted between request and approval — cancel
+            // the task rather than blow up.
+            $task->status = 'cancelled';
+            $task->completed_at = now();
+            $task->description = rtrim($task->description) . "\n\n[CANCELLED: claim no longer exists]";
+            $task->save();
+            return response()->json([
+                'success' => false,
+                'message' => 'The underlying claim no longer exists. Request cancelled.',
+                'error' => 'claim_not_found',
+            ], 410);
+        }
+
+        // Re-validate the outstanding balance — a payment may have
+        // landed between request and approval, reducing the balance
+        // below the requested amount.
+        $outstanding = (float) $claim->balance;
+        if ($amount > $outstanding + 0.005) {
+            return response()->json([
+                'success' => false,
+                'message' => sprintf(
+                    'Outstanding balance is now $%s, less than the requested $%s. Reject this request or have the staff biller submit a new one.',
+                    number_format($outstanding, 2),
+                    number_format($amount, 2),
+                ),
+                'error' => 'balance_changed',
+                'new_outstanding' => $outstanding,
+            ], 422);
+        }
+
+        $requester = $payload['requested_by'] ? User::find($payload['requested_by']) : null;
+        $appliedBy = $requester ?: $approver;
+        $reason = (string) ($payload['reason'] ?? '');
+
+        $this->applyWriteOff($claim, $amount, $reason, $payload['category'] ?? null, $appliedBy, $approver);
+
+        $task->status = 'completed';
+        $task->completed_at = now();
+        $task->assigned_to = $approver->id;
+        $task->description = rtrim($task->description) . sprintf(
+            "\n\n[APPROVED by %s on %s]",
+            $approver->email ?: ('user#' . $approver->id),
+            now()->format('Y-m-d H:i'),
+        );
+        $task->save();
+
+        $claim->load(['serviceLines', 'billingClient:id,organization_name']);
+        return response()->json(['success' => true, 'data' => ['claim' => $claim, 'task_id' => $task->id]]);
+    }
+
+    public function rejectWriteOffRequest(Request $request, int $taskId): JsonResponse
+    {
+        $request->validate([
+            'reason' => 'nullable|string|max:1000',
+        ]);
+        $approver = $request->user();
+        $agencyId = $approver->effectiveAgencyId($request);
+        $task = BillingTask::where('agency_id', $agencyId)
+            ->where('category', 'writeoff_approval')
+            ->findOrFail($taskId);
+
+        if ($task->status === 'completed' || $task->status === 'cancelled') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This request has already been ' . $task->status . '.',
+                'error' => 'request_already_resolved',
+            ], 409);
+        }
+
+        // Same role check as approve — only owner-level users can
+        // resolve a request. Below-threshold users can't reject
+        // their colleagues' requests either.
+        $payload = $this->woDecode($task->description) ?: [];
+        $amount = (float) ($payload['amount'] ?? 0);
+        if (!\App\Support\WriteOffApproval::canApprove($approver, $amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                'error' => 'writeoff_requires_approval',
+            ], 403);
+        }
+
+        $rejectReason = trim((string) $request->input('reason', ''));
+        $task->status = 'cancelled';
+        $task->completed_at = now();
+        $task->assigned_to = $approver->id;
+        $task->description = rtrim($task->description) . sprintf(
+            "\n\n[REJECTED by %s on %s] %s",
+            $approver->email ?: ('user#' . $approver->id),
+            now()->format('Y-m-d H:i'),
+            $rejectReason ?: 'No reason given.',
+        );
+        $task->save();
+
+        return response()->json(['success' => true, 'data' => $task]);
     }
 
     public function bulkImportClaims(Request $request): JsonResponse
