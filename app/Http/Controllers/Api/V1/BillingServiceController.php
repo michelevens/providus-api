@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\Application;
 use App\Models\BillingActivity;
 use App\Models\BillingClient;
 use App\Models\BillingFinancial;
@@ -11,7 +12,10 @@ use App\Models\Claim;
 use App\Models\ClaimDenial;
 use App\Models\ClaimPayment;
 use App\Models\ClientPaymentLedger;
+use App\Models\License;
+use App\Models\Provider;
 use App\Services\BrandingResolver;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -107,6 +111,265 @@ class BillingServiceController extends Controller
         $client = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $client->delete();
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Monthly statement — a single document the agency hands to a
+     * client org each month showing what the agency did for them.
+     *
+     * Combines two service lines:
+     *   - RCM (when the client has claims in our ledger)
+     *   - Credentialing (when the client's org has applications/providers)
+     *
+     * Sections auto-hide when there's nothing to report — a client who
+     * only buys credentialing gets a credentialing-only statement, no
+     * empty "Claims activity" panel with zeros.
+     *
+     * NOT a P&L: we don't see payroll/rent/taxes. NOT an invoice (those
+     * live at /invoices). This is a "what we did for you this period"
+     * recap, period.
+     *
+     * Period: 'YYYY-MM' (e.g. '2026-04'). Defaults to last calendar month.
+     */
+    public function monthlyStatement(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $client = BillingClient::where('agency_id', $agencyId)
+            ->with(['organization:id,name'])
+            ->findOrFail($id);
+
+        // Period parsing. Default = previous calendar month so end-of-
+        // month statements work without a date picker on the happy path.
+        $periodInput = $request->input('period');
+        $period = $periodInput
+            ? Carbon::createFromFormat('Y-m', $periodInput)?->startOfMonth()
+            : Carbon::now()->subMonthNoOverflow()->startOfMonth();
+        if (!$period) {
+            return response()->json(['success' => false, 'error' => 'Invalid period — use YYYY-MM'], 422);
+        }
+        $start = $period->copy()->startOfMonth();
+        $end = $period->copy()->endOfMonth();
+
+        // ─── RCM section ─────────────────────────────────────────────
+        // Scope: all claims for this billing client. We compute two
+        // overlapping windows: "activity in period" (anything that was
+        // submitted, paid, or denied during the month — what we did
+        // for them) and "outstanding A/R" (anything still open, no
+        // matter when it was submitted — what we're chasing for them).
+        $claimsBase = Claim::where('agency_id', $agencyId)
+            ->where('billing_client_id', $client->id);
+        $totalClaimsForClient = (clone $claimsBase)->count();
+
+        $rcm = null;
+        if ($totalClaimsForClient > 0) {
+            $submittedInPeriod = (clone $claimsBase)
+                ->whereBetween('submitted_date', [$start, $end])
+                ->get(['id', 'claim_number', 'patient_name', 'payer_name', 'total_charges', 'date_of_service', 'submitted_date', 'status']);
+            $paidInPeriod = (clone $claimsBase)
+                ->whereBetween('paid_date', [$start, $end])
+                ->where('total_paid', '>', 0)
+                ->get(['id', 'claim_number', 'patient_name', 'provider_name', 'payer_name', 'total_charges', 'total_paid', 'paid_date', 'check_number']);
+            $deniedInPeriod = ClaimDenial::where('agency_id', $agencyId)
+                ->whereHas('claim', fn ($q) => $q->where('billing_client_id', $client->id))
+                ->whereBetween('denial_date', [$start, $end])
+                ->with('claim:id,claim_number,patient_name,payer_name,total_charges')
+                ->get();
+
+            // Outstanding A/R right now (point-in-time, not period-scoped).
+            $TERMINAL = ['paid', 'denied', 'written_off', 'closed', 'voided', 'rejected', 'recouped', 'cancelled'];
+            $openClaims = (clone $claimsBase)
+                ->where('balance', '>', 0)
+                ->whereNotIn('status', $TERMINAL)
+                ->get(['id', 'claim_number', 'patient_name', 'payer_name', 'date_of_service', 'submitted_date', 'total_charges', 'total_paid', 'balance', 'status', 'created_at']);
+            $aging = ['0-30' => 0.0, '31-60' => 0.0, '61-90' => 0.0, '90+' => 0.0];
+            $agingCounts = ['0-30' => 0, '31-60' => 0, '61-90' => 0, '90+' => 0];
+            foreach ($openClaims as $c) {
+                $clockFrom = $c->submitted_date ?: $c->date_of_service ?: $c->created_at;
+                $days = $clockFrom ? Carbon::parse($clockFrom)->diffInDays(now()) : 0;
+                $bucket = $days <= 30 ? '0-30' : ($days <= 60 ? '31-60' : ($days <= 90 ? '61-90' : '90+'));
+                $aging[$bucket] += (float) $c->balance;
+                $agingCounts[$bucket]++;
+            }
+
+            // Top denial reasons in period.
+            $denialReasons = [];
+            foreach ($deniedInPeriod as $d) {
+                $reason = $d->denial_reason ?: ($d->denial_code ?: 'Unspecified');
+                if (!isset($denialReasons[$reason])) $denialReasons[$reason] = ['count' => 0, 'amount' => 0.0];
+                $denialReasons[$reason]['count']++;
+                $denialReasons[$reason]['amount'] += (float) ($d->denied_amount ?: 0);
+            }
+            uasort($denialReasons, fn ($a, $b) => $b['count'] - $a['count']);
+            $topDenialReasons = array_slice(
+                array_map(fn ($k, $v) => ['reason' => $k, 'count' => $v['count'], 'amount' => round($v['amount'], 2)],
+                    array_keys($denialReasons), array_values($denialReasons)),
+                0, 5);
+
+            // Payer mix from paid-in-period.
+            $payerMix = [];
+            foreach ($paidInPeriod as $p) {
+                $payer = $p->payer_name ?: 'Unknown';
+                if (!isset($payerMix[$payer])) $payerMix[$payer] = ['paid' => 0.0, 'claims' => 0];
+                $payerMix[$payer]['paid'] += (float) $p->total_paid;
+                $payerMix[$payer]['claims']++;
+            }
+            uasort($payerMix, fn ($a, $b) => $b['paid'] <=> $a['paid']);
+            $payerMix = array_map(fn ($k, $v) => ['payer' => $k, 'paid' => round($v['paid'], 2), 'claims' => $v['claims']],
+                array_keys($payerMix), array_values($payerMix));
+
+            // Per-provider productivity.
+            $byProvider = [];
+            foreach ($paidInPeriod as $p) {
+                $prov = $p->provider_name ?: 'Unassigned';
+                if (!isset($byProvider[$prov])) $byProvider[$prov] = ['paid' => 0.0, 'claims' => 0, 'billed' => 0.0];
+                $byProvider[$prov]['paid'] += (float) $p->total_paid;
+                $byProvider[$prov]['billed'] += (float) $p->total_charges;
+                $byProvider[$prov]['claims']++;
+            }
+            uasort($byProvider, fn ($a, $b) => $b['paid'] <=> $a['paid']);
+            $byProvider = array_map(fn ($k, $v) => [
+                'provider' => $k,
+                'claims' => $v['claims'],
+                'billed' => round($v['billed'], 2),
+                'paid' => round($v['paid'], 2),
+            ], array_keys($byProvider), array_values($byProvider));
+
+            $rcm = [
+                'submitted_count' => $submittedInPeriod->count(),
+                'submitted_charges' => round($submittedInPeriod->sum('total_charges'), 2),
+                'paid_count' => $paidInPeriod->count(),
+                'paid_amount' => round($paidInPeriod->sum('total_paid'), 2),
+                'paid_charges' => round($paidInPeriod->sum('total_charges'), 2),
+                'denied_count' => $deniedInPeriod->count(),
+                'denied_amount' => round($deniedInPeriod->sum('denied_amount'), 2),
+                'open_ar_total' => round(array_sum($aging), 2),
+                'open_ar_count' => array_sum($agingCounts),
+                'aging' => array_map(fn ($k) => [
+                    'bucket' => $k,
+                    'amount' => round($aging[$k], 2),
+                    'count' => $agingCounts[$k],
+                ], array_keys($aging)),
+                'top_denial_reasons' => $topDenialReasons,
+                'payer_mix' => array_slice($payerMix, 0, 10),
+                'by_provider' => $byProvider,
+            ];
+        }
+
+        // ─── Credentialing section ───────────────────────────────────
+        // Scope: applications for this client's organization. We don't
+        // store applications against billing_client directly today;
+        // they're org-scoped. Joining via organization_id is the right
+        // bridge.
+        $credentialing = null;
+        if ($client->organization_id) {
+            $appsBase = Application::where('agency_id', $agencyId)
+                ->where('organization_id', $client->organization_id);
+            $totalApps = (clone $appsBase)->count();
+            if ($totalApps > 0) {
+                $submittedApps = (clone $appsBase)
+                    ->whereBetween('submitted_date', [$start, $end])
+                    ->get(['id', 'state', 'payer_name', 'submitted_date', 'status']);
+                // "Approved" can land via either status='approved' or 'credentialed'.
+                $approvedApps = (clone $appsBase)
+                    ->whereIn('status', ['approved', 'credentialed'])
+                    ->whereBetween('effective_date', [$start, $end])
+                    ->get(['id', 'state', 'payer_name', 'effective_date', 'status']);
+                $inFlight = (clone $appsBase)
+                    ->whereIn('status', ['submitted', 'in_review', 'pending_info', 'gathering_docs'])
+                    ->get(['id', 'state', 'payer_name', 'status', 'submitted_date']);
+                $needsClientAction = (clone $appsBase)
+                    ->where('status', 'pending_info')
+                    ->get(['id', 'state', 'payer_name', 'submitted_date']);
+
+                // Expirations: licenses + DEA in next 90 days for the
+                // org's providers. Provider list is everyone with an
+                // application under this org.
+                $providerIds = (clone $appsBase)->whereNotNull('provider_id')->pluck('provider_id')->unique()->all();
+                $expiring = [];
+                if (!empty($providerIds)) {
+                    $horizon = now()->addDays(90);
+                    $expiring = License::where('agency_id', $agencyId)
+                        ->whereIn('provider_id', $providerIds)
+                        ->whereNotNull('expiration_date')
+                        ->whereBetween('expiration_date', [now(), $horizon])
+                        ->orderBy('expiration_date')
+                        ->with('provider:id,first_name,last_name')
+                        ->get()
+                        ->map(fn ($l) => [
+                            'type' => 'license',
+                            'state' => $l->state,
+                            'license_number' => $l->license_number,
+                            'license_type' => $l->license_type,
+                            'expiration_date' => $l->expiration_date?->format('Y-m-d'),
+                            'provider_name' => $l->provider ? trim($l->provider->first_name . ' ' . $l->provider->last_name) : null,
+                        ])->all();
+                }
+
+                $providerCount = Provider::where('agency_id', $agencyId)
+                    ->whereIn('id', $providerIds ?: [0])
+                    ->count();
+
+                $credentialing = [
+                    'provider_count' => $providerCount,
+                    'submitted_count' => $submittedApps->count(),
+                    'approved_count' => $approvedApps->count(),
+                    'in_flight_count' => $inFlight->count(),
+                    'needs_action_count' => $needsClientAction->count(),
+                    'expiring_count' => count($expiring),
+                    'submitted' => $submittedApps->map(fn ($a) => [
+                        'id' => $a->id, 'state' => $a->state, 'payer' => $a->payer_name,
+                        'submitted_date' => $a->submitted_date?->format('Y-m-d'), 'status' => $a->status,
+                    ]),
+                    'approved' => $approvedApps->map(fn ($a) => [
+                        'id' => $a->id, 'state' => $a->state, 'payer' => $a->payer_name,
+                        'effective_date' => $a->effective_date?->format('Y-m-d'),
+                    ]),
+                    'in_flight' => $inFlight->map(fn ($a) => [
+                        'id' => $a->id, 'state' => $a->state, 'payer' => $a->payer_name, 'status' => $a->status,
+                        'submitted_date' => $a->submitted_date?->format('Y-m-d'),
+                    ]),
+                    'needs_client_action' => $needsClientAction->map(fn ($a) => [
+                        'id' => $a->id, 'state' => $a->state, 'payer' => $a->payer_name,
+                        'submitted_date' => $a->submitted_date?->format('Y-m-d'),
+                    ]),
+                    'expiring' => $expiring,
+                ];
+            }
+        }
+
+        // ─── Agency fees this period (for context, not invoice replacement) ─
+        $financials = BillingFinancial::where('billing_client_id', $client->id)
+            ->whereBetween('period_start', [$start, $end])
+            ->get();
+        $feesThisPeriod = round($financials->sum('agency_fee'), 2);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'client' => [
+                    'id' => $client->id,
+                    'organization_name' => $client->organization_name,
+                    'contact_name' => $client->contact_name,
+                    'contact_email' => $client->contact_email,
+                    'display_name' => $client->display_name,
+                    'logo_url' => $client->logo_url,
+                ],
+                'agency' => [
+                    'name' => $request->user()->agency?->name,
+                    'contact_email' => $request->user()->agency?->config?->public_email ?? null,
+                ],
+                'period' => $start->format('Y-m'),
+                'period_label' => $start->format('F Y'),
+                'period_start' => $start->format('Y-m-d'),
+                'period_end' => $end->format('Y-m-d'),
+                'generated_at' => now()->toIso8601String(),
+                'rcm' => $rcm,
+                'credentialing' => $credentialing,
+                'fees_this_period' => $feesThisPeriod,
+                'has_rcm' => $rcm !== null,
+                'has_credentialing' => $credentialing !== null,
+            ],
+        ]);
     }
 
     // ── Per-practice branding override ──

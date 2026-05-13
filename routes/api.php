@@ -422,6 +422,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/billing-clients/{id}/ledger', [BillingServiceController::class, 'getLedger']);
     Route::get('/billing-clients/{id}/branding', [BillingServiceController::class, 'getClientBranding']);
     Route::put('/billing-clients/{id}/branding', [BillingServiceController::class, 'updateClientBranding']);
+    // Monthly statement — RCM + Credentialing recap for a billing client.
+    // Period defaults to last calendar month; pass ?period=YYYY-MM to override.
+    Route::get('/billing-clients/{id}/monthly-statement', [BillingServiceController::class, 'monthlyStatement']);
     Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance']);
 
     Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);
