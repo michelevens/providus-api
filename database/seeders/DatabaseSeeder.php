@@ -28,6 +28,7 @@ class DatabaseSeeder extends Seeder
             TelehealthPolicySeeder::class,
             DocumentTypeSeeder::class,
             CptCodeSeeder::class,
+            MedicareRateSeeder::class,
             PlaceOfServiceSeeder::class,
             BillingModifierSeeder::class,
             LicenseTypeSeeder::class,

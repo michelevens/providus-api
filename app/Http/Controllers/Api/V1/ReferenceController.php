@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
+use App\Models\MedicareRate;
 use App\Models\Payer;
 use App\Models\TelehealthPolicy;
 use App\Models\TaxonomyCode;
@@ -96,5 +97,80 @@ class ReferenceController extends Controller
         }
 
         return response()->json(['success' => true, 'data' => $query->orderBy('name')->get()]);
+    }
+
+    /**
+     * Medicare rates — batch lookup keyed by CPT.
+     *
+     * Query params:
+     *   cpts[]   — array of CPT codes (required)
+     *   state    — 2-char USPS code; falls back to national → any
+     *   year     — defaults to current year, then most-recent on file
+     *   modifier — optional, exact match
+     *
+     * Returns { cpt: { cpt, rate, facility_rate, state, year, ... } }.
+     * Caps at 200 CPTs per request — anything bigger is almost
+     * certainly a bug in the caller.
+     */
+    public function medicareRates(Request $request): JsonResponse
+    {
+        $cpts = (array) $request->input('cpts', []);
+        $cpts = array_values(array_unique(array_filter(array_map('strval', $cpts), fn ($c) => $c !== '')));
+        if (empty($cpts)) {
+            return response()->json(['success' => true, 'data' => (object) []]);
+        }
+        if (count($cpts) > 200) {
+            return response()->json([
+                'success' => false,
+                'error' => 'Too many CPTs requested. Max 200 per call.',
+            ], 422);
+        }
+
+        $state = $request->input('state');
+        $year = $request->input('year') ? (int) $request->input('year') : null;
+        $modifier = $request->input('modifier');
+
+        $q = MedicareRate::query()->whereIn('cpt_code', $cpts);
+        if ($year) $q->where('year', $year);
+        if ($modifier) $q->where('modifier', $modifier);
+        $rows = $q->orderByDesc('year')->orderByDesc('effective_date')->get();
+
+        // Group by cpt, pick the best match per locality fallback.
+        $out = [];
+        foreach ($rows as $r) {
+            $cpt = $r->cpt_code;
+            if (!isset($out[$cpt])) {
+                $out[$cpt] = $r;
+                continue;
+            }
+            // Already have one — keep current unless this is a better match.
+            $cur = $out[$cpt];
+            if ($state) {
+                if ($r->state === $state && $cur->state !== $state) {
+                    $out[$cpt] = $r;
+                } elseif ($cur->state !== $state && $cur->state !== null && $r->state === null) {
+                    $out[$cpt] = $r;
+                }
+            }
+        }
+
+        // Serialize compactly — the frontend only needs a few fields.
+        $payload = [];
+        foreach ($out as $cpt => $r) {
+            $payload[$cpt] = [
+                'cpt' => $cpt,
+                'rate' => (float) $r->non_facility_rate,
+                'facility_rate' => $r->facility_rate !== null ? (float) $r->facility_rate : null,
+                'state' => $r->state,
+                'locality_code' => $r->locality_code,
+                'modifier' => $r->modifier,
+                'year' => $r->year,
+                'effective_date' => $r->effective_date?->format('Y-m-d'),
+                'description' => $r->cpt_description,
+                'source' => $r->source,
+            ];
+        }
+
+        return response()->json(['success' => true, 'data' => $payload]);
     }
 }

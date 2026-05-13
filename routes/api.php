@@ -80,6 +80,10 @@ Route::prefix('reference')->group(function () {
     Route::get('/telehealth-policies', [ReferenceController::class, 'telehealthPolicies']);
     Route::get('/taxonomy-codes', [ReferenceController::class, 'taxonomyCodes']);
     Route::get('/payers', [ReferenceController::class, 'payers']);
+    // MPFS rates — query by ?cpts[]=99214&cpts[]=90791&state=FL&year=2026.
+    // Returns a map { cpt: { rate, state, year, modifier, ... } } so the
+    // PayerDetail CPT-analysis tab can fetch every rate in one round trip.
+    Route::get('/medicare-rates', [ReferenceController::class, 'medicareRates']);
 });
 
 /*
