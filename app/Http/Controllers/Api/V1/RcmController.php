@@ -920,6 +920,63 @@ class RcmController extends Controller
     }
 
     /**
+     * Single payment detail — used by the PaymentDetailPage in V2.
+     *
+     * Eager-loads everything the page needs in one round trip:
+     *   - billing client (for the practice name in the header)
+     *   - creator user (who entered it, if manual)
+     *   - allocations + each allocation's claim (patient, charges,
+     *     dates) so the allocations table renders without per-row
+     *     fetches
+     *   - audit_logs entries for this ClaimPayment AND for each of
+     *     its PaymentAllocations, merged + sorted newest-first.
+     *     Surfaces the full lifecycle of the money for an auditor:
+     *     who recorded it, when, what allocations changed and by whom.
+     */
+    public function showPayment(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $payment = ClaimPayment::where('agency_id', $agencyId)
+            ->with([
+                'billingClient:id,organization_name,contact_name',
+                'creator:id,email,first_name,last_name',
+                'allocations' => function ($q) {
+                    $q->with(['claim:id,claim_number,patient_name,date_of_service,total_charges,total_paid,balance,status']);
+                },
+            ])
+            ->findOrFail($id);
+
+        // Pull the audit trail. Both ClaimPayment + PaymentAllocation
+        // carry the Auditable trait so writes are captured automatically.
+        // We merge the streams so the operator sees one chronological
+        // history rather than two separate logs.
+        $paymentLogs = \App\Models\AuditLog::where('auditable_type', \App\Models\ClaimPayment::class)
+            ->where('auditable_id', $payment->id)
+            ->orderByDesc('created_at')
+            ->limit(100)
+            ->get();
+        $allocationIds = $payment->allocations->pluck('id')->all();
+        $allocationLogs = empty($allocationIds)
+            ? collect()
+            : \App\Models\AuditLog::where('auditable_type', \App\Models\PaymentAllocation::class)
+                ->whereIn('auditable_id', $allocationIds)
+                ->orderByDesc('created_at')
+                ->limit(100)
+                ->get();
+        $auditTrail = $paymentLogs->concat($allocationLogs)
+            ->sortByDesc('created_at')
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'payment' => $payment,
+                'audit_trail' => $auditTrail,
+            ],
+        ]);
+    }
+
+    /**
      * ERA import history. Synthesized from existing claim_payments by
      * coalescing trace_number with check_number. Reality of the data
      * layer (verified on prod 2026-05-12):
