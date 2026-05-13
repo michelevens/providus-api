@@ -447,6 +447,14 @@ Route::middleware('auth:sanctum')->group(function () {
     // threshold and keeps adjustments/balance math + note marker in
     // one server-side transaction. Returns 403 with the structured
     // error 'writeoff_requires_approval' when the user lacks the role.
+    // Stale-claim follow-up: run a 276 against Availity and persist
+    // the 277 response. Auto-promotes claim status when payer says
+    // paid/denied. Per-row UI button + Check-All bulk both call this.
+    Route::post('/rcm/claims/{id}/status-inquiry', [RcmController::class, 'statusInquiry']);
+    // Assignment / snooze / follow-up-date. Single + bulk variants.
+    // Single keeps the validation simple; bulk takes claim_ids[].
+    Route::patch('/rcm/claims/{id}/assignment', [RcmController::class, 'updateAssignment']);
+    Route::patch('/rcm/claims/bulk-assignment', [RcmController::class, 'bulkUpdateAssignment']);
     Route::post('/rcm/claims/{id}/write-off', [RcmController::class, 'writeOffClaim']);
     // Below-threshold staff can request approval; the request rides
     // on billing_tasks with category='writeoff_approval'. Owners see

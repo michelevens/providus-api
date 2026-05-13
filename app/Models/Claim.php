@@ -23,11 +23,15 @@ class Claim extends Model
         'submitted_date', 'acknowledged_date', 'adjudicated_date', 'paid_date',
         'check_number', 'denial_reason', 'denial_codes', 'appeal_deadline',
         'notes', 'created_by',
-        // Correction lineage. When a denial is fixed and resubmitted as
-        // a new claim, original_claim_id points back to the denied
-        // claim and corrected_from_denial_id points to the specific
-        // denial that triggered the correction.
         'original_claim_id', 'corrected_from_denial_id',
+        // Stale-claim follow-up workflow. last_status_* mirrors the
+        // most recent 276 response so the pending-claims UI can render
+        // "checked 2h ago, payer says: in-process" without re-querying.
+        // assigned_to / follow_up_due_date / snoozed_until / escalated
+        // drive the operator worklist.
+        'last_status_check_at', 'last_status_code', 'last_status_category',
+        'last_status_response', 'status_inquiry_count',
+        'assigned_to', 'follow_up_due_date', 'snoozed_until', 'escalated',
     ];
 
     protected $casts = [
@@ -44,6 +48,11 @@ class Claim extends Model
         'patient_responsibility' => 'decimal:2',
         'adjustments' => 'decimal:2',
         'balance' => 'decimal:2',
+        'last_status_check_at' => 'datetime',
+        'last_status_response' => 'array',
+        'follow_up_due_date' => 'date',
+        'snoozed_until' => 'date',
+        'escalated' => 'boolean',
     ];
 
     public function recalculate(): void
@@ -61,12 +70,14 @@ class Claim extends Model
     public function billingClient(): BelongsTo { return $this->belongsTo(BillingClient::class); }
     public function provider(): BelongsTo { return $this->belongsTo(Provider::class); }
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
+    public function assignedUser(): BelongsTo { return $this->belongsTo(User::class, 'assigned_to'); }
     public function serviceLines(): HasMany { return $this->hasMany(ClaimServiceLine::class); }
     public function denials(): HasMany { return $this->hasMany(ClaimDenial::class); }
     public function paymentAllocations(): HasMany { return $this->hasMany(PaymentAllocation::class); }
     public function followups(): HasMany { return $this->hasMany(PayerFollowup::class); }
     public function underpaymentFlags(): HasMany { return $this->hasMany(UnderpaymentFlag::class); }
     public function patientStatements(): HasMany { return $this->hasMany(PatientStatement::class); }
+    public function statusChecks(): HasMany { return $this->hasMany(ClaimStatusCheck::class)->orderByDesc('checked_at'); }
 
     // Correction lineage. originalClaim points to the denied claim
     // this one corrects; corrections is the reverse direction so

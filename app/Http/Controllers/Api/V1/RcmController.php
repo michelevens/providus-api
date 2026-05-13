@@ -9,8 +9,10 @@ use App\Models\Claim;
 use App\Models\ClaimDenial;
 use App\Models\ClaimPayment;
 use App\Models\ClaimServiceLine;
+use App\Models\ClaimStatusCheck;
 use App\Models\PaymentAllocation;
 use App\Models\User;
+use App\Services\AvailityService;
 use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
@@ -143,6 +145,168 @@ class RcmController extends Controller
     {
         Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * Run an Availity 276 claim-status inquiry against the payer and
+     * persist the 277 response. The pending-claims UI fires this from
+     * the per-row Check button and the Check All bulk action.
+     *
+     * Side effects when 277 says paid/denied:
+     *   - claims.last_status_* mirror the response
+     *   - claims.status_inquiry_count++
+     *   - claims.status auto-promotes to 'paid' or 'denied' so the
+     *     pending list shrinks without a manual update
+     * Each call also appends a row to claim_status_checks so we can
+     * trend "how often does Cigna's system say paid but ours says
+     * pending" per payer.
+     *
+     * Map of Availity statusCategory → claim status:
+     *   F1 (Finalized / Payment) → paid
+     *   F2 (Finalized / Denial)  → denied
+     *   F3 (Finalized / Revised) → leave alone (warrants manual review)
+     *   P* (Pending)             → leave alone
+     *   anything else            → leave alone
+     */
+    public function statusInquiry(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $claim = Claim::where('agency_id', $agencyId)->findOrFail($id);
+
+        $agency = $request->user()->agency;
+        $config = array_merge(
+            $agency->config ? $agency->config->toArray() : [],
+            [
+                'agency_id'   => $agency->id,
+                'agency_name' => $agency->name,
+                'agency_npi'  => $agency->npi ?? '',
+            ]
+        );
+
+        // Split patient_name "Last, First" or "First Last" so the
+        // payer matcher has something to work with. Availity won't
+        // return a hit on a mismatch, so this is load-bearing.
+        $firstName = '';
+        $lastName = '';
+        $name = trim((string) $claim->patient_name);
+        if (str_contains($name, ',')) {
+            [$lastName, $firstName] = array_pad(array_map('trim', explode(',', $name, 2)), 2, '');
+        } else {
+            $parts = preg_split('/\s+/', $name) ?: [];
+            $lastName = (string) array_pop($parts);
+            $firstName = implode(' ', $parts);
+        }
+
+        $payload = [
+            'payer_name'      => $claim->payer_name,
+            'payer_id'        => $claim->payer_id_number,
+            'claim_number'    => $claim->claim_number,
+            'first_name'      => $firstName,
+            'last_name'       => $lastName,
+            'date_of_birth'   => $claim->patient_dob,
+            'date_of_service' => $claim->date_of_service?->format('Y-m-d'),
+            'charge_amount'   => $claim->total_charges,
+            'provider_npi'    => $claim->provider?->npi ?? $agency->npi ?? '',
+        ];
+
+        $availity = app(AvailityService::class);
+        $result = $availity->checkClaimStatus($config, $payload);
+
+        if (!($result['success'] ?? false)) {
+            return response()->json([
+                'success' => false,
+                'error' => $result['error'] ?? 'Status inquiry failed',
+            ], 422);
+        }
+
+        $cs = $result['claimStatus'];
+        $statusCategory = (string) ($cs['statusCategory'] ?? '');
+        $paidAmount = (float) ($cs['paidAmount'] ?? 0);
+
+        ClaimStatusCheck::create([
+            'claim_id'        => $claim->id,
+            'checked_at'      => now(),
+            'source'          => 'availity',
+            'status_code'     => $cs['statusCode'] ?? null,
+            'status_category' => $statusCategory ?: null,
+            'status_text'     => $cs['status'] ?? null,
+            'paid_amount'     => $paidAmount ?: null,
+            'paid_date'       => $cs['paidDate'] ?: null,
+            'check_number'    => $cs['checkNumber'] ?: null,
+            'raw_response'    => $cs['raw'] ?? null,
+            'user_id'         => $request->user()->id,
+        ]);
+
+        $claim->last_status_check_at = now();
+        $claim->last_status_code = $cs['statusCode'] ?? null;
+        $claim->last_status_category = $statusCategory ?: null;
+        $claim->last_status_response = $cs;
+        $claim->status_inquiry_count = ($claim->status_inquiry_count ?? 0) + 1;
+
+        // Auto-promote when payer's system says finalized. The biller
+        // can still override later if the response is wrong.
+        if ($statusCategory === 'F1' && !in_array($claim->status, ['paid', 'denied', 'written_off'], true)) {
+            $claim->status = 'paid';
+            if ($paidAmount > 0 && !$claim->paid_date) {
+                $claim->paid_date = $cs['paidDate'] ?: now()->toDateString();
+            }
+        } elseif ($statusCategory === 'F2' && !in_array($claim->status, ['paid', 'denied', 'written_off'], true)) {
+            $claim->status = 'denied';
+        }
+
+        $claim->save();
+        $claim->load(['statusChecks' => fn ($q) => $q->limit(10)]);
+
+        return response()->json(['success' => true, 'data' => $claim, 'claim_status' => $cs]);
+    }
+
+    /**
+     * Update follow-up assignment on a claim. Accepts assigned_to,
+     * follow_up_due_date, snoozed_until, escalated. Null is allowed —
+     * use it to clear a field (unassign, un-snooze).
+     */
+    public function updateAssignment(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'assigned_to'        => 'nullable|integer|exists:users,id',
+            'follow_up_due_date' => 'nullable|date',
+            'snoozed_until'      => 'nullable|date',
+            'escalated'          => 'nullable|boolean',
+        ]);
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $claim = Claim::where('agency_id', $agencyId)->findOrFail($id);
+        $claim->fill($request->only(['assigned_to', 'follow_up_due_date', 'snoozed_until', 'escalated']));
+        $claim->save();
+        return response()->json(['success' => true, 'data' => $claim]);
+    }
+
+    /**
+     * Apply the same assignment patch to many claims at once. Used by
+     * the pending-claims bulk toolbar ("Assign 12 selected claims to
+     * Sarah, due Friday").
+     */
+    public function bulkUpdateAssignment(Request $request): JsonResponse
+    {
+        $request->validate([
+            'claim_ids'          => 'required|array|min:1',
+            'claim_ids.*'        => 'integer',
+            'assigned_to'        => 'nullable|integer|exists:users,id',
+            'follow_up_due_date' => 'nullable|date',
+            'snoozed_until'      => 'nullable|date',
+            'escalated'          => 'nullable|boolean',
+        ]);
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $patch = array_filter(
+            $request->only(['assigned_to', 'follow_up_due_date', 'snoozed_until', 'escalated']),
+            fn ($v) => $v !== null,
+        );
+        if (empty($patch)) {
+            return response()->json(['success' => false, 'error' => 'No fields to update'], 422);
+        }
+        $count = Claim::where('agency_id', $agencyId)
+            ->whereIn('id', $request->input('claim_ids'))
+            ->update($patch);
+        return response()->json(['success' => true, 'updated' => $count]);
     }
 
     /**
