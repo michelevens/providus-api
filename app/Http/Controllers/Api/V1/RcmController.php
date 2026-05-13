@@ -112,6 +112,14 @@ class RcmController extends Controller
                 ClaimServiceLine::create(['claim_id' => $claim->id, 'line_number' => $i + 1, ...$line]);
             }
             $claim->recalculate();
+        } elseif ($request->hasAny(['total_charges', 'total_paid', 'adjustments'])) {
+            // Operator edited a balance-relevant field directly (no
+            // service-line update). Recalculate balance server-side so
+            // the stored value can't drift from charges - paid - adj.
+            // Don't auto-flip status here — that's the operator's call
+            // via the status field, distinct from a typo correction.
+            $claim->balance = ((float) $claim->total_charges) - ((float) $claim->total_paid) - ((float) ($claim->adjustments ?? 0));
+            $claim->save();
         }
 
         $this->fireClaimStatusEvent($claim, $oldStatus);
