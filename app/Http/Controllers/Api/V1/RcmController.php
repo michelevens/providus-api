@@ -1057,6 +1057,15 @@ class RcmController extends Controller
                 'unmatched_count' => $unmatchedCount,
                 'posted' => $matchedCount,
                 'status' => $unmatchedCount > 0 ? 'partial' : 'posted',
+                // The primary ClaimPayment id for this ERA group —
+                // V2 uses it to deep-link the row's Check # + actions
+                // straight to /rcm/payments/:id. One ERA may have
+                // multiple payment rows (rare; usually one per 835
+                // file), so we expose the first/oldest by payment_date.
+                'payment_id' => $first->id,
+                // All ids in the group — V2 falls through to a
+                // payment-tab search filter when there's > 1.
+                'payment_ids' => $group->pluck('id')->all(),
             ];
         }
 
