@@ -1504,6 +1504,36 @@ class RcmController extends Controller
                         $claim->paid_date = $row['paid_date'] ?? now()->toDateString();
                         $claim->check_number = $checkNumber ?? $claim->check_number;
 
+                        // Pro-rate the paid amount across this claim's
+                        // service lines, weighted by line charges. Without
+                        // this, claims.total_paid is set but every line
+                        // shows paid_amount=0, which silently breaks every
+                        // CPT-level analysis downstream (rate analysis,
+                        // payer detail CPT tab, underpayments). We only
+                        // overwrite line paid_amount when (a) charges>0 to
+                        // get a divisor and (b) the current line value is
+                        // empty — never clobber a value an ERA importer
+                        // already wrote line-by-line.
+                        $serviceLines = $claim->serviceLines()->get();
+                        $sumLineCharges = $serviceLines->sum('charges');
+                        if ($sumLineCharges > 0) {
+                            $accumPaid = 0.0;
+                            $lastIdx = $serviceLines->count() - 1;
+                            foreach ($serviceLines as $idx => $sl) {
+                                if ((float) $sl->paid_amount > 0.005) continue;
+                                // Last line takes the rounding remainder
+                                // so the line sum equals the claim total
+                                // exactly. Prevents 1¢ drift breaking
+                                // recalculate() invariants later.
+                                $linePaid = $idx === $lastIdx
+                                    ? round($paidAmount - $accumPaid, 2)
+                                    : round($paidAmount * ((float) $sl->charges / $sumLineCharges), 2);
+                                $sl->paid_amount = max(0, $linePaid);
+                                $sl->save();
+                                $accumPaid += $sl->paid_amount;
+                            }
+                        }
+
                         // Dedup BEFORE we mint a synthetic check number,
                         // because the synthetic generator uses sequence
                         // counts that change every run — re-running the
