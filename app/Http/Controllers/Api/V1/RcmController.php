@@ -1321,8 +1321,44 @@ class RcmController extends Controller
                         $claim->paid_date = $row['paid_date'] ?? now()->toDateString();
                         $claim->check_number = $checkNumber ?? $claim->check_number;
 
-                        // Generate a check number if none provided so ALL payments create ClaimPayment records
-                        if (!$checkNumber) {
+                        // Dedup BEFORE we mint a synthetic check number,
+                        // because the synthetic generator uses sequence
+                        // counts that change every run — re-running the
+                        // same CSV would otherwise produce PAY-…-001,
+                        // PAY-…-002, PAY-…-003 for the same physical
+                        // payment. That's exactly how 15 duplicate
+                        // payments leaked into prod (3 dupe groups,
+                        // \$3,306 phantom dollars discovered 2026-05-13).
+                        //
+                        // Lookup order:
+                        //   1. Real check#/trace# from the CSV row
+                        //   2. Existing allocation for this claim from
+                        //      ANY payment (idempotent re-import of the
+                        //      same row finds the prior payment)
+                        //   3. Mint a synthetic check# (true first import)
+                        $existingPayment = null;
+                        if ($checkNumber) {
+                            // Real check number in the CSV — trust it.
+                            $existingPayment = ClaimPayment::where('agency_id', $agencyId)
+                                ->where('check_number', $checkNumber)->first();
+                        } else {
+                            // No real check number — look for an existing
+                            // allocation for this claim with the same
+                            // paid amount. If found, attach to that
+                            // payment instead of creating a duplicate.
+                            $existingAlloc = PaymentAllocation::where('claim_id', $claim->id)
+                                ->where('paid_amount', $paidAmount)
+                                ->whereHas('payment', fn ($q) => $q->where('agency_id', $agencyId))
+                                ->first();
+                            if ($existingAlloc) {
+                                $existingPayment = ClaimPayment::find($existingAlloc->claim_payment_id);
+                                $checkNumber = $existingPayment?->check_number;
+                                $claim->check_number = $checkNumber ?? $claim->check_number;
+                            }
+                        }
+
+                        // Truly new payment — mint a synthetic check number.
+                        if (!$existingPayment && !$checkNumber) {
                             $payDate = $row['paid_date'] ?? now()->toDateString();
                             $datePart = str_replace('-', '', substr($payDate, 0, 10));
                             $seqNum = ClaimPayment::where('agency_id', $agencyId)
@@ -1331,10 +1367,6 @@ class RcmController extends Controller
                             $checkNumber = "PAY-{$datePart}-" . str_pad($seqNum, 3, '0', STR_PAD_LEFT);
                             $claim->check_number = $checkNumber;
                         }
-
-                        // Create ClaimPayment record (dedupe by check_number + claim)
-                        $existingPayment = ClaimPayment::where('agency_id', $agencyId)
-                            ->where('check_number', $checkNumber)->first();
                         if (!$existingPayment) {
                             $existingPayment = ClaimPayment::create([
                                 'agency_id' => $agencyId,
