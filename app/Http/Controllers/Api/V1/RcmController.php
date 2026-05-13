@@ -1186,11 +1186,31 @@ class RcmController extends Controller
      */
     public function bulkMatchPayments(Request $request): JsonResponse
     {
-        $request->validate(['payments' => 'required|array|min:1|max:500']);
+        $request->validate([
+            'payments' => 'required|array|min:1|max:500',
+            // Optional reconciliation map: { "checkNumber": expectedTotal }.
+            // After the row loop, each ClaimPayment we touched gets
+            // recalculate()'d, then we compare its summed allocations
+            // against the expected total the operator supplied (which
+            // they read directly from the check face / EOB header).
+            // Mismatches → status='unbalanced' + included in response.
+            // Without this, the CSV path silently trusts "sum of rows"
+            // as the check total — which is wrong when the CSV is
+            // paginated or filtered (the 802379101 incident).
+            'check_totals' => 'nullable|array',
+            'check_totals.*' => 'numeric',
+        ]);
         $agencyId = $request->user()->effectiveAgencyId($request);
         $matched = 0;
         $created = 0;
         $errors = [];
+        // Track every ClaimPayment touched during the loop so we can
+        // recalculate() each at the end. Without this, posted_amount
+        // and remaining_amount drift from the actual sum of allocations
+        // — exactly how check 802379101 ended up showing posted_amount=$0
+        // with $9,161 of allocations linked.
+        $touchedPaymentIds = [];
+        $expectedTotals = (array) $request->input('check_totals', []);
 
         foreach ($request->payments as $i => $row) {
             // Per-row transaction: if any DB write inside this iteration
@@ -1336,6 +1356,10 @@ class RcmController extends Controller
                             ['claim_payment_id' => $existingPayment->id, 'claim_id' => $claim->id],
                             ['paid_amount' => $paidAmount, 'charged_amount' => $claim->total_charges, 'patient_responsibility' => $patientResp]
                         );
+                        // Mark for post-loop recalculate() so posted_amount
+                        // and remaining_amount reflect the actual sum of
+                        // allocations (not just the running increment).
+                        $touchedPaymentIds[$existingPayment->id] = true;
                     } elseif ($status === 'denied' || $denialReason) {
                         $claim->status = 'denied';
                         $claim->denial_reason = $denialReason;
@@ -1421,12 +1445,61 @@ class RcmController extends Controller
             }
         }
 
+        // ── Post-loop reconciliation ──
+        //
+        // The CSV path historically left ClaimPayment.posted_amount at $0
+        // and silently accepted "sum of rows in this CSV" as the check
+        // total. Both wrong. Fix:
+        //   1. Recalculate every touched payment so posted_amount /
+        //      remaining_amount match the sum of allocations.
+        //   2. If the operator supplied check_totals (the actual check
+        //      face value from the EOB header), compare and mark
+        //      mismatches with status='unbalanced'. Return them in the
+        //      response so the operator sees the gap immediately.
+        // Without (2), incomplete CSVs (paginated exports, filtered
+        // by NPI/date) post a partial total and nothing flags it —
+        // exactly how check 802379101 ended up $226.42 short of its
+        // physical face value.
+        $unbalanced = [];
+        if (!empty($touchedPaymentIds)) {
+            $touched = ClaimPayment::where('agency_id', $agencyId)
+                ->whereIn('id', array_keys($touchedPaymentIds))
+                ->get();
+            foreach ($touched as $payment) {
+                $payment->recalculate();
+                $checkNo = $payment->check_number;
+                if (!$checkNo || !array_key_exists($checkNo, $expectedTotals)) continue;
+                $expected = (float) $expectedTotals[$checkNo];
+                $actual = (float) $payment->posted_amount;
+                // Penny-tolerance for float math; anything beyond a cent
+                // is a real gap worth flagging.
+                if (abs($expected - $actual) > 0.01) {
+                    $payment->status = 'unbalanced';
+                    $payment->total_amount = $expected;
+                    $payment->remaining_amount = round($expected - $actual, 2);
+                    $payment->save();
+                    $unbalanced[] = [
+                        'payment_id' => $payment->id,
+                        'check_number' => $checkNo,
+                        'expected_total' => $expected,
+                        'allocated_total' => $actual,
+                        'gap' => round($expected - $actual, 2),
+                    ];
+                }
+            }
+        }
+
         return response()->json([
             'success' => true,
             'matched' => $matched,
             'created' => $created,
             'errors' => $errors,
             'total_submitted' => count($request->payments),
+            // Caller-visible reconciliation results. Empty array when
+            // every supplied check_total matched the imported rows
+            // (or when no check_totals were supplied at all).
+            'unbalanced' => $unbalanced,
+            'recalculated_payment_ids' => array_keys($touchedPaymentIds),
         ], 201);
     }
 
