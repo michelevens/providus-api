@@ -1515,8 +1515,59 @@ class RcmController extends Controller
 
     public function destroyPayment(Request $request, int $id): JsonResponse
     {
-        ClaimPayment::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
-        return response()->json(['success' => true]);
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $payment = ClaimPayment::where('agency_id', $agencyId)->findOrFail($id);
+
+        // Cascade: delete child PaymentAllocations BEFORE the parent
+        // payment, and re-derive each touched claim's total_paid +
+        // balance + status from its remaining allocations.
+        //
+        // Without the cascade (the old behavior), deleting a payment
+        // soft-deleted the parent but left allocations dangling. They
+        // still summed into ClaimPayment::sum('paid_amount') aggregates
+        // and still inflated claim.total_paid, producing negative
+        // claim balances and the "$2,033 gap" we just hunted down.
+        //
+        // PaymentAllocation has no SoftDeletes trait — these are hard
+        // deletes. That's intentional: an orphaned allocation is
+        // strictly noise; soft-deleting them would just preserve the
+        // bug under a different filter.
+        \DB::transaction(function () use ($payment) {
+            $affectedClaimIds = $payment->allocations()->pluck('claim_id')->unique()->all();
+            $payment->allocations()->delete();
+            $payment->delete();
+
+            foreach ($affectedClaimIds as $cid) {
+                $claim = Claim::find($cid);
+                if (!$claim) continue;
+                $remainingPaid = (float) \App\Models\PaymentAllocation::where('claim_id', $cid)
+                    ->whereHas('payment', fn ($q) => $q->where('agency_id', $claim->agency_id))
+                    ->sum('paid_amount');
+                $remainingPtResp = (float) \App\Models\PaymentAllocation::where('claim_id', $cid)
+                    ->whereHas('payment', fn ($q) => $q->where('agency_id', $claim->agency_id))
+                    ->sum('patient_responsibility');
+                $claim->total_paid = $remainingPaid;
+                $claim->patient_responsibility = $remainingPtResp;
+                $claim->balance = (float) $claim->total_charges - $remainingPaid - (float) ($claim->adjustments ?? 0);
+                // Demote status only when the demotion makes sense —
+                // a paid claim losing payment goes back to partial_paid
+                // (if some remains) or submitted (if none does).
+                // Don't touch denied / appealed / written_off — those
+                // are explicit human decisions.
+                if (!in_array($claim->status, ['denied', 'appealed', 'rejected', 'written_off'], true)) {
+                    if ($claim->balance <= 0.005 && $remainingPaid > 0) {
+                        $claim->status = 'paid';
+                    } elseif ($remainingPaid > 0) {
+                        $claim->status = 'partial_paid';
+                    } else {
+                        $claim->status = 'submitted';
+                    }
+                }
+                $claim->save();
+            }
+        });
+
+        return response()->json(['success' => true, 'cascaded_to_claims' => count($payment->allocations ?? [])]);
     }
 
     // ── Charge Capture ──
