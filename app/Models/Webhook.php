@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Support\Facades\Crypt;
 
 class Webhook extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use Auditable, BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'url', 'secret', 'events',
@@ -25,6 +26,12 @@ class Webhook extends Model
     ];
 
     protected $hidden = ['secret'];
+
+    /**
+     * Don't log the (encrypted) secret to audit_logs and skip the
+     * delivery heartbeat fields that change on every webhook fire.
+     */
+    protected array $auditExclude = ['secret', 'last_triggered_at', 'failure_count'];
 
     /**
      * Encrypt the secret at rest. Falls back to the raw value on read for legacy rows

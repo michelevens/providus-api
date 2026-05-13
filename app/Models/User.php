@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -10,7 +11,33 @@ use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    use Auditable, HasApiTokens, HasFactory, Notifiable;
+
+    /**
+     * Auditable strips these before writing to audit_logs:
+     * - password (already hashed, but logging hashes is pointless
+     *   noise and would let a compromised audit_logs reader run
+     *   offline bcrypt attacks)
+     * - remember_token / reset / invite tokens — short-lived secrets
+     * - 2FA secret + recovery codes — encrypted at rest but ditto
+     * - last_login_at — flips on every sign-in, would flood the
+     *   log with thousands of no-signal rows
+     * - email_verified_at, two_factor_confirmed_at — likewise
+     *   low-signal lifecycle flags
+     *
+     * Things that DO get audited on User: role changes, email/name
+     * changes, is_active toggles, agency_id moves (tenant
+     * reassignments), 2FA enabled flag flip. These are the
+     * security-relevant events compliance auditors care about.
+     */
+    protected array $auditExclude = [
+        'password', 'remember_token',
+        'password_reset_token', 'password_reset_expires',
+        'invite_token', 'invite_expires',
+        'two_factor_secret', 'two_factor_recovery_codes',
+        'last_login_at', 'email_verified_at', 'two_factor_confirmed_at',
+        'updated_at',
+    ];
 
     const ROLES = ['superadmin', 'owner', 'agency', 'organization', 'provider'];
     const ROLE_HIERARCHY = [

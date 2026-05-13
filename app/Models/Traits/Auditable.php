@@ -9,19 +9,44 @@ trait Auditable
     public static function bootAuditable(): void
     {
         static::created(function ($model) {
-            $model->logAudit('created', [], $model->getAttributes());
+            $new = $model->filterAuditFields($model->getAttributes());
+            $model->logAudit('created', [], $new);
         });
 
         static::updated(function ($model) {
             $dirty = $model->getDirty();
+            // Drop sensitive / high-noise fields (passwords, secrets,
+            // last_login_at heartbeats, etc.) before computing the diff.
+            $dirty = $model->filterAuditFields($dirty);
             if (empty($dirty)) return;
             $old = array_intersect_key($model->getOriginal(), $dirty);
             $model->logAudit('updated', $old, $dirty);
         });
 
         static::deleted(function ($model) {
-            $model->logAudit('deleted', $model->getOriginal(), []);
+            $old = $model->filterAuditFields($model->getOriginal());
+            $model->logAudit('deleted', $old, []);
         });
+    }
+
+    /**
+     * Strip fields that shouldn't land in audit_logs.
+     *
+     * Per-model exclusion: a model can define
+     *
+     *     protected array $auditExclude = ['password', 'remember_token'];
+     *
+     * to drop sensitive fields. Use for password hashes, encrypted
+     * secrets, 2FA backup codes, and heartbeat columns like
+     * last_login_at that would otherwise spam the log.
+     */
+    protected function filterAuditFields(array $values): array
+    {
+        $exclude = property_exists($this, 'auditExclude') && is_array($this->auditExclude)
+            ? $this->auditExclude
+            : [];
+        if (empty($exclude)) return $values;
+        return array_diff_key($values, array_flip($exclude));
     }
 
     protected function logAudit(string $action, array $old, array $new): void

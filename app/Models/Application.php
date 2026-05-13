@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Application extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use Auditable, BelongsToAgency, SoftDeletes;
 
     const STATUSES = [
         'not_started', 'submitted', 'in_review', 'pending_info',

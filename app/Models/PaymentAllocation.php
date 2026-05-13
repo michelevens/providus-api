@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Traits\Auditable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PaymentAllocation extends Model
 {
+    use Auditable;
+
     protected $fillable = [
         'claim_payment_id', 'claim_id', 'service_line_number',
         'charged_amount', 'allowed_amount', 'paid_amount', 'adjustment_amount',
