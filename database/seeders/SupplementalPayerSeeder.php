@@ -249,23 +249,14 @@ class SupplementalPayerSeeder extends Seeder
                 'logo_slug' => null,
                 'notes' => 'Administers VA CCN Regions 4-6 (western US). Also formerly TRICARE West.',
             ],
-            [
-                'slug' => 'pyr_optum_va_ccn',
-                'name' => 'Optum VA CCN',
-                'short_name' => null,
-                'category' => 'other',
-                'region' => null,
-                'parent_org' => 'UnitedHealth Group',
-                'stedi_id' => null,
-                'states' => ['ALL'],
-                'market_share' => null,
-                'avg_cred_days' => null,
-                'credentialing_url' => null,
-                'cred_phone' => null,
-                'cred_email' => null,
-                'logo_slug' => null,
-                'notes' => 'Administers VA CCN Regions 1-3 (eastern US). Separate credentialing from commercial Optum.',
-            ],
+            // "Optum VA CCN" intentionally NOT a separate payer row.
+            // Optum administers VA CCN Regions 1-3 (eastern US) but it is
+            // not a payer in its own right — claims/applications route
+            // through the canonical "VA CCN (Community Care Network)"
+            // entry above. Operators credentialing via Optum's portal
+            // still file applications under VA CCN. See migration
+            // 2026_05_14_160000_merge_va_ccn_payer_duplicates for the
+            // dedupe history.
             [
                 'slug' => 'pyr_champva',
                 'name' => 'CHAMPVA',
