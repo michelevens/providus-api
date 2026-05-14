@@ -1344,9 +1344,29 @@ class RcmController extends Controller
                     if (!$claim) continue;
 
                     $oldStatus = $claim->status;
+                    // Roll the allocation up onto the claim. Without
+                    // bumping `adjustments` from the allocation's
+                    // `adjustment_amount`, claim.balance never reflects
+                    // the contractual write-off — and the claim sits
+                    // as "open A/R" forever after the payer pays in
+                    // full minus contractual.
+                    //
+                    // patient_responsibility ALSO rolls up but does NOT
+                    // enter the balance formula. The rest of the
+                    // system computes balance = charges - paid - adj
+                    // (NOT minus patient_resp), so any deviation here
+                    // would diverge from RcmPhase2Controller:318,
+                    // RcmController:150, and the AR aging report. The
+                    // remaining balance after a fully-collected payer
+                    // payment IS the patient's responsibility —
+                    // that's the design.
                     $claim->total_paid = ($claim->total_paid ?? 0) + ($alloc['paid_amount'] ?? 0);
-                    $claim->balance = $claim->total_charges - $claim->total_paid - ($claim->adjustments ?? 0);
-                    if ($claim->balance <= 0) $claim->status = 'paid';
+                    $claim->adjustments = ($claim->adjustments ?? 0) + ($alloc['adjustment_amount'] ?? 0);
+                    $claim->patient_responsibility = ($claim->patient_responsibility ?? 0) + ($alloc['patient_responsibility'] ?? 0);
+                    $claim->balance = (float) $claim->total_charges
+                        - (float) $claim->total_paid
+                        - (float) ($claim->adjustments ?? 0);
+                    if ($claim->balance <= 0.005) $claim->status = 'paid';
                     elseif ($claim->total_paid > 0) $claim->status = 'partial_paid';
                     $claim->paid_date = $request->payment_date;
                     $claim->save();
