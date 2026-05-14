@@ -21,15 +21,38 @@ class TaskController extends Controller
 
     public function store(Request $request): JsonResponse
     {
+        // The V2 frontend sends applicationId / providerId (camelCase), which
+        // the API layer's camelToSnake converter rewrites to application_id /
+        // provider_id. We accept both names below — the older
+        // linked_application_id is kept for any direct API callers.
         $data = $request->validate([
             'title' => 'required|string|max:500',
             'category' => 'nullable|string|max:50',
             'priority' => 'in:urgent,high,normal,low',
             'due_date' => 'nullable|date',
             'linked_application_id' => 'nullable|exists:applications,id',
+            'application_id'        => 'nullable|exists:applications,id',
+            'provider_id'           => 'nullable|exists:providers,id',
             'recurrence' => 'nullable|in:daily,weekly,biweekly,monthly,quarterly',
             'notes' => 'nullable|string', 'assigned_to' => 'nullable|exists:users,id',
+            // Allow callers that already know about the morph pair.
+            'linkable_type' => 'nullable|string|max:32',
+            'linkable_id'   => 'nullable|integer|min:1',
         ]);
+
+        // Reconcile the three input shapes the FE / direct callers might send.
+        // application_id (new FE) and linked_application_id (legacy) both flow
+        // into the same column. provider_id maps onto the polymorphic morph
+        // pair so the task surfaces under that provider in any future
+        // provider-detail Tasks panel.
+        if (!empty($data['application_id']) && empty($data['linked_application_id'])) {
+            $data['linked_application_id'] = $data['application_id'];
+        }
+        if (!empty($data['provider_id']) && empty($data['linkable_type'])) {
+            $data['linkable_type'] = 'provider';
+            $data['linkable_id'] = $data['provider_id'];
+        }
+        unset($data['application_id'], $data['provider_id']);
 
         return response()->json(['success' => true, 'data' => Task::create($data)], 201);
     }
