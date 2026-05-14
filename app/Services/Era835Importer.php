@@ -185,6 +185,16 @@ class Era835Importer
                 }
                 $stats['matched']++;
 
+                // Enrich the claim with the payer ICN if we don't have it yet.
+                // The 835's CLP07 is the authoritative source for the payer's
+                // claim control number. Once stored, subsequent operator
+                // searches by ICN (e.g. pasting from Availity) will find this
+                // claim. Don't overwrite a manually-entered ICN.
+                if (!empty($clp['payer_claim_id']) && empty($claim->payer_icn)) {
+                    $claim->payer_icn = $clp['payer_claim_id'];
+                    $claim->save();
+                }
+
                 // Sum CAS adjustments by group for the allocation row. Includes
                 // BOTH claim-level CAS and line-level CAS — without this, the
                 // common case (commercial-payer CO-45 contractual write-down at

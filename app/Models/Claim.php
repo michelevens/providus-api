@@ -14,7 +14,12 @@ class Claim extends Model
     use Auditable, BelongsToAgency, SoftDeletes;
 
     protected $fillable = [
-        'agency_id', 'billing_client_id', 'claim_number', 'claim_type', 'status',
+        'agency_id', 'billing_client_id', 'claim_number',
+        // Payer-assigned identifiers. payer_icn is the number shown on
+        // remits/EOBs ("Claim #" on Availity). payer_claim_control_number
+        // is the 837 REF*F8 used when submitting corrected claims.
+        'payer_icn', 'payer_claim_control_number',
+        'claim_type', 'status',
         'provider_id', 'provider_name', 'patient_name', 'patient_dob', 'patient_member_id',
         'payer_name', 'payer_id_number', 'date_of_service', 'date_of_service_end',
         'place_of_service', 'facility_name', 'referring_provider', 'authorization_number',

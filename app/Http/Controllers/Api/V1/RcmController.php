@@ -30,6 +30,20 @@ class RcmController extends Controller
         if ($s = $request->input('status')) $query->where('status', $s);
         if ($from = $request->input('from_date')) $query->where('date_of_service', '>=', $from);
         if ($to = $request->input('to_date')) $query->where('date_of_service', '<=', $to);
+        // Free-text search hits claim_number, payer_icn, and patient_name.
+        // Critical for the Availity-remit workflow: operators paste the
+        // "Claim #" they see on the portal, which is the PAYER'S ICN —
+        // not our submitter claim_number. Both must match the same
+        // search box or the claim looks missing.
+        if ($q = trim((string) $request->input('search', ''))) {
+            $like = '%' . $q . '%';
+            $query->where(function ($w) use ($like) {
+                $w->where('claim_number', 'ilike', $like)
+                  ->orWhere('payer_icn', 'ilike', $like)
+                  ->orWhere('payer_claim_control_number', 'ilike', $like)
+                  ->orWhere('patient_name', 'ilike', $like);
+            });
+        }
         $perPage = min((int) ($request->input('per_page', 100)), 1000);
         return response()->json(['success' => true, 'data' => $query->orderByDesc('date_of_service')->paginate($perPage)]);
     }
@@ -68,6 +82,7 @@ class RcmController extends Controller
             ...$request->only([
                 'billing_client_id', 'claim_type', 'status', 'provider_id', 'provider_name',
                 'patient_name', 'patient_dob', 'patient_member_id', 'payer_name', 'payer_id_number',
+                'payer_icn', 'payer_claim_control_number',
                 'date_of_service', 'date_of_service_end', 'place_of_service', 'facility_name',
                 'referring_provider', 'authorization_number', 'total_charges', 'submission_method',
                 'clearinghouse', 'submitted_date', 'notes',
@@ -112,6 +127,7 @@ class RcmController extends Controller
         $claim->update($request->only([
             'billing_client_id', 'claim_type', 'status', 'provider_id', 'provider_name',
             'patient_name', 'patient_dob', 'patient_member_id', 'payer_name', 'payer_id_number',
+            'payer_icn', 'payer_claim_control_number',
             'date_of_service', 'date_of_service_end', 'place_of_service', 'facility_name',
             'referring_provider', 'authorization_number', 'total_charges', 'total_allowed',
             'total_paid', 'patient_responsibility', 'adjustments', 'balance',
