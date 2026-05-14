@@ -13,7 +13,13 @@ class ActivityLog extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'agency_id', 'application_id', 'type', 'logged_date',
+        'agency_id',
+        // Polymorphic subject — preferred way to link this entry to its owner.
+        'subject_type', 'subject_id',
+        // Legacy: still populated when subject_type='application' so V1
+        // reporting that groups on application_id keeps working.
+        'application_id',
+        'type', 'logged_date',
         'contact_name', 'contact_phone', 'ref_number',
         'outcome', 'next_step', 'status_from', 'status_to', 'created_by',
     ];
