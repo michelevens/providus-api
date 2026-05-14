@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\V1\ApplicationController;
 use App\Http\Controllers\Api\V1\AuthController;
 use App\Http\Controllers\Api\V1\BookingController;
 use App\Http\Controllers\Api\V1\CommunicationLogController;
+use App\Http\Controllers\Api\V1\MessageController;
 use App\Http\Controllers\Api\V1\EligibilityController;
 use App\Http\Controllers\Api\V1\ExclusionController;
 use App\Http\Controllers\Api\V1\FacilityController;
@@ -85,6 +86,11 @@ Route::prefix('reference')->group(function () {
     // PayerDetail CPT-analysis tab can fetch every rate in one round trip.
     Route::get('/medicare-rates', [ReferenceController::class, 'medicareRates']);
 });
+
+// Resend delivery webhook. Public because Resend POSTs from its own
+// infra without our auth cookie. Secured by shared signing secret in
+// the X-Resend-Signature header (env: RESEND_WEBHOOK_SECRET).
+Route::post('/webhooks/resend', [MessageController::class, 'resendWebhook']);
 
 /*
 |--------------------------------------------------------------------------
@@ -256,6 +262,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/communication-logs', [CommunicationLogController::class, 'store']);
     Route::get('/communication-logs/{id}', [CommunicationLogController::class, 'show']);
     Route::delete('/communication-logs/{id}', [CommunicationLogController::class, 'destroy']);
+
+    // ── Messaging (threaded email built on communication_logs) ──
+    Route::get('/messages/threads', [MessageController::class, 'threads']);
+    Route::get('/messages/threads/{threadId}', [MessageController::class, 'showThread']);
+    Route::post('/messages/threads/{threadId}/reply', [MessageController::class, 'reply']);
+    Route::post('/messages/threads/{threadId}/read', [MessageController::class, 'markRead']);
+    Route::post('/messages/send', [MessageController::class, 'send']);
 
     Route::apiResource('tasks', TaskController::class);
     Route::post('/tasks/{id}/complete', [TaskController::class, 'complete']);
