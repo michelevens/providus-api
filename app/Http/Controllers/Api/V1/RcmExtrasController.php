@@ -185,7 +185,15 @@ class RcmExtrasController extends Controller
             $cn = trim((string)($row['claim_number'] ?? ''));
             if ($cn === '') { $skipped++; continue; }
 
-            $existing = Claim::where('agency_id', $aid)->where('claim_number', $cn)->first();
+            // Match on either claim_number OR payer_icn. The CSV's claim_number
+            // might actually be the payer's ICN (operator pulled the export
+            // from Availity) — without this, the importer creates a second
+            // claim row instead of upserting the existing one.
+            $existing = Claim::where('agency_id', $aid)
+                ->where(function ($q) use ($cn) {
+                    $q->where('claim_number', $cn)->orWhere('payer_icn', $cn);
+                })
+                ->first();
             $payload = [
                 'agency_id'         => $aid,
                 'billing_client_id' => $clientId,

@@ -762,9 +762,16 @@ class RcmController extends Controller
                     $claimNumber = 'CLM-' . str_pad($baseCount + $created + 1, 6, '0', STR_PAD_LEFT);
                 }
 
-                // Duplicate check 1: same claim_number + date_of_service
+                // Duplicate check 1: same claim_number + date_of_service.
+                // Also matches when the CSV's claim_number equals an
+                // existing row's payer_icn — covers the case where one
+                // operator imports the Tebra claim_number and another
+                // imports a CSV that uses the payer ICN as the key.
                 $dupeByNumber = Claim::where('agency_id', $agencyId)
-                    ->where('claim_number', $claimNumber)
+                    ->where(function ($q) use ($claimNumber) {
+                        $q->where('claim_number', $claimNumber)
+                          ->orWhere('payer_icn', $claimNumber);
+                    })
                     ->where('date_of_service', $row['date_of_service']);
                 if (!empty($row['patient_name'])) {
                     $dupeByNumber->where('patient_name', $row['patient_name']);

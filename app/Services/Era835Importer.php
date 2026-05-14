@@ -171,9 +171,18 @@ class Era835Importer
             $postedTotal = 0;
 
             foreach ($parsed['claims'] as $clp) {
-                // Match CLP01 to an existing claim_number for this agency.
+                // Match CLP01 (submitter claim_number) first; fall back to
+                // payer_icn matching CLP07 if the operator manually entered
+                // the ICN earlier. Catches the case where the source system's
+                // claim_number has changed (e.g. Tebra reformatted) but the
+                // payer's ICN is stable.
                 $claim = Claim::where('agency_id', $this->agencyId)
-                    ->where('claim_number', $clp['claim_number'])
+                    ->where(function ($q) use ($clp) {
+                        $q->where('claim_number', $clp['claim_number']);
+                        if (!empty($clp['payer_claim_id'])) {
+                            $q->orWhere('payer_icn', $clp['payer_claim_id']);
+                        }
+                    })
                     ->first();
 
                 if (!$claim) {
