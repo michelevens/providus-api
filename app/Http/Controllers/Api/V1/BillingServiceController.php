@@ -162,17 +162,30 @@ class BillingServiceController extends Controller
 
         $rcm = null;
         if ($totalClaimsForClient > 0) {
+            // Bucket period activity by DATE OF SERVICE. submitted_date
+            // and paid_date are unreliable for many of our claims —
+            // CSV imports stamp them with the import day, which
+            // collapses everything into the day the operator clicked
+            // "Import." DOS is the clinical event date and matches the
+            // framing the client cares about: "what work was done for
+            // me this month, and how much of it got paid."
+            //
+            // submittedInPeriod / paidInPeriod / deniedInPeriod here
+            // therefore all answer "claims for services delivered in
+            // this period, current state of each" rather than "claims
+            // touched in some way during this period." The labels in
+            // the UI should match that framing.
             $submittedInPeriod = (clone $claimsBase)
-                ->whereBetween('submitted_date', [$start, $end])
+                ->whereBetween('date_of_service', [$start, $end])
                 ->get(['id', 'claim_number', 'patient_name', 'payer_name', 'total_charges', 'date_of_service', 'submitted_date', 'status']);
             $paidInPeriod = (clone $claimsBase)
-                ->whereBetween('paid_date', [$start, $end])
+                ->whereBetween('date_of_service', [$start, $end])
                 ->where('total_paid', '>', 0)
                 ->get(['id', 'claim_number', 'patient_name', 'provider_name', 'payer_name', 'total_charges', 'total_paid', 'paid_date', 'check_number']);
             $deniedInPeriod = ClaimDenial::where('agency_id', $agencyId)
-                ->whereHas('claim', fn ($q) => $q->where('billing_client_id', $client->id))
-                ->whereBetween('denial_date', [$start, $end])
-                ->with('claim:id,claim_number,patient_name,payer_name,total_charges')
+                ->whereHas('claim', fn ($q) => $q->where('billing_client_id', $client->id)
+                    ->whereBetween('date_of_service', [$start, $end]))
+                ->with('claim:id,claim_number,patient_name,payer_name,total_charges,date_of_service')
                 ->get();
 
             // Outstanding A/R right now (point-in-time, not period-scoped).
