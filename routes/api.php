@@ -166,6 +166,20 @@ Route::get('/payments/status/{token}', [PaymentLinkController::class, 'status'])
     ->where('token', '[A-Za-z0-9]{40}')
     ->middleware('throttle:30,1');
 
+// ─── Public write-off portal endpoints (org-facing, no auth) ───
+// The portal_token is base64url, exactly 64 chars from random_bytes(48).
+// Same regex+throttle defense as the payment-link endpoints. Same posture
+// on enumeration probes — unguessable, and the throttle stops brute force.
+Route::get('/portal/write-off/{token}', [\App\Http\Controllers\Api\V1\WriteOffPortalController::class, 'show'])
+    ->where('token', '[A-Za-z0-9_-]{64}')
+    ->middleware('throttle:30,1');
+Route::post('/portal/write-off/{token}/approve', [\App\Http\Controllers\Api\V1\WriteOffPortalController::class, 'approve'])
+    ->where('token', '[A-Za-z0-9_-]{64}')
+    ->middleware('throttle:10,1');
+Route::post('/portal/write-off/{token}/reject', [\App\Http\Controllers\Api\V1\WriteOffPortalController::class, 'reject'])
+    ->where('token', '[A-Za-z0-9_-]{64}')
+    ->middleware('throttle:10,1');
+
 /*
 |--------------------------------------------------------------------------
 | Authenticated Routes
