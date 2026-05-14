@@ -348,23 +348,16 @@ class RcmController extends Controller
             'category' => 'nullable|string|max:50', // small_balance, charity, bad_debt, contractual, etc.
         ]);
         $amount = (float) $request->input('amount');
+        $reason = (string) $request->input('reason');
+        $category = $request->input('category');
         $user = $request->user();
         $agencyId = $user->effectiveAgencyId($request);
 
-        if (!\App\Support\WriteOffApproval::canApprove($user, $amount)) {
-            return response()->json([
-                'success' => false,
-                'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
-                'error' => 'writeoff_requires_approval',
-                'threshold_usd' => \App\Support\WriteOffApproval::THRESHOLD_USD,
-            ], 403);
-        }
-
         $claim = Claim::where('agency_id', $agencyId)->findOrFail($id);
 
-        // Don't allow writing off more than the outstanding balance —
-        // would put adjustments above charges and produce a negative
-        // balance which the UI can't reason about.
+        // Balance guard BEFORE policy decision — writing off more than
+        // the outstanding balance is invalid regardless of approval.
+        // Catches typos and prevents adjustments > charges.
         $outstanding = (float) $claim->balance;
         if ($amount > $outstanding + 0.005) {
             return response()->json([
@@ -378,10 +371,105 @@ class RcmController extends Controller
             ], 422);
         }
 
-        $this->applyWriteOff($claim, $amount, (string) $request->input('reason'), $request->input('category'), $user, $user);
+        // Policy decision — drives the dispatch.
+        $decision = \App\Support\WriteOffApproval::decide($claim, $amount, $category, $user);
 
-        $claim->load(['serviceLines', 'billingClient:id,organization_name']);
-        return response()->json(['success' => true, 'data' => $claim]);
+        switch ($decision['decision']) {
+            case \App\Support\WriteOffApproval::DECISION_AUTO:
+                $this->applyWriteOff($claim, $amount, $reason, $category, $user, $user);
+                $claim->load(['serviceLines', 'billingClient:id,organization_name']);
+                return response()->json([
+                    'success' => true,
+                    'status' => 'applied',
+                    'reason' => $decision['reason'] ?? null,
+                    'data' => $claim,
+                ]);
+
+            case \App\Support\WriteOffApproval::DECISION_ORG:
+                $reqRow = $this->createOrgWriteOffRequest($claim, $amount, $reason, $category, $user, $decision);
+                return response()->json([
+                    'success' => true,
+                    'status' => 'pending_org_approval',
+                    'reason' => $decision['reason'] ?? null,
+                    'data' => [
+                        'request_id' => $reqRow->id,
+                        'approver_email' => $reqRow->approver_email,
+                        'expires_at' => $reqRow->expires_at?->toIso8601String(),
+                    ],
+                ], 202);
+
+            case \App\Support\WriteOffApproval::DECISION_OWNER:
+                // Punt to the existing staff-biller request flow. The
+                // FE catches this 'use_request_endpoint' marker and
+                // re-fires against /write-off/request automatically so
+                // the operator only clicks once.
+                return response()->json([
+                    'success' => false,
+                    'error' => 'use_request_endpoint',
+                    'message' => 'This write-off needs agency-owner approval; submitting it to the queue.',
+                    'reason' => $decision['reason'] ?? null,
+                ], 422);
+
+            case \App\Support\WriteOffApproval::DECISION_DENIED:
+            default:
+                return response()->json([
+                    'success' => false,
+                    'error' => 'writeoff_denied_by_policy',
+                    'message' => $decision['reason'] ?? 'Write-off denied by policy.',
+                ], 403);
+        }
+    }
+
+    /**
+     * Create the WriteOffRequest row + generate the portal token +
+     * dispatch the org-approval email. Returns the persisted row so
+     * the controller can include its id/email/expires_at in the
+     * 202 response.
+     */
+    private function createOrgWriteOffRequest(
+        Claim $claim,
+        float $amount,
+        string $reason,
+        ?string $category,
+        User $requestedBy,
+        array $decision,
+    ): \App\Models\WriteOffRequest {
+        $approverEmail = $decision['contact_email'] ?? null;
+        $fallbackDays = $decision['fallback_after_days'] ?? null;
+        $expiresAt = $fallbackDays ? now()->addDays((int) $fallbackDays) : null;
+
+        $row = \App\Models\WriteOffRequest::create([
+            'agency_id'         => $claim->agency_id,
+            'claim_id'          => $claim->id,
+            'billing_client_id' => $claim->billing_client_id,
+            'amount'            => $amount,
+            'category'          => $category,
+            'reason'            => $reason,
+            'requested_by'      => $requestedBy->id,
+            'requested_at'      => now(),
+            'approver_type'     => 'org',
+            'approver_email'    => $approverEmail,
+            'portal_token'      => \App\Models\WriteOffRequest::freshPortalToken(),
+            'expires_at'        => $expiresAt,
+            'status'            => 'pending',
+        ]);
+
+        // Dispatch the email. Wrapped in try/catch so a Resend
+        // outage doesn't block the request from being created — the
+        // request is durable, the email can be re-sent later via a
+        // resend action. Marker line stays in the row's history.
+        try {
+            \Mail::to($approverEmail)
+                ->send(new \App\Mail\OrgWriteOffApprovalRequest($row, $claim, $requestedBy));
+        } catch (\Throwable $e) {
+            \Log::warning('OrgWriteOffApprovalRequest email failed; request still created', [
+                'request_id' => $row->id,
+                'approver_email' => $approverEmail,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return $row;
     }
 
     /**
