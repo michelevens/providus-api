@@ -1343,6 +1343,39 @@ class RcmController extends Controller
                     $claim = $claimsById->get($alloc['claim_id'] ?? null);
                     if (!$claim) continue;
 
+                    // Also push the per-line payment data onto the
+                    // matching claim_service_lines row. Without this,
+                    // the service_lines table stays at $0/$0/$0 even
+                    // after a real payment posts — ClaimDetailPage
+                    // resorts to a prorated estimate from claim totals
+                    // (visually wrong), and any per-CPT report
+                    // (underpayment detection, CPT analysis) sees $0
+                    // and assumes nothing was paid on the line.
+                    if (!empty($alloc['service_line_number'])) {
+                        $existing = \DB::table('claim_service_lines')
+                            ->where('claim_id', $claim->id)
+                            ->where('line_number', $alloc['service_line_number'])
+                            ->first();
+                        if ($existing) {
+                            \DB::table('claim_service_lines')
+                                ->where('id', $existing->id)
+                                ->update([
+                                    'allowed_amount' => $alloc['allowed_amount'] ?? $existing->allowed_amount,
+                                    'paid_amount'    => (float) ($existing->paid_amount ?? 0) + (float) ($alloc['paid_amount'] ?? 0),
+                                    'adjustment'     => (float) ($existing->adjustment ?? 0) + (float) ($alloc['adjustment_amount'] ?? 0),
+                                    'patient_resp'   => (float) ($existing->patient_resp ?? 0) + (float) ($alloc['patient_responsibility'] ?? 0),
+                                    // Line-level status mirrors claim status logic:
+                                    // paid if paid+adj+patient covers charges, otherwise partial.
+                                    'status'         => ((float) $existing->charges
+                                            - ((float) $existing->paid_amount + (float) ($alloc['paid_amount'] ?? 0))
+                                            - ((float) $existing->adjustment + (float) ($alloc['adjustment_amount'] ?? 0))
+                                            <= 0.005)
+                                        ? 'paid' : 'partial_paid',
+                                    'updated_at'     => now(),
+                                ]);
+                        }
+                    }
+
                     $oldStatus = $claim->status;
                     // Roll the allocation up onto the claim. Without
                     // bumping `adjustments` from the allocation's
