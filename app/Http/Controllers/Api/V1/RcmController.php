@@ -646,6 +646,233 @@ class RcmController extends Controller
         return response()->json(['success' => true, 'data' => $task], 201);
     }
 
+    /**
+     * Unified write-off list — merges the new write_off_requests table
+     * (org-approval path) with the legacy billing_tasks queue
+     * (owner-approval path). Both rows are normalized to a single
+     * shape with a `source` discriminator so the V2 page can render
+     * everything in one table.
+     *
+     * Query params:
+     *   status: 'pending' (default) | 'approved' | 'rejected' |
+     *           'expired' | 'cancelled' | 'all'
+     *   from:   YYYY-MM-DD lower bound on requested_at (history view)
+     *   to:     YYYY-MM-DD upper bound on requested_at
+     *   billing_client_id: int — scope to one org
+     *   category: bad_debt | charity | contractual | timely_filing |
+     *             admin_error | small_balance | other
+     */
+    public function listWriteOffs(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $status = $request->input('status', 'all');
+        $from = $request->input('from');
+        $to = $request->input('to');
+        $bcId = $request->input('billing_client_id');
+        $category = $request->input('category');
+
+        // ── Source 1: new write_off_requests rows ──
+        $orgQ = \App\Models\WriteOffRequest::where('agency_id', $agencyId);
+        if ($status !== 'all') {
+            // The new table uses 'approved' / 'rejected' / 'pending' /
+            // 'expired' / 'cancelled' / 'escalated_to_owner'. Filter
+            // by raw status when the caller specifies a known one.
+            $orgQ->where('status', $status);
+        }
+        if ($from) $orgQ->where('requested_at', '>=', $from);
+        if ($to)   $orgQ->where('requested_at', '<=', $to . ' 23:59:59');
+        if ($bcId) $orgQ->where('billing_client_id', $bcId);
+        if ($category) $orgQ->where('category', $category);
+
+        $orgRows = $orgQ->orderByDesc('requested_at')->limit(500)->get()->map(function ($r) {
+            return [
+                'source'             => 'org_request',
+                'id'                 => $r->id,
+                'status'             => $r->status,
+                'amount'             => (float) $r->amount,
+                'category'           => $r->category,
+                'reason'             => $r->reason,
+                'claim_id'           => $r->claim_id,
+                'billing_client_id'  => $r->billing_client_id,
+                'requested_at'       => $r->requested_at?->toIso8601String(),
+                'decided_at'         => $r->decided_at?->toIso8601String(),
+                'applied_at'         => $r->applied_at?->toIso8601String(),
+                'expires_at'         => $r->expires_at?->toIso8601String(),
+                'approver_type'      => $r->approver_type,
+                'approver_email'     => $r->approver_email,
+                'decided_by_email'   => $r->decided_by_email,
+                'decision_reason'    => $r->decision_reason,
+                'requested_by'       => $r->requested_by,
+            ];
+        });
+
+        // ── Source 2: legacy billing_tasks ──
+        // Only include when the status filter allows it. The legacy
+        // table uses different status values, so we map them.
+        $legacyStatusMap = [
+            'pending'   => 'pending',
+            'approved'  => 'completed',
+            'rejected'  => 'cancelled',
+            'cancelled' => 'cancelled',
+        ];
+        $legacyRows = collect();
+        if ($status === 'all' || array_key_exists($status, $legacyStatusMap)) {
+            $legacyQ = BillingTask::where('agency_id', $agencyId)
+                ->where('category', 'writeoff_approval');
+            if ($status !== 'all') {
+                $legacyQ->where('status', $legacyStatusMap[$status]);
+            }
+            if ($from) $legacyQ->where('created_at', '>=', $from);
+            if ($to)   $legacyQ->where('created_at', '<=', $to . ' 23:59:59');
+            if ($bcId) $legacyQ->where('claim_id', function ($cq) use ($bcId, $agencyId) {
+                $cq->select('id')->from('claims')
+                    ->where('agency_id', $agencyId)
+                    ->where('billing_client_id', $bcId);
+            });
+
+            $legacyRows = $legacyQ->orderByDesc('created_at')->limit(500)->get()->map(function ($t) use ($category) {
+                $payload = $this->woDecode($t->description) ?? [];
+                $taskCategory = $payload['category'] ?? null;
+                // Category filter — applied here because the legacy
+                // category lives in the JSON sentinel, not a column.
+                if ($category && $taskCategory !== $category) return null;
+                // Reverse-map the legacy status to the unified one for
+                // consistency in the response.
+                $unifiedStatus = match ($t->status) {
+                    'pending'   => 'pending',
+                    'completed' => 'approved',
+                    'cancelled' => 'rejected',
+                    default     => $t->status,
+                };
+                return [
+                    'source'             => 'billing_task',
+                    'id'                 => $t->id,
+                    'status'             => $unifiedStatus,
+                    'amount'             => $payload['amount'] ?? null,
+                    'category'           => $taskCategory,
+                    'reason'             => $payload['reason'] ?? null,
+                    'claim_id'           => $t->claim_id,
+                    'billing_client_id'  => $t->billing_client_id ?? null,
+                    'requested_at'       => $t->created_at?->toIso8601String(),
+                    'decided_at'         => $t->completed_at?->toIso8601String(),
+                    'applied_at'         => $t->status === 'completed' ? $t->completed_at?->toIso8601String() : null,
+                    'expires_at'         => null,
+                    'approver_type'      => 'owner',
+                    'approver_email'     => null,
+                    'decided_by_email'   => null,
+                    'decision_reason'    => null,
+                    'requested_by'       => $t->created_by,
+                ];
+            })->filter()->values();
+        }
+
+        // Merge + sort by requested_at desc.
+        $merged = $orgRows->concat($legacyRows)
+            ->sortByDesc(fn ($r) => $r['requested_at'] ?? '')
+            ->values();
+
+        return response()->json([
+            'success' => true,
+            'data' => $merged,
+            'counts' => [
+                'org_request'  => $orgRows->count(),
+                'billing_task' => $legacyRows->count(),
+                'total'        => $merged->count(),
+            ],
+        ]);
+    }
+
+    /**
+     * Per-org rollup: total written-off amount per billing client,
+     * within a date range. The numbers come from APPLIED write-offs
+     * only — pending/rejected requests aren't money yet.
+     *
+     * Query params:
+     *   from, to: YYYY-MM-DD (default: trailing 12 months)
+     */
+    public function writeOffSummary(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $from = $request->input('from', now()->subYear()->toDateString());
+        $to = $request->input('to', now()->toDateString());
+
+        // New table: applied org-approval write-offs in the window.
+        $orgApplied = \DB::table('write_off_requests')
+            ->where('agency_id', $agencyId)
+            ->where('status', 'approved')
+            ->whereNotNull('applied_at')
+            ->whereBetween('applied_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+            ->get();
+
+        // Legacy table: completed (= applied) tasks in the window.
+        $legacyApplied = BillingTask::where('agency_id', $agencyId)
+            ->where('category', 'writeoff_approval')
+            ->where('status', 'completed')
+            ->whereBetween('completed_at', [$from . ' 00:00:00', $to . ' 23:59:59'])
+            ->get();
+
+        // Bucket by billing_client_id + category, summing amount.
+        $bucket = [];
+        foreach ($orgApplied as $r) {
+            $bcId = $r->billing_client_id ?? 0;
+            $cat = $r->category ?? 'other';
+            $bucket[$bcId] ??= ['count' => 0, 'total' => 0.0, 'by_category' => []];
+            $bucket[$bcId]['count']++;
+            $bucket[$bcId]['total'] += (float) $r->amount;
+            $bucket[$bcId]['by_category'][$cat] = ($bucket[$bcId]['by_category'][$cat] ?? 0) + (float) $r->amount;
+        }
+        foreach ($legacyApplied as $t) {
+            $payload = $this->woDecode($t->description) ?? [];
+            $amount = (float) ($payload['amount'] ?? 0);
+            $cat = $payload['category'] ?? 'other';
+            // legacy table can have null billing_client_id on the task
+            // — fall back to claim's billing_client_id when needed.
+            $bcId = $t->billing_client_id;
+            if (!$bcId && $t->claim_id) {
+                $bcId = \DB::table('claims')->where('id', $t->claim_id)->value('billing_client_id');
+            }
+            $bcId = $bcId ?? 0;
+            $bucket[$bcId] ??= ['count' => 0, 'total' => 0.0, 'by_category' => []];
+            $bucket[$bcId]['count']++;
+            $bucket[$bcId]['total'] += $amount;
+            $bucket[$bcId]['by_category'][$cat] = ($bucket[$bcId]['by_category'][$cat] ?? 0) + $amount;
+        }
+
+        // Pull billing_client display info in one query.
+        $bcIds = array_keys($bucket);
+        $bcMap = \DB::table('billing_clients')
+            ->whereIn('id', $bcIds)
+            ->get(['id', 'organization_name', 'display_name'])
+            ->keyBy('id');
+
+        $rows = [];
+        foreach ($bucket as $bcId => $stats) {
+            $bc = $bcMap->get($bcId);
+            $rows[] = [
+                'billing_client_id'  => $bcId ?: null,
+                'organization_name'  => $bc?->display_name ?: ($bc?->organization_name ?: 'Unassigned'),
+                'count'              => $stats['count'],
+                'total_amount'       => round($stats['total'], 2),
+                'by_category'        => $stats['by_category'],
+            ];
+        }
+        // Sort by total desc — biggest write-offs surface first.
+        usort($rows, fn ($a, $b) => $b['total_amount'] <=> $a['total_amount']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'from' => $from,
+                'to' => $to,
+                'orgs' => $rows,
+                'totals' => [
+                    'count' => array_sum(array_column($bucket, 'count')),
+                    'total_amount' => round(array_sum(array_column($bucket, 'total')), 2),
+                ],
+            ],
+        ]);
+    }
+
     public function listWriteOffRequests(Request $request): JsonResponse
     {
         $agencyId = $request->user()->effectiveAgencyId($request);
@@ -821,6 +1048,133 @@ class RcmController extends Controller
         $task->save();
 
         return response()->json(['success' => true, 'data' => $task]);
+    }
+
+    /**
+     * Owner-side approve for an org-required write-off that's pending
+     * org response. Useful when:
+     *   - The org is unresponsive past the fallback window
+     *   - The org explicitly asked the agency to handle it on their behalf
+     *   - The owner is also an authorized signatory and wants to override
+     *
+     * Re-uses the same applyWriteOff math as the direct/portal paths so
+     * the audit trail is consistent regardless of who approved.
+     */
+    public function approveOrgWriteOffRequest(Request $request, int $id): JsonResponse
+    {
+        $approver = $request->user();
+        $agencyId = $approver->effectiveAgencyId($request);
+
+        $reqRow = \App\Models\WriteOffRequest::where('agency_id', $agencyId)->findOrFail($id);
+        if ($reqRow->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This request has already been ' . $reqRow->status . '.',
+                'error' => 'request_already_resolved',
+                'status' => $reqRow->status,
+            ], 409);
+        }
+        $amount = (float) $reqRow->amount;
+        // The approver themselves must clear the legacy gate — keeps
+        // staff billers from approving a $1,500 request just because
+        // they can hit this endpoint.
+        if (!\App\Support\WriteOffApproval::canApprove($approver, $amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                'error' => 'writeoff_requires_approval',
+                'threshold_usd' => \App\Support\WriteOffApproval::THRESHOLD_USD,
+            ], 403);
+        }
+
+        $claim = Claim::where('agency_id', $agencyId)->find($reqRow->claim_id);
+        if (!$claim) {
+            $reqRow->status = 'cancelled';
+            $reqRow->decided_at = now();
+            $reqRow->decision_reason = 'Underlying claim no longer exists.';
+            $reqRow->save();
+            return response()->json([
+                'success' => false,
+                'message' => 'The underlying claim no longer exists. Request cancelled.',
+                'error' => 'claim_not_found',
+            ], 410);
+        }
+
+        // Balance re-check — same guard as the portal path.
+        $outstanding = (float) $claim->balance;
+        if ($amount > $outstanding + 0.005) {
+            return response()->json([
+                'success' => false,
+                'message' => sprintf(
+                    'The claim balance has changed since the request was made. The proposed $%s write-off now exceeds the outstanding $%s.',
+                    number_format($amount, 2),
+                    number_format($outstanding, 2),
+                ),
+                'error' => 'balance_changed',
+                'current_balance' => $outstanding,
+            ], 409);
+        }
+
+        // Reuse the standard applyWriteOff helper. We pass the original
+        // requester as appliedBy and the agency owner as approver so the
+        // marker line reads "<requester> (approved by <owner>) on <date>"
+        // — same shape as the existing owner-queue approve flow.
+        $requester = $reqRow->requested_by ? User::find($reqRow->requested_by) : $approver;
+        $this->applyWriteOff(
+            $claim,
+            $amount,
+            (string) $reqRow->reason,
+            $reqRow->category,
+            $requester ?: $approver,
+            $approver,
+        );
+
+        $reqRow->status = 'approved';
+        $reqRow->decided_at = now();
+        $reqRow->decided_by_email = $approver->email;
+        $reqRow->decided_by_user_id = $approver->id;
+        $reqRow->decision_reason = trim((string) $request->input('note', '')) ?: null;
+        $reqRow->applied_at = now();
+        $reqRow->save();
+
+        return response()->json([
+            'success' => true,
+            'status' => 'approved',
+            'data' => $reqRow,
+        ]);
+    }
+
+    public function rejectOrgWriteOffRequest(Request $request, int $id): JsonResponse
+    {
+        $request->validate(['reason' => 'nullable|string|max:1000']);
+        $approver = $request->user();
+        $agencyId = $approver->effectiveAgencyId($request);
+
+        $reqRow = \App\Models\WriteOffRequest::where('agency_id', $agencyId)->findOrFail($id);
+        if ($reqRow->status !== 'pending') {
+            return response()->json([
+                'success' => false,
+                'message' => 'This request has already been ' . $reqRow->status . '.',
+                'error' => 'request_already_resolved',
+            ], 409);
+        }
+        // Same role check — only above-threshold users can reject.
+        if (!\App\Support\WriteOffApproval::canApprove($approver, (float) $reqRow->amount)) {
+            return response()->json([
+                'success' => false,
+                'message' => \App\Support\WriteOffApproval::rejectionMessage((float) $reqRow->amount),
+                'error' => 'writeoff_requires_approval',
+            ], 403);
+        }
+
+        $reqRow->status = 'rejected';
+        $reqRow->decided_at = now();
+        $reqRow->decided_by_email = $approver->email;
+        $reqRow->decided_by_user_id = $approver->id;
+        $reqRow->decision_reason = trim((string) $request->input('reason', '')) ?: null;
+        $reqRow->save();
+
+        return response()->json(['success' => true, 'status' => 'rejected', 'data' => $reqRow]);
     }
 
     public function bulkImportClaims(Request $request): JsonResponse

@@ -497,6 +497,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/write-off-requests', [RcmController::class, 'listWriteOffRequests']);
     Route::post('/rcm/write-off-requests/{taskId}/approve', [RcmController::class, 'approveWriteOffRequest']);
     Route::post('/rcm/write-off-requests/{taskId}/reject', [RcmController::class, 'rejectWriteOffRequest']);
+    // Unified write-off list — merges new write_off_requests (org-approval
+    // path) with the legacy billing_tasks queue. Single source of truth
+    // for the V2 Write-offs tracking page.
+    Route::get('/rcm/write-offs', [RcmController::class, 'listWriteOffs']);
+    Route::get('/rcm/write-offs/summary', [RcmController::class, 'writeOffSummary']);
+    // Owner-side override on an org-required request — used when the
+    // org is unresponsive or has delegated decisions back to the agency.
+    Route::post('/rcm/write-offs/org-requests/{id}/approve', [RcmController::class, 'approveOrgWriteOffRequest']);
+    Route::post('/rcm/write-offs/org-requests/{id}/reject', [RcmController::class, 'rejectOrgWriteOffRequest']);
     Route::post('/rcm/claims/bulk-import', [RcmController::class, 'bulkImportClaims']);
     Route::post('/rcm/claims/purge', [RcmController::class, 'purgeAllClaims']);
 
