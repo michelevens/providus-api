@@ -3,17 +3,20 @@
 namespace App\Models;
 
 use App\Models\Traits\BelongsToAgency;
+use App\Models\Traits\ResolvesPayerFromName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class ChargeEntry extends Model
 {
-    use BelongsToAgency, SoftDeletes;
+    use BelongsToAgency, ResolvesPayerFromName, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'billing_client_id', 'provider_id', 'provider_name',
-        'patient_name', 'payer_name', 'date_of_service', 'cpt_code', 'cpt_description',
+        // payer_id is stamped from payer_name by the resolver trait
+        // unless the caller pins it explicitly.
+        'patient_name', 'payer_name', 'payer_id', 'date_of_service', 'cpt_code', 'cpt_description',
         'modifiers', 'icd_codes', 'icd_descriptions', 'units', 'charge_amount',
         'allowed_amount', 'place_of_service', 'facility_name', 'authorization_number',
         'status', 'claim_id', 'notes', 'created_by',
@@ -25,6 +28,7 @@ class ChargeEntry extends Model
     ];
 
     public function billingClient(): BelongsTo { return $this->belongsTo(BillingClient::class); }
+    public function payer(): BelongsTo { return $this->belongsTo(Payer::class); }
     public function provider(): BelongsTo { return $this->belongsTo(Provider::class); }
     public function claim(): BelongsTo { return $this->belongsTo(Claim::class); }
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }

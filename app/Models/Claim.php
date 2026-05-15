@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Models\Traits\Auditable;
 use App\Models\Traits\BelongsToAgency;
+use App\Models\Traits\ResolvesPayerFromName;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Claim extends Model
 {
-    use Auditable, BelongsToAgency, SoftDeletes;
+    use Auditable, BelongsToAgency, ResolvesPayerFromName, SoftDeletes;
 
     protected $fillable = [
         'agency_id', 'billing_client_id', 'claim_number',
@@ -21,7 +22,10 @@ class Claim extends Model
         'payer_icn', 'payer_claim_control_number',
         'claim_type', 'status',
         'provider_id', 'provider_name', 'patient_name', 'patient_dob', 'patient_member_id',
-        'payer_name', 'payer_id_number', 'date_of_service', 'date_of_service_end',
+        // payer_name is the free-text spelling on the claim. payer_id
+        // is the canonical FK; the ResolvesPayerFromName trait stamps
+        // it from payer_name on save unless the caller pins it.
+        'payer_name', 'payer_id', 'payer_id_number', 'date_of_service', 'date_of_service_end',
         'place_of_service', 'facility_name', 'referring_provider', 'authorization_number',
         'total_charges', 'total_allowed', 'total_paid', 'patient_responsibility',
         'adjustments', 'balance', 'submission_method', 'clearinghouse',
@@ -73,6 +77,9 @@ class Claim extends Model
     }
 
     public function billingClient(): BelongsTo { return $this->belongsTo(BillingClient::class); }
+    // Canonical payer FK (populated by ResolvesPayerFromName trait
+    // from payer_name on save). Nullable for legacy rows pre-backfill.
+    public function payer(): BelongsTo { return $this->belongsTo(Payer::class); }
     public function provider(): BelongsTo { return $this->belongsTo(Provider::class); }
     public function creator(): BelongsTo { return $this->belongsTo(User::class, 'created_by'); }
     public function assignedUser(): BelongsTo { return $this->belongsTo(User::class, 'assigned_to'); }
