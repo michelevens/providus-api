@@ -1746,6 +1746,79 @@ class RcmController extends Controller
         return response()->json(['success' => true, 'data' => $imports]);
     }
 
+    /**
+     * Claim Import History — audit view of when claims arrived in
+     * Credentik (manual entry, Tebra CSV bulk import, etc.). Tebra is
+     * the outbound submitter today, so Credentik's "submissions"
+     * concept doesn't fit — what operators actually want is a record
+     * of when each batch of claims got imported and how those claims
+     * are tracking now.
+     *
+     * Groups claims by created_at::date and returns per-day batch
+     * summaries: count, total $, distinct providers, distinct payers,
+     * and current claim-status mix (paid / partial_paid / submitted /
+     * denied / etc.).
+     *
+     * Reads from the `claims` table only — no new schema needed. The
+     * import "source" is inferred from the creating user.
+     */
+    public function claimImports(Request $request): JsonResponse
+    {
+        $aid = $request->user()->effectiveAgencyId($request);
+
+        // Aggregate per-day. Postgres-specific date_trunc; matches
+        // the existing eraHistory query style.
+        $rows = DB::select("
+            SELECT
+                DATE(c.created_at)                                     AS import_date,
+                COUNT(*)                                               AS claim_count,
+                COALESCE(SUM(c.total_charges), 0)                      AS total_charges,
+                COALESCE(SUM(c.total_paid), 0)                         AS total_paid,
+                COALESCE(SUM(c.balance), 0)                            AS total_balance,
+                COUNT(DISTINCT c.provider_name)                        AS provider_count,
+                COUNT(DISTINCT c.payer_name)                           AS payer_count,
+                COUNT(DISTINCT c.created_by)                           AS creator_count,
+                STRING_AGG(DISTINCT u.email, ', ')                     AS creator_emails,
+                SUM(CASE WHEN c.status = 'paid'         THEN 1 ELSE 0 END) AS status_paid,
+                SUM(CASE WHEN c.status = 'partial_paid' THEN 1 ELSE 0 END) AS status_partial,
+                SUM(CASE WHEN c.status = 'submitted'    THEN 1 ELSE 0 END) AS status_submitted,
+                SUM(CASE WHEN c.status = 'denied'       THEN 1 ELSE 0 END) AS status_denied,
+                SUM(CASE WHEN c.status = 'written_off'  THEN 1 ELSE 0 END) AS status_written_off,
+                SUM(CASE WHEN c.status NOT IN ('paid','partial_paid','submitted','denied','written_off') THEN 1 ELSE 0 END) AS status_other
+            FROM claims c
+            LEFT JOIN users u ON u.id = c.created_by
+            WHERE c.agency_id = ?
+              AND c.deleted_at IS NULL
+            GROUP BY DATE(c.created_at)
+            ORDER BY DATE(c.created_at) DESC
+        ", [$aid]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => array_map(function ($r) {
+                return [
+                    'import_date'      => $r->import_date,
+                    'claim_count'      => (int) $r->claim_count,
+                    'total_charges'    => (float) $r->total_charges,
+                    'total_paid'       => (float) $r->total_paid,
+                    'total_balance'    => (float) $r->total_balance,
+                    'provider_count'   => (int) $r->provider_count,
+                    'payer_count'      => (int) $r->payer_count,
+                    'creator_count'    => (int) $r->creator_count,
+                    'creator_emails'   => $r->creator_emails,
+                    'status_breakdown' => [
+                        'paid'         => (int) $r->status_paid,
+                        'partial_paid' => (int) $r->status_partial,
+                        'submitted'    => (int) $r->status_submitted,
+                        'denied'       => (int) $r->status_denied,
+                        'written_off'  => (int) $r->status_written_off,
+                        'other'        => (int) $r->status_other,
+                    ],
+                ];
+            }, $rows),
+        ]);
+    }
+
     public function storePayment(Request $request): JsonResponse
     {
         $request->validate([

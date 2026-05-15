@@ -588,6 +588,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/era/sync-availity', [RcmPhase2Controller::class, 'syncAvailityEra']);
     Route::get('/rcm/era/availity-syncs', [RcmPhase2Controller::class, 'listAvailityEraSyncs']);
     Route::get('/rcm/era/history', [RcmController::class, 'eraHistory']);         // ERA import rollup (synthesized from claim_payments by trace_number)
+    // Claim Import History — audit view of when claims arrived in
+    // Credentik (Tebra CSV imports, manual entry, etc.). Replaces the
+    // unused 'Submissions' tab in V2 (Tebra is the submitter; we don't
+    // submit claims from Credentik).
+    Route::get('/rcm/claim-imports', [RcmController::class, 'claimImports']);
     Route::post('/rcm/837/parse', [RcmPhase2Controller::class, 'parse837']);
     Route::post('/rcm/837/import', [RcmPhase2Controller::class, 'import837']);
 
