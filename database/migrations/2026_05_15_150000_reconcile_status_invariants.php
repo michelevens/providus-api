@@ -94,17 +94,21 @@ return new class extends Migration
                 // Skeleton denial — captures the inline text so the
                 // Denial Inbox can show it. denial_code is required
                 // by the workflow; use a synthetic 'BACKFILL' until
-                // an operator triages.
+                // an operator triages. denial_category is NOT NULL
+                // and must match the workflow taxonomy; 'other' is
+                // the safe catch-all (128 of 132 existing denials
+                // use it anyway).
                 DB::table('claim_denials')->insert([
-                    'claim_id'       => $r->id,
-                    'agency_id'      => $r->agency_id,
-                    'denial_code'    => substr($r->denial_codes ?: 'BACKFILL', 0, 20),
-                    'denial_reason'  => $r->denial_reason,
-                    'denied_amount'  => 0,
-                    'denial_date'    => $r->adjudicated_date ?: $r->created_at,
-                    'status'         => 'new',
-                    'created_at'     => $now,
-                    'updated_at'     => $now,
+                    'claim_id'        => $r->id,
+                    'agency_id'       => $r->agency_id,
+                    'denial_category' => 'other',
+                    'denial_code'     => substr($r->denial_codes ?: 'BACKFILL', 0, 20),
+                    'denial_reason'   => $r->denial_reason,
+                    'denied_amount'   => 0,
+                    'denial_date'     => $r->adjudicated_date ?: $r->created_at,
+                    'status'          => 'new',
+                    'created_at'      => $now,
+                    'updated_at'      => $now,
                 ]);
                 $createdDenials++;
             } else {
