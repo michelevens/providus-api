@@ -1771,6 +1771,91 @@ class RcmController extends Controller
     }
 
     /**
+     * GET /rcm/denials/{id}/pdf — stream a branded PDF appeal letter.
+     * Renders resources/views/denials/letters/pdf.blade.php via
+     * DomPDF, using the operator-edited letter_text as the body and
+     * BrandingResolver for letterhead.
+     *
+     * If letter_text is empty, generates it on-the-fly via
+     * AppealLetterService (operator can hit the PDF button without
+     * first having clicked "Generate letter"; the body still renders
+     * even if we never persisted it).
+     *
+     * Response: PDF binary stream with Content-Disposition: inline so
+     * browsers open it in their viewer. V2 can also force-download
+     * by adding ?download=1 to the URL.
+     */
+    public function denialPdf(Request $request, int $id)
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
+            ->with(['claim.billingClient'])
+            ->findOrFail($id);
+
+        $claim = $denial->claim;
+        if (!$claim) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'denial_orphaned',
+                'message' => 'Denial has no linked claim; cannot render letter.',
+            ], 422);
+        }
+
+        // Use saved letter_text if available; otherwise generate fresh.
+        // This means operators can hit "Download PDF" on an
+        // never-drafted denial and get a sensible default.
+        $letterText = $denial->letter_text;
+        if (empty($letterText)) {
+            /** @var \App\Services\AppealLetterService $svc */
+            $svc = app(\App\Services\AppealLetterService::class);
+            $letterText = $svc->render($denial);
+        }
+
+        $billingClient = $claim->billingClient;
+        $agency = $billingClient?->agency ?? $claim->agency ?? null;
+        $brand = $billingClient
+            ? \App\Services\BrandingResolver::forBillingClient($billingClient)
+            : ($agency ? \App\Services\BrandingResolver::forAgency($agency) : [
+                'name' => 'Credentik',
+                'primary_color' => '#4f46e5',
+            ]);
+
+        $context = [
+            'denial'         => $denial,
+            'claim'          => $claim,
+            'brand'          => $brand,
+            'letter_text'    => $letterText,
+            'patient_name'   => $claim->patient_name ?: '[Patient Name]',
+            'patient_dob'    => $claim->patient_dob,
+            'patient_id'     => $claim->patient_member_id ?: '[Member ID]',
+            'claim_number'   => $claim->claim_number ?: ('#' . $claim->id),
+            'payer_icn'      => $claim->payer_icn,
+            'payer_name'     => $claim->payer_name ?: '[Payer]',
+            'service_date'   => $claim->date_of_service,
+            'denial_date'    => $denial->denial_date,
+            'denial_code'    => $denial->denial_code ?: '[Code]',
+            'denial_reason'  => $denial->denial_reason ?: 'reasons stated in the remittance',
+            'denied_amount'  => number_format((float) $denial->denied_amount, 2),
+            'today'          => now()->toDateString(),
+            'appeal_level'   => $denial->appeal_level ?: 1,
+            'attachments_count' => is_array($denial->attachments) ? count($denial->attachments) : 0,
+        ];
+
+        $pdf = \Barryvdh\DomPDF\Facade\Pdf::loadView('denials.letters.pdf', $context);
+        // US Letter; portrait. DomPDF default but explicit beats implicit.
+        $pdf->setPaper('letter', 'portrait');
+
+        $filename = sprintf(
+            'appeal-%s-%s.pdf',
+            preg_replace('/[^A-Za-z0-9_-]/', '', $claim->claim_number ?: 'claim' . $claim->id),
+            now()->format('Y-m-d')
+        );
+
+        return $request->boolean('download')
+            ? $pdf->download($filename)
+            : $pdf->stream($filename);
+    }
+
+    /**
      * GET /rcm/denials/recovery-report — agency-wide denial recovery
      * analytics. Powers the V2 Denial Recovery Report panel.
      *

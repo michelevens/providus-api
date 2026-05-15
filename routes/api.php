@@ -530,6 +530,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials/{id}/triage',          [RcmController::class, 'triageDenial']);
     Route::post('/rcm/denials/{id}/generate-letter', [RcmController::class, 'generateLetter']);
     Route::post('/rcm/denials/{id}/draft-letter',    [RcmController::class, 'draftLetter']);
+    Route::get( '/rcm/denials/{id}/pdf',              [RcmController::class, 'denialPdf']);
     Route::post('/rcm/denials/{id}/mark-sent',       [RcmController::class, 'markLetterSent']);
     Route::post('/rcm/denials/{id}/record-response', [RcmController::class, 'recordResponse']);
     Route::post('/rcm/denials/{id}/escalate',        [RcmController::class, 'escalateDenial']);
