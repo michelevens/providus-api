@@ -1547,10 +1547,41 @@ class RcmController extends Controller
     }
 
     /**
+     * POST /rcm/denials/{id}/generate-letter — server-side render of
+     * the appeal letter via AppealLetterService. Picks the right
+     * per-category Blade template based on denial_category, merges
+     * branding + claim + payer fields, saves to letter_text + stamps
+     * letter_drafted_*. Returns the rendered text so V2 can show it
+     * in the LetterModal for review/edit before sending.
+     *
+     * V2 calls this when the operator clicks "Generate letter" on a
+     * denial; the rendered output goes into a textarea the operator
+     * can edit, then /draft-letter saves any edits.
+     */
+    public function generateLetter(Request $request, int $id): JsonResponse
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        /** @var \App\Services\AppealLetterService $svc */
+        $svc = app(\App\Services\AppealLetterService::class);
+        $letterText = $svc->render($denial);
+
+        $denial->update([
+            'letter_text'       => $letterText,
+            'letter_drafted_at' => now(),
+            'letter_drafted_by' => $request->user()->id,
+            'status'            => in_array($denial->status, ['new', 'triaged'], true)
+                ? 'letter_drafted'
+                : $denial->status,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
      * POST /rcm/denials/{id}/draft-letter — save the appeal letter
      * content to the denial. Letter content comes from the V2 client
-     * (which renders the per-category Blade template — Phase 1C; for
-     * now V2 sends the body verbatim).
+     * (operator may have edited what /generate-letter produced).
      */
     public function draftLetter(Request $request, int $id): JsonResponse
     {

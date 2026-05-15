@@ -525,6 +525,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // and friends for the lifecycle docs. Generic edits still go
     // through PUT /rcm/denials/{id} (updateDenial).
     Route::post('/rcm/denials/{id}/triage',          [RcmController::class, 'triageDenial']);
+    Route::post('/rcm/denials/{id}/generate-letter', [RcmController::class, 'generateLetter']);
     Route::post('/rcm/denials/{id}/draft-letter',    [RcmController::class, 'draftLetter']);
     Route::post('/rcm/denials/{id}/mark-sent',       [RcmController::class, 'markLetterSent']);
     Route::post('/rcm/denials/{id}/record-response', [RcmController::class, 'recordResponse']);
