@@ -512,11 +512,35 @@ class RcmController extends Controller
                 $stamp,
                 trim($reason),
             );
-            $claim->adjustments = ((float) $claim->adjustments) + $amount;
-            $claim->balance = ((float) $claim->total_charges) - ((float) $claim->total_paid) - ((float) $claim->adjustments);
+            // Apply write-off intelligently: reduce patient_responsibility
+            // FIRST (most common case — operator forgiving a patient bill),
+            // overflow into adjustments only if there's more write-off
+            // than patient resp. Status only flips to 'written_off' when
+            // the payer side wasn't already resolved. See
+            // WriteOffPortalController for the matching logic + the
+            // 2026-05-15 incident that caught this bug (SANTI CHAVEZ
+            // $20 patient-resp write-off flipped a paid claim to
+            // written_off, breaking collection-rate reports).
+            $currentPtResp  = (float) $claim->patient_responsibility;
+            $appliedToPtResp = min($amount, $currentPtResp);
+            $appliedToAdj    = $amount - $appliedToPtResp;
+
+            $claim->patient_responsibility = $currentPtResp - $appliedToPtResp;
+            $claim->adjustments            = ((float) $claim->adjustments) + $appliedToAdj;
+            $claim->balance                = max(0, ((float) $claim->total_charges)
+                - ((float) $claim->total_paid)
+                - ((float) $claim->adjustments)
+                - ((float) $claim->patient_responsibility));
+
             if ($claim->balance <= 0.005) {
                 $claim->balance = 0;
-                $claim->status = 'written_off';
+                $payerWasResolved = in_array($claim->status, ['paid', 'partial_paid'], true);
+                if (!$payerWasResolved) {
+                    $claim->status = 'written_off';
+                }
+                elseif ($claim->status === 'partial_paid' && (float) $claim->patient_responsibility <= 0.005) {
+                    $claim->status = 'paid';
+                }
             }
             $claim->notes = $claim->notes
                 ? rtrim($claim->notes) . "\n" . $marker

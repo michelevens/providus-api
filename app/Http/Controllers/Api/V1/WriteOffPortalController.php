@@ -173,13 +173,50 @@ class WriteOffPortalController extends Controller
                 trim((string) $req->reason),
             );
 
-            $claim->adjustments = ((float) $claim->adjustments) + (float) $req->amount;
-            $claim->balance = ((float) $claim->total_charges)
+            // Apply the write-off. Where it lands depends on what's owed:
+            //   - If the claim has unpaid patient_responsibility, the
+            //     write-off reduces that ledger first (most common case
+            //     for org-portal approvals — patient bills get forgiven).
+            //   - Anything left over reduces adjustments (contractual /
+            //     other money the payer never paid).
+            //
+            // Status determination: only flip to 'written_off' when the
+            // write-off is the dominant reason the claim is closed. A
+            // paid-by-payer claim where we forgave a small patient resp
+            // should stay 'paid' — calling it 'written_off' falsely
+            // implies the payer disputed something. (Caught 2026-05-15
+            // after a $20 patient-resp write-off on SANTI CHAVEZ flipped
+            // the claim from paid → written_off; collection-rate +
+            // top-payer reports under-counted as a result.)
+            $writeOffAmount = (float) $req->amount;
+            $currentPtResp  = (float) $claim->patient_responsibility;
+            $appliedToPtResp = min($writeOffAmount, $currentPtResp);
+            $appliedToAdj    = $writeOffAmount - $appliedToPtResp;
+
+            $claim->patient_responsibility = $currentPtResp - $appliedToPtResp;
+            $claim->adjustments            = ((float) $claim->adjustments) + $appliedToAdj;
+            $claim->balance                = max(0, ((float) $claim->total_charges)
                 - ((float) $claim->total_paid)
-                - ((float) $claim->adjustments);
+                - ((float) $claim->adjustments)
+                - ((float) $claim->patient_responsibility));
+
             if ($claim->balance <= 0.005) {
                 $claim->balance = 0;
-                $claim->status = 'written_off';
+                // 'written_off' only fires when the payer-side ledger
+                // was never resolved (status was submitted/denied/etc.
+                // before the write-off). When the claim was already
+                // paid or partially paid, keep that status — the
+                // patient-resp write-off doesn't unpay the claim.
+                $payerWasResolved = in_array($claim->status, ['paid', 'partial_paid'], true);
+                if (!$payerWasResolved) {
+                    $claim->status = 'written_off';
+                }
+                // If payer paid in full and we wrote off the patient
+                // resp, status should be 'paid' (not partial_paid)
+                // since the patient ledger is now zero too.
+                elseif ($claim->status === 'partial_paid' && (float) $claim->patient_responsibility <= 0.005) {
+                    $claim->status = 'paid';
+                }
             }
             $claim->notes = $claim->notes
                 ? rtrim($claim->notes) . "\n" . $marker
