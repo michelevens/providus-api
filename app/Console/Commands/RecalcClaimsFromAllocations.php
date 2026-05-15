@@ -2,7 +2,6 @@
 
 namespace App\Console\Commands;
 
-use App\Models\Claim;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -52,13 +51,24 @@ class RecalcClaimsFromAllocations extends Command
         // Pattern B: allocations have non-zero PT resp or adj that
         // the claim columns don't reflect. We coerce the claim
         // column to 0 when NULL so the comparison is a clean math.
+        //
+        // SAFETY GATE — only trust allocations whose charged_amount
+        // sum agrees with the claim's total_charges (±$1 for cent
+        // rounding). 2026-05-15 audit found an allocation for
+        // claim 3552 with charged_amount=$10,275.92 against a
+        // claim.total_charges=$185.84 (55x off; clearly corrupt).
+        // Rolling that allocation up would have produced a
+        // $10,108 patient-responsibility entry and could have
+        // triggered a $10K patient statement. Trust the claim
+        // when the allocation disagrees on what was billed.
         $rows = DB::select("
             SELECT
                 c.id, c.claim_number, c.patient_name, c.payer_name, c.status,
                 c.total_charges, c.total_paid, c.adjustments, c.patient_responsibility, c.balance,
                 COALESCE(SUM(pa.patient_responsibility), 0) AS alloc_ptresp_sum,
                 COALESCE(SUM(pa.adjustment_amount), 0)     AS alloc_adj_sum,
-                COALESCE(SUM(pa.paid_amount), 0)           AS alloc_paid_sum
+                COALESCE(SUM(pa.paid_amount), 0)           AS alloc_paid_sum,
+                COALESCE(SUM(pa.charged_amount), 0)        AS alloc_charged_sum
             FROM claims c
             JOIN payment_allocations pa ON pa.claim_id = c.id
             WHERE c.deleted_at IS NULL
@@ -67,6 +77,11 @@ class RecalcClaimsFromAllocations extends Command
                 COALESCE(SUM(pa.patient_responsibility), 0) > COALESCE(c.patient_responsibility, 0)
               OR COALESCE(SUM(pa.adjustment_amount),     0) > COALESCE(c.adjustments,             0)
             )
+            -- Skip claims where the allocation's charged_amount sum
+            -- disagrees with the claim's total_charges. Those have
+            -- corrupt allocations the rollup would propagate as bad
+            -- patient bills.
+              AND ABS(COALESCE(SUM(pa.charged_amount), 0) - COALESCE(c.total_charges, 0)) < 1.00
         ");
 
         if (empty($rows)) {
