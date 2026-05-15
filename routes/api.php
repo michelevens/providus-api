@@ -520,6 +520,18 @@ Route::middleware('auth:sanctum')->group(function () {
     // denial drives the correction workflow.
     Route::post('/rcm/denials/{id}/create-corrected-claim', [RcmController::class, 'createCorrectedClaim']);
 
+    // Denial workflow transitions (Phase 1B, 2026-05-15). One endpoint
+    // per intent-named state change. See RcmController::triageDenial
+    // and friends for the lifecycle docs. Generic edits still go
+    // through PUT /rcm/denials/{id} (updateDenial).
+    Route::post('/rcm/denials/{id}/triage',          [RcmController::class, 'triageDenial']);
+    Route::post('/rcm/denials/{id}/draft-letter',    [RcmController::class, 'draftLetter']);
+    Route::post('/rcm/denials/{id}/mark-sent',       [RcmController::class, 'markLetterSent']);
+    Route::post('/rcm/denials/{id}/record-response', [RcmController::class, 'recordResponse']);
+    Route::post('/rcm/denials/{id}/escalate',        [RcmController::class, 'escalateDenial']);
+    Route::post('/rcm/denials/{id}/resolve',         [RcmController::class, 'resolveDenial']);
+    Route::get( '/rcm/denials/{id}/history',         [RcmController::class, 'denialHistory']);
+
     Route::get('/rcm/payments', [RcmController::class, 'payments']);
     Route::get('/rcm/payments/{id}', [RcmController::class, 'showPayment']);
     Route::post('/rcm/payments', [RcmController::class, 'storePayment']);

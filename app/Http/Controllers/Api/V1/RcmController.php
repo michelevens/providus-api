@@ -1515,6 +1515,264 @@ class RcmController extends Controller
         return response()->json(['success' => true]);
     }
 
+    // ─── Denial workflow transitions (Phase 1B, 2026-05-15) ──────────
+    //
+    // Each transition is a small, intent-named endpoint. The status
+    // column carries the lifecycle state; timestamps + actor columns
+    // capture who did what when. UpdateDenial (above) stays as the
+    // generic-edit endpoint; these methods are for explicit state
+    // changes that should emit webhooks and write audit columns.
+    //
+    // Lifecycle states (varchar; no schema change):
+    //   new → triaged → letter_drafted → letter_sent →
+    //   awaiting_response → payer_responded → escalated |
+    //   resolved_recovered | resolved_upheld | resolved_written_off
+
+    /** POST /rcm/denials/{id}/triage — operator decided to work it. */
+    public function triageDenial(Request $request, int $id): JsonResponse
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $denial->update([
+            'status'      => 'triaged',
+            'triaged_at'  => now(),
+            'triaged_by'  => $request->user()->id,
+            // Optional category override from request (operator may
+            // re-classify during triage if auto-categorize was wrong).
+            'denial_category' => $request->input('denial_category', $denial->denial_category),
+            'priority'        => $request->input('priority', $denial->priority),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
+     * POST /rcm/denials/{id}/draft-letter — save the appeal letter
+     * content to the denial. Letter content comes from the V2 client
+     * (which renders the per-category Blade template — Phase 1C; for
+     * now V2 sends the body verbatim).
+     */
+    public function draftLetter(Request $request, int $id): JsonResponse
+    {
+        $request->validate(['letter_text' => 'required|string|max:50000']);
+
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $denial->update([
+            'letter_text'       => $request->input('letter_text'),
+            'letter_drafted_at' => now(),
+            'letter_drafted_by' => $request->user()->id,
+            // Only advance status if we're earlier in the flow. Don't
+            // regress a sent letter back to drafted by re-saving.
+            'status'            => in_array($denial->status, ['new', 'triaged'], true)
+                ? 'letter_drafted'
+                : $denial->status,
+        ]);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
+     * POST /rcm/denials/{id}/mark-sent — operator mailed/faxed/uploaded
+     * the appeal letter. Stamps the moment + method.
+     */
+    public function markLetterSent(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'method' => 'required|in:mail,fax,portal,email',
+            'sent_at' => 'nullable|date',
+        ]);
+
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        if (empty($denial->letter_text)) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'no_letter_drafted',
+                'message' => 'Draft the appeal letter before marking sent.',
+            ], 422);
+        }
+
+        $sentAt = $request->filled('sent_at') ? \Carbon\Carbon::parse($request->input('sent_at')) : now();
+
+        $denial->update([
+            'letter_sent_at'        => $sentAt,
+            'letter_sent_by'        => $request->user()->id,
+            'letter_sent_method'    => $request->input('method'),
+            'status'                => 'awaiting_response',
+            // The legacy column too, so existing dashboards stay accurate.
+            'appeal_submitted_date' => $sentAt->toDateString(),
+        ]);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
+     * POST /rcm/denials/{id}/record-response — payer responded.
+     * Operator captures what they said + the outcome (overturned /
+     * upheld / partial). Doesn't itself resolve the denial — that's
+     * a separate /resolve call once the operator's confirmed the
+     * money landed (or chosen to escalate).
+     */
+    public function recordResponse(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'outcome'       => 'required|in:overturned,upheld,partial',
+            'response_text' => 'nullable|string|max:5000',
+            'response_at'   => 'nullable|date',
+        ]);
+
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $denial->update([
+            'payer_response_at'      => $request->filled('response_at') ? $request->input('response_at') : now(),
+            'payer_response_text'    => $request->input('response_text'),
+            'payer_response_outcome' => $request->input('outcome'),
+            'status'                 => 'payer_responded',
+        ]);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
+     * POST /rcm/denials/{id}/escalate — payer upheld + we're appealing
+     * again at a higher level. Creates a NEW claim_denials row at
+     * appeal_level+1 with parent_denial_id pointing back. The current
+     * row's status becomes 'escalated' (terminal for that level).
+     */
+    public function escalateDenial(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'notes' => 'nullable|string|max:5000',
+        ]);
+
+        $current = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        // Cap at level 3 — most commercial payers exhaust appeals at
+        // level 3 (some at 2). Medicare has 5 levels; if EnnHealth
+        // ever appeals Medicare past level 3, raise the cap.
+        $newLevel = ((int) $current->appeal_level) + 1;
+        if ($newLevel > 3) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'max_appeal_level',
+                'message' => 'No further appeal levels available (max 3). Resolve as upheld or written off.',
+            ], 422);
+        }
+
+        $child = ClaimDenial::create([
+            'agency_id'         => $current->agency_id,
+            'billing_client_id' => $current->billing_client_id,
+            'claim_id'          => $current->claim_id,
+            'denial_category'   => $current->denial_category,
+            'denial_code'       => $current->denial_code,
+            'denial_reason'     => $current->denial_reason,
+            'denied_amount'     => $current->denied_amount,
+            'denial_date'       => $current->denial_date,
+            'status'            => 'new',
+            'priority'          => $current->priority,
+            'appeal_level'      => $newLevel,
+            'parent_denial_id'  => $current->id,
+            'appeal_notes'      => $request->input('notes'),
+            'created_by'        => $request->user()->id,
+        ]);
+
+        $current->update([
+            'status'      => 'escalated',
+            'resolved_at' => now(),
+        ]);
+
+        return response()->json([
+            'success'        => true,
+            'data'           => $child->fresh(),
+            'parent_denial'  => $current->fresh(),
+        ], 201);
+    }
+
+    /**
+     * POST /rcm/denials/{id}/resolve — terminal state. Operator picks
+     * the outcome (recovered / upheld / written_off) and the denial
+     * exits the working queue.
+     */
+    public function resolveDenial(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'outcome'           => 'required|in:recovered,upheld,written_off',
+            'recovered_amount'  => 'nullable|numeric|min:0',
+            'resolution_notes'  => 'nullable|string|max:5000',
+        ]);
+
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        $outcome = $request->input('outcome');
+        $newStatus = match ($outcome) {
+            'recovered'   => 'resolved_recovered',
+            'upheld'      => 'resolved_upheld',
+            'written_off' => 'resolved_written_off',
+        };
+
+        // Write-off threshold gate — same logic as updateDenial. We
+        // re-check here because /resolve is an alternate path; without
+        // the check a staff biller could bypass updateDenial's gate.
+        if ($outcome === 'written_off') {
+            $amount = (float) ($request->input('recovered_amount') ?? $denial->denied_amount);
+            if (!\App\Support\WriteOffApproval::canApprove($request->user(), $amount)) {
+                return response()->json([
+                    'success' => false,
+                    'error'   => 'writeoff_requires_approval',
+                    'message' => \App\Support\WriteOffApproval::rejectionMessage($amount),
+                ], 403);
+            }
+        }
+
+        $updates = [
+            'status'           => $newStatus,
+            'resolved_at'      => now(),
+            'resolution_notes' => $request->input('resolution_notes', $denial->resolution_notes),
+        ];
+        if ($request->filled('recovered_amount')) {
+            $updates['recovered_amount'] = $request->input('recovered_amount');
+        }
+
+        $denial->update($updates);
+
+        return response()->json(['success' => true, 'data' => $denial->fresh()]);
+    }
+
+    /**
+     * GET /rcm/denials/{id}/history — full appeal-level lineage for
+     * this denial. Walks up via parent_denial_id and down via
+     * escalations relation, returns the chain ordered by appeal_level.
+     */
+    public function denialHistory(Request $request, int $id): JsonResponse
+    {
+        $aid = $request->user()->effectiveAgencyId($request);
+        $denial = ClaimDenial::where('agency_id', $aid)->findOrFail($id);
+
+        // Walk up to the root (level-1 ancestor).
+        $root = $denial;
+        while ($root->parent_denial_id) {
+            $parent = ClaimDenial::where('agency_id', $aid)->find($root->parent_denial_id);
+            if (!$parent) break;
+            $root = $parent;
+        }
+
+        // Walk down from root via DFS through escalations.
+        $chain = [];
+        $stack = [$root];
+        while (!empty($stack)) {
+            $node = array_pop($stack);
+            $chain[] = $node;
+            foreach ($node->escalations as $child) {
+                $stack[] = $child;
+            }
+        }
+        // Sort by appeal_level ascending so the UI renders 1 → 2 → 3.
+        usort($chain, fn ($a, $b) => ($a->appeal_level ?? 1) <=> ($b->appeal_level ?? 1));
+
+        return response()->json(['success' => true, 'data' => $chain]);
+    }
+
     /**
      * Create a corrected claim from a denial. Clones the patient,
      * provider, payer, DOS, and service lines from the original claim,
