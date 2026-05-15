@@ -222,6 +222,35 @@ class Era835Importer
                 // still uses it.
                 [$contractualAmount, $deniedAmount] = $this->splitContractualVsDenied($allCasAdjustments);
 
+                // Pre-flight safety check: the CLP charged_amount we
+                // parsed from the 835 must match what the claim was
+                // billed for. The 2026-05-15 audit found one row with
+                // a 50x mismatch (CLP charged=$10,275.92 against
+                // claim.total_charges=$185.84) — almost certainly a
+                // malformed segment or parser misread. Without this
+                // guard the corrupt CLP would create an allocation
+                // that pollutes every downstream rollup. Skip + log
+                // when totals disagree; operator resolves via
+                // Payment Detail page.
+                $clpCharged   = (float) $clp['charged_amount'];
+                $claimCharges = (float) $claim->total_charges;
+                if (abs($clpCharged - $claimCharges) >= 1.00) {
+                    Log::warning('Era835Importer: CLP charged_amount disagrees with claim, skipping allocation', [
+                        'claim_id'      => $claim->id,
+                        'claim_number'  => $claim->claim_number,
+                        'claim_charges' => $claimCharges,
+                        'clp_charged'   => $clpCharged,
+                        'check_number'  => $payment->check_number,
+                    ]);
+                    $stats['errors'][] = sprintf(
+                        'Claim %s: 835 CLP charged_amount $%s disagrees with claim total_charges $%s; allocation NOT created, claim NOT updated. Resolve manually.',
+                        $claim->claim_number,
+                        number_format($clpCharged, 2),
+                        number_format($claimCharges, 2),
+                    );
+                    continue;
+                }
+
                 $allocation = PaymentAllocation::create([
                     'claim_payment_id'        => $payment->id,
                     'claim_id'                => $claim->id,
@@ -242,32 +271,107 @@ class Era835Importer
                 $stats['posted']++;
                 $postedTotal += (float) $clp['paid_amount'];
 
-                // Update the claim itself with paid + balance.
-                $newTotalPaid = (float) $claim->total_paid + (float) $clp['paid_amount'];
-                $newBalance   = (float) $claim->total_charges - $newTotalPaid;
+                // Update the claim itself by rolling allocations UP. The
+                // 2026-05-15 status audit caught the prior version of
+                // this block writing only total_paid + balance and
+                // leaving the claim's patient_responsibility +
+                // adjustments stale. That created 38 claims with
+                // "mystery balance" — the patient responsibility was
+                // correctly on the allocation row but never propagated
+                // up, so operators saw $X unexplained balance instead
+                // of "$X owed by patient."
+                //
+                // Roll-up strategy: re-read every allocation for this
+                // claim and re-sum, instead of additive math. Three
+                // wins:
+                //   1. Idempotent on re-import — TRN02 dedup at the
+                //      top of run() catches same-file re-uploads, but
+                //      a corrected-claim re-submission with a new
+                //      TRN02 would have doubled total_paid under the
+                //      additive math. Re-summing means whatever
+                //      allocation rows exist (including any from a
+                //      prior correction) drive the claim total.
+                //   2. Closes the "Pattern B" gap — claim.patient_resp
+                //      and claim.adjustments now mirror the allocation
+                //      sums automatically.
+                //   3. Balance becomes the canonical residual:
+                //      charges - paid - adjustments - patient_resp.
+                //      A pure patient-owes claim drops to balance=0
+                //      with patient_resp=charges-paid (which is what
+                //      a patient statement workflow needs).
+                $allocSums = DB::table('payment_allocations')
+                    ->where('claim_id', $claim->id)
+                    ->selectRaw('
+                        COALESCE(SUM(paid_amount), 0)             AS paid_sum,
+                        COALESCE(SUM(adjustment_amount), 0)       AS adj_sum,
+                        COALESCE(SUM(patient_responsibility), 0)  AS ptresp_sum,
+                        COALESCE(SUM(charged_amount), 0)          AS charged_sum
+                    ')
+                    ->first();
+
+                // Defense in depth: the pre-flight CLP check above
+                // refuses to create new corrupt allocations, but a
+                // pre-existing bad row from before the pre-flight
+                // check shipped could still poison the rollup. Repeat
+                // the agree-on-charges test against the full
+                // allocation set and bail out of the rollup if it
+                // fails. Trust the claim's total_charges as truth.
+                $allocChargedSum = (float) $allocSums->charged_sum;
+                $charges         = (float) $claim->total_charges;
+                if (abs($allocChargedSum - $charges) >= 1.00) {
+                    Log::warning('Era835Importer: allocation charged_amount disagrees with claim, skipping rollup', [
+                        'claim_id'         => $claim->id,
+                        'claim_number'     => $claim->claim_number,
+                        'claim_charges'    => $charges,
+                        'alloc_charged'    => $allocChargedSum,
+                        'check_number'     => $payment->check_number,
+                    ]);
+                    $stats['errors'][] = sprintf(
+                        'Claim %s: allocation charged_amount $%s disagrees with claim total_charges $%s; claim totals not updated.',
+                        $claim->claim_number,
+                        number_format($allocChargedSum, 2),
+                        number_format($charges, 2),
+                    );
+                    // Skip the claim update entirely; the allocation
+                    // row exists for forensic audit. Operator must
+                    // resolve manually via the Edit Claim modal.
+                    continue;
+                }
+
+                $newTotalPaid = (float) $allocSums->paid_sum;
+                $newAdj       = (float) $allocSums->adj_sum;
+                $newPtResp    = (float) $allocSums->ptresp_sum;
+                $newBalance   = max(0, $charges - $newTotalPaid - $newAdj - $newPtResp);
+
                 $claimUpdate = [
-                    'total_paid' => $newTotalPaid,
-                    'balance'    => max(0, $newBalance),
+                    'total_paid'             => $newTotalPaid,
+                    'adjustments'            => $newAdj,
+                    'patient_responsibility' => $newPtResp,
+                    'balance'                => $newBalance,
                 ];
+
                 // CLP02 status codes: 1=primary paid, 2=secondary paid, 3=denied,
                 // 4=denied, 19=processed-paid-secondary, 22=reversal.
                 if (in_array($clp['status_code'], ['3', '4', '22'])) {
                     $claimUpdate['status'] = 'denied';
                 } elseif ($newBalance <= 0.01) {
-                    $claimUpdate['status'] = 'paid';
-                    $claimUpdate['paid_date'] = $parsed['payment_date'] ?: now()->toDateString();
+                    // Balance zero means the claim is fully reconciled
+                    // at the claim level. If the patient still owes
+                    // (PT resp > 0), keep status=partial_paid so the
+                    // operator knows there's a patient statement to
+                    // send. If PT resp = 0, the claim is fully closed.
+                    if ($newPtResp > 0.01) {
+                        $claimUpdate['status'] = 'partial_paid';
+                    } else {
+                        $claimUpdate['status'] = 'paid';
+                        $claimUpdate['paid_date'] = $parsed['payment_date'] ?: now()->toDateString();
+                    }
                 } else {
-                    // Partial payment received. Keep the balance visible in A/R aging.
-                    // Marking these as 'paid' (the old behavior) hid every partially-
-                    // paid claim from outstanding-A/R reports — board-level
-                    // collections-rate looked artificially high.
-                    //
-                    // Spelling: 'partial_paid' (one L). Every other call site in the
-                    // codebase uses this form; the prior 'partially_paid' here was
-                    // a latent typo that got silently overwritten by the downstream
-                    // Claim::recalculate() pass. Without that pass it would have
-                    // produced an invisible status value (filters, aggregations, and
-                    // V2 chips all key off 'partial_paid').
+                    // Spelling: 'partial_paid' (one L). Every other
+                    // call site in the codebase uses this form; a prior
+                    // 'partially_paid' typo here was overwritten by the
+                    // downstream Claim::recalculate() pass and never
+                    // surfaced, but the typo branch existed for months.
                     $claimUpdate['status'] = 'partial_paid';
                 }
                 $claim->update($claimUpdate);
