@@ -108,6 +108,16 @@ class RcmController extends Controller
         $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
         $oldStatus = $claim->status;
 
+        // Reject status writes outside the canonical vocabulary. Without
+        // this, the V2 EditClaimModal used to let operators pick
+        // 'in_process' / 'appealed' / 'rejected' / 'void' — values no
+        // other code path understood, so the claim would silently
+        // disappear from filters and aggregations. Mirror of the
+        // CLAIM_STATUSES list in v2/src/lib/claim.ts.
+        $request->validate([
+            'status' => 'sometimes|in:draft,pending,submitted,paid,partial_paid,denied,written_off',
+        ]);
+
         // Mirror the write-off approval gate from writeOffClaim — a
         // generic PUT shouldn't be a back door around the threshold.
         // Triggers only when status is flipping TO written_off (not on

@@ -261,7 +261,14 @@ class Era835Importer
                     // Marking these as 'paid' (the old behavior) hid every partially-
                     // paid claim from outstanding-A/R reports — board-level
                     // collections-rate looked artificially high.
-                    $claimUpdate['status'] = 'partially_paid';
+                    //
+                    // Spelling: 'partial_paid' (one L). Every other call site in the
+                    // codebase uses this form; the prior 'partially_paid' here was
+                    // a latent typo that got silently overwritten by the downstream
+                    // Claim::recalculate() pass. Without that pass it would have
+                    // produced an invisible status value (filters, aggregations, and
+                    // V2 chips all key off 'partial_paid').
+                    $claimUpdate['status'] = 'partial_paid';
                 }
                 $claim->update($claimUpdate);
 
