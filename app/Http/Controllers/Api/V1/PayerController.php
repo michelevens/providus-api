@@ -13,7 +13,7 @@ class PayerController extends Controller
     // Global payer catalog (read-only)
     public function index(Request $request): JsonResponse
     {
-        $query = Payer::query();
+        $query = Payer::query()->with('ediCodes');
         if ($request->has('category')) $query->where('category', $request->category);
         if ($request->has('region')) $query->where('region', $request->region);
         if ($request->has('state')) $query->whereJsonContains('states', $request->state);
@@ -22,7 +22,7 @@ class PayerController extends Controller
 
     public function show(int $id): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => Payer::findOrFail($id)]);
+        return response()->json(['success' => true, 'data' => Payer::with('ediCodes')->findOrFail($id)]);
     }
 
     // Agency-specific payer plans

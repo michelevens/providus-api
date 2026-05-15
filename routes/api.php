@@ -736,6 +736,13 @@ Route::middleware(['auth:sanctum', 'role:superadmin'])->prefix('admin')->group(f
         Route::put('/payers/{id}', [MasterDataController::class, 'updatePayer']);
         Route::delete('/payers/{id}', [MasterDataController::class, 'destroyPayer']);
 
+        // Per-clearinghouse EDI payer IDs. Operator workflow: open
+        // a payer in master-data, see its existing EDI codes, add
+        // one ("Availity → 87726"), toggle primary.
+        Route::post('/payers/{payerId}/edi-codes', [MasterDataController::class, 'storePayerEdiCode']);
+        Route::put('/payer-edi-codes/{id}', [MasterDataController::class, 'updatePayerEdiCode']);
+        Route::delete('/payer-edi-codes/{id}', [MasterDataController::class, 'destroyPayerEdiCode']);
+
         // Telehealth Policies
         Route::get('/telehealth-policies', [MasterDataController::class, 'telehealthPolicies']);
         Route::post('/telehealth-policies', [MasterDataController::class, 'storeTelehealthPolicy']);

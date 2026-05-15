@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Models\Payer;
+use App\Models\PayerEdiCode;
 use App\Models\StrategyProfile;
 use App\Models\TelehealthPolicy;
 use Illuminate\Http\JsonResponse;
@@ -18,8 +19,73 @@ class MasterDataController extends Controller
     {
         return response()->json([
             'success' => true,
-            'data' => Payer::orderBy('name')->get(),
+            // ediCodes eager-loaded so the V2 catalog can render the
+            // "EDI ID: 87726 (Availity)" badge without N+1.
+            'data' => Payer::with('ediCodes')->orderBy('name')->get(),
         ]);
+    }
+
+    // ── Payer EDI codes ─────────────────────────────────────────
+    //
+    // One row per (payer, clearinghouse) pair — same payer can have
+    // different EDI IDs at different clearinghouses. is_primary flag
+    // picks the default the UI shows when there are multiple.
+
+    public function storePayerEdiCode(Request $request, int $payerId): JsonResponse
+    {
+        Payer::findOrFail($payerId);
+
+        $data = $request->validate([
+            'clearinghouse' => 'required|string|max:50',
+            'edi_payer_id'  => 'required|string|max:50',
+            'is_primary'    => 'sometimes|boolean',
+            'notes'         => 'nullable|string',
+        ]);
+        $data['payer_id']      = $payerId;
+        $data['clearinghouse'] = strtolower($data['clearinghouse']);
+        $data['is_primary']    = (bool) ($data['is_primary'] ?? false);
+
+        $code = DB::transaction(function () use ($data, $payerId) {
+            // If marking primary, demote any existing primary on this
+            // payer. Application-level enforcement of "exactly one
+            // primary per payer" — the DB has no partial unique idx.
+            if ($data['is_primary']) {
+                PayerEdiCode::where('payer_id', $payerId)->update(['is_primary' => false]);
+            }
+            return PayerEdiCode::updateOrCreate(
+                ['payer_id' => $payerId, 'clearinghouse' => $data['clearinghouse']],
+                $data,
+            );
+        });
+
+        return response()->json(['success' => true, 'data' => $code], 201);
+    }
+
+    public function updatePayerEdiCode(Request $request, int $id): JsonResponse
+    {
+        $code = PayerEdiCode::findOrFail($id);
+        $data = $request->validate([
+            'edi_payer_id' => 'sometimes|string|max:50',
+            'is_primary'   => 'sometimes|boolean',
+            'notes'        => 'sometimes|nullable|string',
+        ]);
+
+        DB::transaction(function () use ($code, $data) {
+            if (array_key_exists('is_primary', $data) && $data['is_primary']) {
+                PayerEdiCode::where('payer_id', $code->payer_id)
+                    ->where('id', '!=', $code->id)
+                    ->update(['is_primary' => false]);
+            }
+            $code->update($data);
+        });
+
+        return response()->json(['success' => true, 'data' => $code->fresh()]);
+    }
+
+    public function destroyPayerEdiCode(int $id): JsonResponse
+    {
+        PayerEdiCode::findOrFail($id)->delete();
+        return response()->json(['success' => true]);
     }
 
     public function storePayer(Request $request): JsonResponse

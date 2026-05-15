@@ -24,4 +24,7 @@ class Payer extends Model
 
     public function plans(): HasMany { return $this->hasMany(PayerPlan::class); }
     public function applications(): HasMany { return $this->hasMany(Application::class); }
+    // Per-clearinghouse EDI payer IDs. UHC = 87726 on Availity, may
+    // be different on other routes. Exactly one row has is_primary.
+    public function ediCodes(): HasMany { return $this->hasMany(PayerEdiCode::class); }
 }
