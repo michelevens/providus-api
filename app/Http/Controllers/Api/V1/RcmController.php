@@ -1771,6 +1771,181 @@ class RcmController extends Controller
     }
 
     /**
+     * GET /rcm/denials/recovery-report — agency-wide denial recovery
+     * analytics. Powers the V2 Denial Recovery Report panel.
+     *
+     * Returns six aggregations:
+     *   - totals         : denied $, recovered $, recovery rate %,
+     *                      counts by status family (in-progress /
+     *                      recovered / upheld / written_off)
+     *   - by_payer       : same totals grouped by payer_name
+     *   - by_carc        : top 15 denial codes by count, plus their
+     *                      recovery rate
+     *   - by_category    : same totals grouped by denial_category
+     *   - time_to_resolve: avg + median days from denial_date to
+     *                      resolved_at (excludes still-in-progress)
+     *   - monthly_trend  : last 12 months denied $ vs recovered $
+     *
+     * Optional ?from + ?to date filters scope all aggregations to a
+     * window; defaults to trailing 12 months.
+     */
+    public function denialRecoveryReport(Request $request): JsonResponse
+    {
+        $aid = $request->user()->effectiveAgencyId($request);
+
+        // Date window: default trailing 12 months. The window applies
+        // to denial_date (when the denial happened) not resolved_at,
+        // so a denial from Jan can show up as "recovered" months
+        // later within the same window.
+        $from = $request->filled('from')
+            ? \Carbon\Carbon::parse($request->input('from'))->startOfDay()
+            : now()->subMonths(12)->startOfMonth();
+        $to = $request->filled('to')
+            ? \Carbon\Carbon::parse($request->input('to'))->endOfDay()
+            : now()->endOfDay();
+
+        // Status family classifier (matches the Phase 1A lifecycle):
+        //   new/triaged/letter_drafted/letter_sent/awaiting_response/
+        //   payer_responded/escalated         → in_progress
+        //   resolved_recovered                → recovered
+        //   resolved_upheld                   → upheld
+        //   resolved_written_off              → written_off
+        //   (legacy values: resolved_won, resolved_lost,
+        //    resolved_partial, written_off — see updateDenial)
+        $recoveredStatuses    = ['resolved_recovered', 'resolved_won', 'resolved_partial'];
+        $upheldStatuses       = ['resolved_upheld', 'resolved_lost'];
+        $writtenOffStatuses   = ['resolved_written_off', 'written_off'];
+        $resolvedStatuses     = array_merge($recoveredStatuses, $upheldStatuses, $writtenOffStatuses);
+
+        $base = ClaimDenial::where('agency_id', $aid)
+            ->whereBetween('denial_date', [$from, $to])
+            ->with(['claim:id,payer_name']);
+
+        // 1. Totals
+        $rows = (clone $base)->get();
+        $totals = [
+            'count_total'         => $rows->count(),
+            'count_in_progress'   => $rows->whereNotIn('status', $resolvedStatuses)->count(),
+            'count_recovered'     => $rows->whereIn('status', $recoveredStatuses)->count(),
+            'count_upheld'        => $rows->whereIn('status', $upheldStatuses)->count(),
+            'count_written_off'   => $rows->whereIn('status', $writtenOffStatuses)->count(),
+            'denied_amount_total' => round((float) $rows->sum('denied_amount'), 2),
+            'recovered_amount'    => round((float) $rows->sum('recovered_amount'), 2),
+        ];
+        // Recovery rate %: recovered $ / denied $ (of resolved denials).
+        // We compute against ALL denied in the window, not just resolved —
+        // operator-facing "how much of denied volume have we won back?"
+        $totals['recovery_rate_pct'] = $totals['denied_amount_total'] > 0
+            ? round(($totals['recovered_amount'] / $totals['denied_amount_total']) * 100, 1)
+            : 0.0;
+
+        // 2. By payer — group on the joined claim.payer_name
+        $byPayer = $rows->groupBy(fn ($d) => $d->claim?->payer_name ?: 'Unknown')
+            ->map(function ($group, $payerName) use ($recoveredStatuses) {
+                $denied = (float) $group->sum('denied_amount');
+                $recovered = (float) $group->sum('recovered_amount');
+                return [
+                    'payer_name'        => $payerName,
+                    'count'             => $group->count(),
+                    'denied_amount'     => round($denied, 2),
+                    'recovered_amount'  => round($recovered, 2),
+                    'recovery_rate_pct' => $denied > 0 ? round(($recovered / $denied) * 100, 1) : 0.0,
+                    'count_recovered'   => $group->whereIn('status', $recoveredStatuses)->count(),
+                ];
+            })
+            ->sortByDesc('denied_amount')
+            ->values()
+            ->all();
+
+        // 3. By CARC code — top 15 by frequency
+        $byCarc = $rows->whereNotNull('denial_code')
+            ->where('denial_code', '!=', '')
+            ->groupBy('denial_code')
+            ->map(function ($group, $code) use ($recoveredStatuses) {
+                $denied = (float) $group->sum('denied_amount');
+                $recovered = (float) $group->sum('recovered_amount');
+                return [
+                    'denial_code'       => $code,
+                    'sample_reason'     => $group->first()->denial_reason,
+                    'count'             => $group->count(),
+                    'denied_amount'     => round($denied, 2),
+                    'recovered_amount'  => round($recovered, 2),
+                    'recovery_rate_pct' => $denied > 0 ? round(($recovered / $denied) * 100, 1) : 0.0,
+                    'count_recovered'   => $group->whereIn('status', $recoveredStatuses)->count(),
+                ];
+            })
+            ->sortByDesc('count')
+            ->take(15)
+            ->values()
+            ->all();
+
+        // 4. By category
+        $byCategory = $rows->groupBy(fn ($d) => $d->denial_category ?: 'unknown')
+            ->map(function ($group, $cat) use ($recoveredStatuses) {
+                $denied = (float) $group->sum('denied_amount');
+                $recovered = (float) $group->sum('recovered_amount');
+                return [
+                    'category'          => $cat,
+                    'count'             => $group->count(),
+                    'denied_amount'     => round($denied, 2),
+                    'recovered_amount'  => round($recovered, 2),
+                    'recovery_rate_pct' => $denied > 0 ? round(($recovered / $denied) * 100, 1) : 0.0,
+                    'count_recovered'   => $group->whereIn('status', $recoveredStatuses)->count(),
+                ];
+            })
+            ->sortByDesc('denied_amount')
+            ->values()
+            ->all();
+
+        // 5. Time to resolve — only resolved denials with both dates set.
+        // Computed in PHP rather than SQL to keep the query portable
+        // across the legacy + new status enums.
+        $resolved = $rows->whereIn('status', $resolvedStatuses)
+            ->filter(fn ($d) => $d->denial_date && $d->resolved_at);
+        $resolveDays = $resolved->map(function ($d) {
+            return $d->resolved_at->diffInDays(\Carbon\Carbon::parse($d->denial_date));
+        })->values()->all();
+        $avgDays = !empty($resolveDays) ? round(array_sum($resolveDays) / count($resolveDays), 1) : null;
+        sort($resolveDays);
+        $medianDays = !empty($resolveDays)
+            ? (int) ($resolveDays[(int) floor((count($resolveDays) - 1) / 2)])
+            : null;
+        $timeToResolve = [
+            'count_resolved'  => count($resolveDays),
+            'avg_days'        => $avgDays,
+            'median_days'     => $medianDays,
+        ];
+
+        // 6. Monthly trend — last 12 calendar months
+        $months = [];
+        $cursor = $from->copy()->startOfMonth();
+        while ($cursor <= $to) {
+            $monthKey = $cursor->format('Y-m');
+            $monthRows = $rows->filter(fn ($d) => \Carbon\Carbon::parse($d->denial_date)->format('Y-m') === $monthKey);
+            $months[] = [
+                'month'             => $monthKey,
+                'count'             => $monthRows->count(),
+                'denied_amount'     => round((float) $monthRows->sum('denied_amount'), 2),
+                'recovered_amount'  => round((float) $monthRows->sum('recovered_amount'), 2),
+            ];
+            $cursor->addMonth();
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'window'           => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+                'totals'           => $totals,
+                'by_payer'         => $byPayer,
+                'by_carc'          => $byCarc,
+                'by_category'      => $byCategory,
+                'time_to_resolve'  => $timeToResolve,
+                'monthly_trend'    => $months,
+            ],
+        ]);
+    }
+
+    /**
      * GET /rcm/denials/{id}/history — full appeal-level lineage for
      * this denial. Walks up via parent_denial_id and down via
      * escalations relation, returns the chain ordered by appeal_level.
