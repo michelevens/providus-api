@@ -670,6 +670,9 @@ class RcmController extends Controller
         $to = $request->input('to');
         $bcId = $request->input('billing_client_id');
         $category = $request->input('category');
+        // Per-claim filter — used by ClaimDetailPage to show this claim's
+        // write-off history in the transaction log.
+        $claimId = $request->input('claim_id');
 
         // ── Source 1: new write_off_requests rows ──
         $orgQ = \App\Models\WriteOffRequest::where('agency_id', $agencyId);
@@ -683,6 +686,7 @@ class RcmController extends Controller
         if ($to)   $orgQ->where('requested_at', '<=', $to . ' 23:59:59');
         if ($bcId) $orgQ->where('billing_client_id', $bcId);
         if ($category) $orgQ->where('category', $category);
+        if ($claimId) $orgQ->where('claim_id', $claimId);
 
         $orgRows = $orgQ->orderByDesc('requested_at')->limit(500)->get()->map(function ($r) {
             return [
@@ -729,6 +733,7 @@ class RcmController extends Controller
                     ->where('agency_id', $agencyId)
                     ->where('billing_client_id', $bcId);
             });
+            if ($claimId) $legacyQ->where('claim_id', $claimId);
 
             $legacyRows = $legacyQ->orderByDesc('created_at')->limit(500)->get()->map(function ($t) use ($category) {
                 $payload = $this->woDecode($t->description) ?? [];
