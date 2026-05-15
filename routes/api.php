@@ -582,6 +582,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/era/upload', [RcmPhase2Controller::class, 'uploadEra']);    // multipart file → writes payments + denials with CARC enrichment
     Route::post('/rcm/era/post', [RcmPhase2Controller::class, 'postEra']);        // raw 835 string → same import as /upload
     Route::post('/rcm/era/pull', [RcmExtrasController::class, 'eraPull']);        // clearinghouse pull (stub until Availity integration)
+    // Availity ERA sync — pulls 835 files via Availity API and feeds
+    // each through Era835Importer. Operator-triggered (manual) or
+    // cron (scheduled). Returns a per-file import summary.
+    Route::post('/rcm/era/sync-availity', [RcmPhase2Controller::class, 'syncAvailityEra']);
+    Route::get('/rcm/era/availity-syncs', [RcmPhase2Controller::class, 'listAvailityEraSyncs']);
     Route::get('/rcm/era/history', [RcmController::class, 'eraHistory']);         // ERA import rollup (synthesized from claim_payments by trace_number)
     Route::post('/rcm/837/parse', [RcmPhase2Controller::class, 'parse837']);
     Route::post('/rcm/837/import', [RcmPhase2Controller::class, 'import837']);

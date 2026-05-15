@@ -868,6 +868,85 @@ class RcmPhase2Controller extends Controller
         return response()->json(['success' => true, 'data' => $result], $result['imported'] > 0 ? 201 : 200);
     }
 
+    // ─── Availity ERA sync ──────────────────────────────────────────
+    //
+    // Operators were stuck downloading 835s month-by-month from
+    // Availity's Remittance Viewer (31-day pagination cap). This
+    // endpoint pulls all available ERAs via the Availity API, runs
+    // each through Era835Importer, and returns a per-file summary.
+    //
+    // Idempotent: AvailityEraSyncFile has a unique (agency_id,
+    // file_id) constraint, plus Era835Importer dedupes by TRN02 even
+    // if Availity hands us the same content under a different id.
+
+    public function syncAvailityEra(Request $request): JsonResponse
+    {
+        $request->validate([
+            'from' => 'nullable|date',
+            'to'   => 'nullable|date|after_or_equal:from',
+            // When true, use the agency's stored cursor (received_after
+            // = newest file from last successful run). Overrides
+            // from/to. The scheduled command always passes use_cursor.
+            'use_cursor' => 'sometimes|boolean',
+        ]);
+
+        $user = $request->user();
+        $agencyId = $user->effectiveAgencyId($request);
+
+        /** @var \App\Services\AvailityEraSyncService $orchestrator */
+        $orchestrator = app(\App\Services\AvailityEraSyncService::class);
+
+        $filters = [];
+        if ($request->boolean('use_cursor')) {
+            $cursor = $orchestrator->cursorForAgency($agencyId);
+            if ($cursor) {
+                $filters['cursor'] = $cursor;
+            }
+        } else {
+            if ($request->filled('from')) $filters['from'] = $request->input('from');
+            if ($request->filled('to'))   $filters['to']   = $request->input('to');
+        }
+
+        $sync = $orchestrator->run($agencyId, 'manual', $user->id, $filters);
+
+        return response()->json([
+            'success' => $sync->status !== 'failed',
+            'data'    => [
+                'sync_id'             => $sync->id,
+                'status'              => $sync->status,
+                'files_listed'        => $sync->files_listed,
+                'files_imported'      => $sync->files_imported,
+                'files_skipped'       => $sync->files_skipped,
+                'files_errored'       => $sync->files_errored,
+                'claims_posted'       => $sync->claims_posted,
+                'total_amount_posted' => $sync->total_amount_posted,
+                'error'               => $sync->error,
+                'completed_at'        => $sync->completed_at?->toIso8601String(),
+                'files'               => $sync->files->map(fn ($f) => [
+                    'file_id'     => $f->file_id,
+                    'payer_name'  => $f->payer_name,
+                    'received_at' => $f->received_at?->toIso8601String(),
+                    'status'      => $f->status,
+                    'claim_count' => $f->claim_count,
+                    'error'       => $f->error,
+                ])->all(),
+            ],
+        ], $sync->status === 'failed' ? 502 : 200);
+    }
+
+    public function listAvailityEraSyncs(Request $request): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $rows = \App\Models\AvailityEraSync::where('agency_id', $agencyId)
+            ->orderByDesc('created_at')
+            ->limit(20)
+            ->get(['id', 'source', 'status', 'files_listed', 'files_imported',
+                'files_skipped', 'files_errored', 'claims_posted',
+                'total_amount_posted', 'error', 'cursor_at',
+                'completed_at', 'created_at']);
+        return response()->json(['success' => true, 'data' => $rows]);
+    }
+
     // ══════════════════════════════════════════════════
     // 11b. 837 PROFESSIONAL CLAIM FILE PARSER
     // ══════════════════════════════════════════════════

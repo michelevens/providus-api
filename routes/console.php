@@ -59,3 +59,10 @@ Schedule::command('exclusions:screen-all')->monthlyOn(1, '02:00');        // Mon
 
 // ── Funding ──
 Schedule::command('funding:scrape')->dailyAt('06:00');                    // Scrape funding opportunities
+
+// ── ERA Auto-Pull ──
+// Nightly pull from Availity for every agency that has API creds
+// configured. Cursor-based (incremental) — only fetches files
+// received since the prior successful run. 02:00 picks the quiet
+// window between V2 user activity and the 07:00 dashboard refreshes.
+Schedule::command('era:sync-availity')->dailyAt('02:00')->withoutOverlapping();

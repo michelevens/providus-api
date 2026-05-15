@@ -79,6 +79,13 @@ class AgencyController extends Controller
             'caqh_username' => 'nullable|string|max:100',
             'caqh_password' => 'nullable|string',
             'caqh_environment' => 'nullable|in:production,sandbox',
+            // Availity API credentials — OAuth2 client_credentials flow.
+            // Used by AvailityService for eligibility (270/271), claim
+            // status (276/277), and ERA file pickup (X12 835).
+            'availity_client_id' => 'nullable|string',
+            'availity_client_secret' => 'nullable|string',
+            'availity_customer_id' => 'nullable|string|max:50',
+            'availity_env' => 'nullable|in:production,sandbox',
             'notification_email' => 'nullable|email',
             'provider_name' => 'nullable|string|max:255',
             'elig_monthly_limit' => 'nullable|integer|min:0',
@@ -93,6 +100,7 @@ class AgencyController extends Controller
         $config->update($request->only([
             'stedi_api_key', 'stedi_npi', 'stedi_org_name',
             'caqh_org_id', 'caqh_username', 'caqh_password', 'caqh_environment',
+            'availity_client_id', 'availity_client_secret', 'availity_customer_id', 'availity_env',
             'notification_email', 'provider_name', 'elig_monthly_limit',
         ]));
 

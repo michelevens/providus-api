@@ -246,6 +246,166 @@ class AvailityService
         }
     }
 
+    // ─── ERA file pickup (X12 835) ─────────────────────────────────
+    //
+    // Availity's EDI File Management product exposes a flat list of
+    // every 835 file that arrived for an agency, accessed via the
+    // X12 file pickup API. The exact endpoint path varies by Availity
+    // product tier and account configuration — see PLACEHOLDER notes
+    // below. The request/response shape here matches Availity's
+    // documented v1 transmission/file pattern; adjust once you have
+    // a sandbox call against your tier.
+
+    /**
+     * List ERA (X12 835) files available for download from Availity.
+     *
+     * @param array $config Agency config (availity_client_id, _secret, _customer_id, _env).
+     * @param array $filters Optional filters: 'from' (ISO date), 'to' (ISO date),
+     *                       'received_after' (ISO datetime — only new files since last sync).
+     * @return array { success: bool, files: array<{file_id, received_at, payer, size_bytes, claim_count}>, error?: string }
+     */
+    public function listEraFiles(array $config, array $filters = []): array
+    {
+        $token = $this->getAccessToken($config);
+        if (!$token) {
+            return [
+                'success' => false,
+                'error'   => 'Availity not configured or authentication failed. Check your Client ID and Secret in Settings > Integrations.',
+                'files'   => [],
+            ];
+        }
+
+        $baseUrl = $this->getBaseUrl($config);
+
+        // PLACEHOLDER ENDPOINT — verify against Availity API docs for
+        // your account tier. Common variants:
+        //   GET /v1/x12-receivers/{customer_id}/files?type=835
+        //   GET /v1/transmissions?type=ERA&customer_id={customer_id}
+        // Some tiers prefix with /availity (already in base URL),
+        // others nest under /availity/v1/edi/files.
+        $endpoint = "{$baseUrl}/transmissions";
+
+        $query = [
+            'type'        => 'ERA',
+            'customer_id' => $config['availity_customer_id'] ?? '',
+        ];
+        if (!empty($filters['from'])) {
+            $query['from_date'] = $filters['from'];
+        }
+        if (!empty($filters['to'])) {
+            $query['to_date'] = $filters['to'];
+        }
+        if (!empty($filters['received_after'])) {
+            // Cursor-style filter for nightly syncs — pulls only files
+            // received since the last successful run.
+            $query['received_after'] = $filters['received_after'];
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(60)
+                ->get($endpoint, $query);
+
+            if ($response->failed()) {
+                $body = $response->json();
+                $error = $body['message'] ?? $body['error'] ?? "Availity ERA list failed (HTTP {$response->status()})";
+                Log::warning('Availity ERA list failed', [
+                    'status' => $response->status(),
+                    'body'   => $body,
+                ]);
+                return ['success' => false, 'error' => $error, 'files' => []];
+            }
+
+            // PLACEHOLDER RESPONSE PARSING — adjust field names to
+            // match the real Availity transmission/file schema.
+            // Expected shape per their X12 file pickup docs:
+            //   { transmissions: [ { id, receivedDate, payerName, byteSize, claimCount, ... } ] }
+            $body = $response->json();
+            $rawList = $body['transmissions'] ?? $body['files'] ?? $body['data'] ?? [];
+
+            $files = [];
+            foreach ($rawList as $row) {
+                $files[] = [
+                    'file_id'     => $row['id'] ?? $row['fileId'] ?? $row['transmissionId'] ?? null,
+                    'received_at' => $row['receivedDate'] ?? $row['received_at'] ?? $row['createdDate'] ?? null,
+                    'payer'       => $row['payerName'] ?? $row['payer'] ?? null,
+                    'size_bytes'  => $row['byteSize'] ?? $row['size'] ?? 0,
+                    'claim_count' => $row['claimCount'] ?? $row['claim_count'] ?? null,
+                ];
+            }
+
+            return ['success' => true, 'files' => $files];
+        } catch (\Throwable $e) {
+            Log::error('Availity ERA list error: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Availity service temporarily unavailable.', 'files' => []];
+        }
+    }
+
+    /**
+     * Download a single ERA file's raw 835 content by file ID.
+     * Returns the X12 EDI string body, ready to feed into Era835Importer.
+     *
+     * @param array $config Agency config.
+     * @param string $fileId File ID from listEraFiles().
+     * @return array { success: bool, content?: string, error?: string }
+     */
+    public function downloadEraFile(array $config, string $fileId): array
+    {
+        $token = $this->getAccessToken($config);
+        if (!$token) {
+            return ['success' => false, 'error' => 'Availity not configured or authentication failed.'];
+        }
+
+        $baseUrl = $this->getBaseUrl($config);
+
+        // PLACEHOLDER ENDPOINT — verify against Availity API docs.
+        // Common variants:
+        //   GET /v1/transmissions/{file_id}/content
+        //   GET /v1/x12-files/{file_id}
+        // Response may be raw text/plain (the X12 string) OR base64-
+        // encoded inside a JSON wrapper. Handle both below.
+        $endpoint = "{$baseUrl}/transmissions/{$fileId}/content";
+
+        try {
+            $response = Http::withToken($token)
+                ->timeout(120) // 835s can be multi-megabyte
+                ->get($endpoint);
+
+            if ($response->failed()) {
+                $body = $response->json();
+                $error = $body['message'] ?? $body['error'] ?? "Availity ERA download failed (HTTP {$response->status()})";
+                Log::warning('Availity ERA download failed', [
+                    'file_id' => $fileId,
+                    'status'  => $response->status(),
+                    'body'    => $body,
+                ]);
+                return ['success' => false, 'error' => $error];
+            }
+
+            // If text/plain, response body IS the X12 string. If JSON
+            // wrapper with a base64 payload, unwrap it. Detect by
+            // content-type header.
+            $contentType = $response->header('Content-Type') ?? '';
+            if (str_contains($contentType, 'application/json')) {
+                $body = $response->json();
+                $raw = $body['content'] ?? $body['data'] ?? null;
+                if ($raw && !str_contains($raw, '~')) {
+                    // No segment terminator — assume base64.
+                    $raw = base64_decode($raw, true);
+                    if ($raw === false) {
+                        return ['success' => false, 'error' => 'Availity returned malformed file content.'];
+                    }
+                }
+                return ['success' => true, 'content' => $raw];
+            }
+
+            return ['success' => true, 'content' => $response->body()];
+        } catch (\Throwable $e) {
+            Log::error('Availity ERA download error: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Availity service temporarily unavailable.'];
+        }
+    }
+
     /**
      * Parse Availity 271 eligibility response into standardized format
      */
