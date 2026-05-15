@@ -1748,11 +1748,12 @@ class RcmController extends Controller
 
     /**
      * Claim Import History — audit view of when claims arrived in
-     * Credentik (manual entry, Tebra CSV bulk import, etc.). Tebra is
-     * the outbound submitter today, so Credentik's "submissions"
-     * concept doesn't fit — what operators actually want is a record
-     * of when each batch of claims got imported and how those claims
-     * are tracking now.
+     * Credentik (manual entry, EHR / billing-system CSV bulk import,
+     * etc.). The practice's EHR (Tebra, AdvancedMD, Kareo, eCW, etc.)
+     * is the actual outbound submitter today, so Credentik's
+     * "submissions" concept doesn't fit — what operators actually
+     * want is a record of when each batch of claims got imported
+     * and how those claims are tracking now.
      *
      * Groups claims by created_at::date and returns per-day batch
      * summaries: count, total $, distinct providers, distinct payers,
