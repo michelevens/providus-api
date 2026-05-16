@@ -630,6 +630,18 @@ class RcmPhase2Controller extends Controller
     {
         $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
 
+        // Refuse to email a statement that's already been handed off to
+        // collections — the operator should be talking to the collections
+        // agency, not the patient, at that point.
+        if (!empty($statement->handed_off_to_collections_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This statement was handed off to collections on '
+                    . $statement->handed_off_to_collections_at->format('M j, Y')
+                    . '. Contact the collections agency, not the patient.',
+            ], 422);
+        }
+
         $email = $request->input('email') ?: $statement->patient_email;
         if (!$email || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
             return response()->json(['success' => false, 'message' => 'No valid patient email on this statement'], 422);
@@ -642,7 +654,12 @@ class RcmPhase2Controller extends Controller
         // already wraps that lifecycle correctly.
         $payUrl = $request->input('pay_url');
 
-        Mail::to($email)->send(new PatientStatementEmail($statement, $payUrl));
+        // Tone — drives subject + intro copy in PatientStatementEmail.
+        // Valid: soft/firm/final/collections/neutral. Anything else
+        // silently falls back to 'neutral' in the Mailable's constructor.
+        $tone = (string) $request->input('tone', 'neutral');
+
+        Mail::to($email)->send(new PatientStatementEmail($statement, $payUrl, $tone));
 
         $statement->update([
             'last_sent_date' => now()->toDateString(),
@@ -651,6 +668,99 @@ class RcmPhase2Controller extends Controller
         ]);
 
         return response()->json(['success' => true, 'message' => 'Statement sent', 'data' => $statement->fresh()]);
+    }
+
+    /**
+     * POST /rcm/patient-statements/{id}/log-call — record an outbound
+     * call attempt to the patient about their balance. Bumps the
+     * reminders counter so the BalanceRemindersTab row reflects the
+     * outreach, even though no email/SMS went out. Notes go into the
+     * statement's `notes` field appended to whatever's there.
+     *
+     * Body:
+     *   - outcome: 'reached' | 'left_voicemail' | 'no_answer' | 'wrong_number' | 'refused'
+     *   - notes:   optional free text
+     */
+    public function logCallPatientStatement(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'outcome' => 'required|in:reached,left_voicemail,no_answer,wrong_number,refused',
+            'notes'   => 'nullable|string|max:2000',
+        ]);
+
+        $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        if (!empty($statement->handed_off_to_collections_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This statement was handed off to collections; further patient outreach should go through the collections agency.',
+            ], 422);
+        }
+
+        $outcome = $request->input('outcome');
+        $notes   = trim((string) $request->input('notes', ''));
+        $when    = now()->format('Y-m-d g:ia');
+        $user    = trim(($request->user()->first_name ?? '') . ' ' . ($request->user()->last_name ?? '')) ?: ($request->user()->email ?? '');
+        $line    = "[{$when}] Call: {$outcome}" . ($user ? " (by {$user})" : '') . ($notes !== '' ? " — {$notes}" : '');
+
+        $existing = (string) ($statement->notes ?? '');
+        $statement->update([
+            'notes'          => $existing === '' ? $line : ($existing . "\n" . $line),
+            'last_sent_date' => now()->toDateString(),
+            'times_sent'     => (int) $statement->times_sent + 1,
+        ]);
+
+        return response()->json(['success' => true, 'message' => 'Call logged', 'data' => $statement->fresh()]);
+    }
+
+    /**
+     * POST /rcm/patient-statements/{id}/handoff-collections — terminal.
+     * Marks the statement as referred to an outside collections agency.
+     * Status flips to 'in_collections'; the row disappears from the
+     * active Balance Reminders queue.
+     *
+     * AGENCY-ADMIN ONLY. Same gate concept as write-offs: terminal
+     * money-related decisions need a manager.
+     *
+     * Body:
+     *   - notes: free text — agency name / reference / context
+     */
+    public function handoffPatientStatement(Request $request, int $id): JsonResponse
+    {
+        // hasMinimumRole('agency') passes for owner/agency/superadmin
+        // and blocks staff/organization/provider.
+        if (!$request->user()->hasMinimumRole('agency')) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'requires_agency_admin',
+                'message' => 'Only agency admins or owners can hand off to collections.',
+            ], 403);
+        }
+
+        $request->validate(['notes' => 'nullable|string|max:2000']);
+
+        $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        if (!empty($statement->handed_off_to_collections_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This statement was already handed off on '
+                    . $statement->handed_off_to_collections_at->format('M j, Y') . '.',
+            ], 422);
+        }
+
+        $statement->update([
+            'status'                          => 'in_collections',
+            'handed_off_to_collections_at'    => now(),
+            'handed_off_to_collections_by'    => $request->user()->id,
+            'handoff_notes'                   => $request->input('notes'),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Handed off to collections',
+            'data'    => $statement->fresh(),
+        ]);
     }
 
     public function generatePatientStatements(Request $request): JsonResponse

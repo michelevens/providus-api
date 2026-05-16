@@ -23,9 +23,25 @@ Statement of account: {{ number_format((float) $statement->patient_balance, 2) }
     Hi {{ explode(' ', $statement->patient_name ?: 'there')[0] }},
 </p>
 
+@php
+    // Tone-aware intro paragraph. The Mailable passes `$tone` (default
+    // 'neutral'); BalanceRemindersTab callers pass 'soft' / 'firm' /
+    // 'final' / 'collections' based on the bucket the patient is in.
+    // Kept inline rather than in a partial because this is the only
+    // place tone affects copy.
+    $tone = $tone ?? 'neutral';
+    $intros = [
+        'neutral'     => 'Here is a summary of your account with ' . ($agency->company_display_name ?: $agency->name) . '. Please review the balance below and contact us if you have any questions.',
+        'soft'        => 'This is a friendly reminder that you have an outstanding balance with ' . ($agency->company_display_name ?: $agency->name) . '. Please review the summary below and remit payment at your earliest convenience.',
+        'firm'        => 'Our records show that the balance below has been outstanding for some time. Please remit payment promptly, or contact us to discuss a payment arrangement.',
+        'final'       => 'This is a FINAL NOTICE. The balance below is significantly past due. If we do not receive payment or hear from you within 14 days, your account may be referred to an outside collections agency.',
+        'collections' => 'Your account is being referred to an outside collections agency due to non-payment. This may impact your credit. Contact us immediately if you wish to resolve this directly before the handoff is finalized.',
+    ];
+    $introCopy = $intros[$tone] ?? $intros['neutral'];
+@endphp
+
 <p style="margin:0 0 20px;font-size:15px;line-height:1.6;color:#334155;" class="text-body">
-    Here is a summary of your account with {{ $agency->company_display_name ?: $agency->name }}.
-    Please review the balance below and contact us if you have any questions.
+    {{ $introCopy }}
 </p>
 
 <div class="details" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:18px 20px;margin:0 0 20px;">

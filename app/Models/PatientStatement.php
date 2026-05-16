@@ -17,12 +17,15 @@ class PatientStatement extends Model
         'patient_phone', 'patient_address', 'total_charges', 'insurance_paid', 'adjustments',
         'patient_balance', 'amount_paid', 'status', 'statement_date', 'due_date',
         'last_sent_date', 'times_sent', 'notes', 'created_by',
+        // Collections handoff (2026-05-16 migration)
+        'handed_off_to_collections_at', 'handed_off_to_collections_by', 'handoff_notes',
     ];
 
     protected $casts = [
         'total_charges' => 'decimal:2', 'insurance_paid' => 'decimal:2', 'adjustments' => 'decimal:2',
         'patient_balance' => 'decimal:2', 'amount_paid' => 'decimal:2',
         'statement_date' => 'date', 'due_date' => 'date', 'last_sent_date' => 'date',
+        'handed_off_to_collections_at' => 'datetime',
     ];
 
     public function claim(): BelongsTo { return $this->belongsTo(Claim::class); }

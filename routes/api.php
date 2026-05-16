@@ -602,6 +602,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/rcm/patient-statements/{id}', [RcmPhase2Controller::class, 'updatePatientStatement']);
     Route::post('/rcm/patient-statements/generate', [RcmPhase2Controller::class, 'generatePatientStatements']);
     Route::post('/rcm/patient-statements/{id}/send', [RcmPhase2Controller::class, 'sendPatientStatement']);
+    // Log an outbound call attempt to the patient. Bumps the reminders
+    // counter so the row reflects the outreach in BalanceRemindersTab.
+    Route::post('/rcm/patient-statements/{id}/log-call', [RcmPhase2Controller::class, 'logCallPatientStatement']);
+    // Terminal handoff to outside collections agency. Agency-admin only.
+    Route::post('/rcm/patient-statements/{id}/handoff-collections', [RcmPhase2Controller::class, 'handoffPatientStatement']);
 
     Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);

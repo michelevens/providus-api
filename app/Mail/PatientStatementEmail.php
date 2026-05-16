@@ -14,6 +14,9 @@ class PatientStatementEmail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    /** Tone bucket — drives subject line + intro copy in the view. */
+    public string $tone;
+
     /** Resolved brand for THIS statement — practice override if set,
      *  agency fallback otherwise. Blade template still receives an
      *  `$agency`-shaped stdClass via BrandingResolver::asAgencyObject
@@ -24,9 +27,19 @@ class PatientStatementEmail extends Mailable
      *  via PaymentLinkController and pass the URL through. */
     public ?string $payUrl;
 
-    public function __construct(public PatientStatement $statement, ?string $payUrl = null)
+    /**
+     * $tone controls subject line and intro paragraph. Valid values
+     * mirror the BalanceRemindersTab buckets:
+     *   - 'soft'        (default — first reminder, friendly)
+     *   - 'firm'        (2-3 reminders sent, escalating)
+     *   - 'final'       (final notice before collections)
+     *   - 'collections' (collections-handoff notification)
+     *   - 'neutral'     (legacy / initial statement — no urgency)
+     */
+    public function __construct(public PatientStatement $statement, ?string $payUrl = null, string $tone = 'neutral')
     {
         $this->payUrl = $payUrl;
+        $this->tone = in_array($tone, ['soft', 'firm', 'final', 'collections', 'neutral'], true) ? $tone : 'neutral';
         $brand = BrandingResolver::forStatement($statement);
         $this->agency = BrandingResolver::asAgencyObject($brand);
     }
@@ -34,7 +47,15 @@ class PatientStatementEmail extends Mailable
     public function envelope(): Envelope
     {
         $patient = $this->statement->patient_name ?: 'patient';
-        return new Envelope(subject: "Statement of Account for {$patient} — {$this->agency->name}");
+        $brand = $this->agency->name;
+        $subject = match ($this->tone) {
+            'soft'        => "Friendly reminder: balance due — {$brand}",
+            'firm'        => "Past-due balance: please respond — {$brand}",
+            'final'       => "FINAL NOTICE — balance overdue — {$brand}",
+            'collections' => "Account being referred to collections — {$brand}",
+            default       => "Statement of Account for {$patient} — {$brand}",
+        };
+        return new Envelope(subject: $subject);
     }
 
     public function content(): Content
@@ -42,9 +63,10 @@ class PatientStatementEmail extends Mailable
         return new Content(
             view: 'emails.patient-statement',
             with: [
-                'agency' => $this->agency,
+                'agency'    => $this->agency,
                 'statement' => $this->statement,
-                'payUrl' => $this->payUrl,
+                'payUrl'    => $this->payUrl,
+                'tone'      => $this->tone,
             ],
         );
     }
