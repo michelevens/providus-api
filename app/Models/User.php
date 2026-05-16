@@ -39,13 +39,35 @@ class User extends Authenticatable
         'updated_at',
     ];
 
-    const ROLES = ['superadmin', 'owner', 'agency', 'organization', 'provider'];
+    const ROLES = ['superadmin', 'owner', 'agency', 'staff', 'organization', 'provider'];
+
+    // Role levels for the EnsureAgencyRole middleware. Higher level
+    // grants strictly more access. A middleware that gates on `role:X`
+    // admits the user if their level >= X's level.
+    //
+    // Where 'staff' fits: between agency and organization. Staff is a
+    // day-to-day worker (credentialing specialist, biller) inside an
+    // agency. Scoped to the same agency as agency-owners (TenantScope
+    // treats them identically — agency_id filter only, no org/provider
+    // sub-scope), but the role:agency-gated routes (user management,
+    // agency settings, audit logs, auth events) BLOCK them.
+    //
+    // Why 2 (and not 2.5): integer levels because ROLE_HIERARCHY is
+    // used as the source-of-truth for comparisons; fractional values
+    // work but read confusingly. Organization is bumped to 1, provider
+    // to 0 (still lowest), to keep ordering correct.
+    //
+    // Backward compat: pre-2026-05-16, ui_role=staff existed but role
+    // was stored as 'agency'. A backfill on this same commit corrects
+    // those 5 users; new invites with role=staff via the existing
+    // inviteUser flow store it correctly going forward.
     const ROLE_HIERARCHY = [
-        'superadmin' => 5,
-        'owner' => 4,
-        'agency' => 3,
-        'organization' => 2,
-        'provider' => 1,
+        'superadmin'   => 5,
+        'owner'        => 4,
+        'agency'       => 3,
+        'staff'        => 2,
+        'organization' => 1,
+        'provider'     => 0,
     ];
 
     protected $fillable = [
@@ -150,6 +172,10 @@ class User extends Authenticatable
         return $this->agency_id;
     }
 
+    // Naming convention: each is<Role>() returns true when the user
+    // has AT LEAST that role's level in the hierarchy — i.e. that
+    // role's privileges OR higher. NOT an exact-role check.
+
     public function isAgency(): bool
     {
         return in_array($this->role, ['superadmin', 'owner', 'agency']);
@@ -157,12 +183,15 @@ class User extends Authenticatable
 
     public function isOrganization(): bool
     {
-        return in_array($this->role, ['superadmin', 'owner', 'agency', 'organization']);
+        // staff sits ABOVE organization in the hierarchy (level 2 vs 1)
+        // so staff users qualify for organization-level access.
+        return in_array($this->role, ['superadmin', 'owner', 'agency', 'staff', 'organization']);
     }
 
     public function isProvider(): bool
     {
-        return in_array($this->role, ['superadmin', 'owner', 'agency', 'organization', 'provider']);
+        // Provider is the lowest level — every authenticated role qualifies.
+        return in_array($this->role, ['superadmin', 'owner', 'agency', 'staff', 'organization', 'provider']);
     }
 
     /**
@@ -170,7 +199,11 @@ class User extends Authenticatable
      */
     public function hasMinimumRole(string $role): bool
     {
-        return (self::ROLE_HIERARCHY[$this->role] ?? 0) >= (self::ROLE_HIERARCHY[$role] ?? 99);
+        // Fallback to -1 (below the lowest real role, provider=0) so a
+        // user with an unknown role NEVER passes. Pre-2026-05-16 this
+        // was `?? 0`, which was ambiguous after provider was renumbered
+        // to 0 in the hierarchy.
+        return (self::ROLE_HIERARCHY[$this->role] ?? -1) >= (self::ROLE_HIERARCHY[$role] ?? 99);
     }
 
     // ── Backward-Compatible Helpers (transition period) ──────────
@@ -185,9 +218,17 @@ class User extends Authenticatable
         return $this->isAgency();
     }
 
+    /**
+     * True when the user has AT LEAST staff-level privileges.
+     * As of 2026-05-16 staff is a real backend role (hierarchy level 2),
+     * so this is anyone agency-or-above OR the user with role='staff'.
+     * Previously a back-compat alias for isOrganization() — corrected
+     * because that was overly permissive (allowed organization-role
+     * users to pass "isStaff" checks).
+     */
     public function isStaff(): bool
     {
-        return $this->isOrganization();
+        return in_array($this->role, ['superadmin', 'owner', 'agency', 'staff']);
     }
 
     // ── Accessors ────────────────────────────────────────────────

@@ -124,7 +124,7 @@ class AgencyController extends Controller
             'email' => 'required|email|unique:users,email',
             'first_name' => 'required|string|max:100',
             'last_name' => 'required|string|max:100',
-            'role' => 'required|in:owner,agency,organization,provider',
+            'role' => 'required|in:owner,agency,staff,organization,provider',
             'organization_id' => 'nullable|integer',
             'provider_id' => 'nullable|integer',
         ]);
@@ -233,7 +233,7 @@ class AgencyController extends Controller
             'email' => 'sometimes|email|max:200|unique:users,email,' . $id,
             'phone' => 'sometimes|nullable|string|max:30',
             'password' => 'sometimes|string|min:6',
-            'role' => 'sometimes|in:owner,agency,organization,provider',
+            'role' => 'sometimes|in:owner,agency,staff,organization,provider',
             'ui_role' => 'sometimes|nullable|string|max:50',
             'is_active' => 'sometimes|boolean',
             'organization_id' => 'sometimes|nullable|integer',
@@ -361,6 +361,211 @@ class AgencyController extends Controller
             'success' => true,
             'data' => $user->load(['organization', 'provider']),
             'message' => "Email changed from {$oldEmail} to {$request->email}",
+        ]);
+    }
+
+    /**
+     * GET /agency/users/{id}/activity — aggregator for the V2
+     * TeamMemberDetailPage. Returns the user record + assignment
+     * counts + denial-work tallies + recent claims + login/audit
+     * history in a single payload so the page renders in one fetch.
+     *
+     * Agency-scoped — the target user must belong to the requester's
+     * agency. Same `role:agency` gate as listUsers (route group).
+     */
+    public function userActivity(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+
+        $user = User::where('agency_id', $agencyId)
+            ->with(['organization:id,name', 'provider:id,first_name,last_name'])
+            ->findOrFail($id);
+
+        // ── Assignment counts ──
+        // applications.assigned_to and tasks.assigned_to are the
+        // single-user FKs available today. claims.followup_assigned_to
+        // does NOT exist (checked the schema) so we drop that count.
+        $appsOpenStatuses = ['draft', 'pending', 'in_progress', 'submitted', 'follow_up'];
+        $appsQuery = \DB::table('applications')
+            ->where('agency_id', $agencyId)
+            ->where('assigned_to', $id)
+            ->whereNull('deleted_at');
+        $appsTotal = (clone $appsQuery)->count();
+        $appsOpen  = (clone $appsQuery)->whereIn('status', $appsOpenStatuses)->count();
+
+        $tasksQuery = \DB::table('tasks')
+            ->where('agency_id', $agencyId)
+            ->where('assigned_to', $id);
+        $tasksTotal     = (clone $tasksQuery)->count();
+        $tasksOpen      = (clone $tasksQuery)->where('is_completed', false)->count();
+        $tasksCompleted = (clone $tasksQuery)->where('is_completed', true)->count();
+
+        // ── Denial work ──
+        // Multiple per-stage attribution columns. A denial "worked by
+        // this user" = touched at any stage. Counted per stage so the
+        // operator can see balance (lots of drafted, no sent = stuck).
+        $denialBase = \DB::table('claim_denials')->where('agency_id', $agencyId);
+        $triagedCount = (clone $denialBase)->where('triaged_by', $id)->count();
+        $draftedCount = (clone $denialBase)->where('letter_drafted_by', $id)->count();
+        $sentCount    = (clone $denialBase)->where('letter_sent_by', $id)->count();
+        $createdCount = (clone $denialBase)->where('created_by', $id)->count();
+
+        // Recovery rate on denials this user triaged: out of triaged,
+        // how many ended in resolved_recovered. Skips upheld/written_off.
+        $triagedTotal = $triagedCount;
+        $triagedRecovered = (clone $denialBase)->where('triaged_by', $id)->where('status', 'resolved_recovered')->count();
+        $recoveryRatePct = $triagedTotal > 0 ? round(($triagedRecovered / $triagedTotal) * 100, 1) : 0.0;
+
+        // Open vs resolved denial split — anything not in a resolved_* or
+        // escalated status counts as open work.
+        $openStatuses = ['new', 'triaged', 'letter_drafted', 'letter_sent', 'awaiting_response', 'payer_responded'];
+        $denialsOpen = (clone $denialBase)
+            ->where(function ($q) use ($id) {
+                $q->where('triaged_by', $id)
+                  ->orWhere('letter_drafted_by', $id)
+                  ->orWhere('letter_sent_by', $id)
+                  ->orWhere('created_by', $id);
+            })
+            ->whereIn('status', $openStatuses)
+            ->count();
+        $denialsResolved = (clone $denialBase)
+            ->where(function ($q) use ($id) {
+                $q->where('triaged_by', $id)
+                  ->orWhere('letter_drafted_by', $id)
+                  ->orWhere('letter_sent_by', $id)
+                  ->orWhere('created_by', $id);
+            })
+            ->whereIn('status', ['resolved_recovered', 'resolved_upheld', 'resolved_written_off'])
+            ->count();
+
+        // ── Claims created ──
+        $claimsCreatedCount = \DB::table('claims')
+            ->where('agency_id', $agencyId)
+            ->where('created_by', $id)
+            ->count();
+
+        // ── Recent rows for each tab (capped) ──
+        $recentApplications = \DB::table('applications')
+            ->where('agency_id', $agencyId)
+            ->where('assigned_to', $id)
+            ->whereNull('deleted_at')
+            ->leftJoin('providers', 'providers.id', '=', 'applications.provider_id')
+            ->leftJoin('organizations', 'organizations.id', '=', 'applications.organization_id')
+            ->orderByDesc('applications.updated_at')
+            ->limit(20)
+            ->get([
+                'applications.id',
+                'applications.status',
+                'applications.payer_name',
+                'applications.state',
+                'applications.updated_at',
+                \DB::raw("CONCAT(providers.first_name, ' ', providers.last_name) as provider_name"),
+                'organizations.name as organization_name',
+            ]);
+
+        $recentTasks = \DB::table('tasks')
+            ->where('agency_id', $agencyId)
+            ->where('assigned_to', $id)
+            ->orderByRaw('is_completed ASC, COALESCE(due_date, created_at) DESC')
+            ->limit(20)
+            ->get(['id', 'title', 'priority', 'category', 'due_date', 'is_completed', 'completed_at', 'created_at']);
+
+        // Recent denial work — union of denials this user touched at any
+        // stage, with a synthetic 'action' column saying which stage they
+        // last touched. Bound to claim_number via the join so the V2
+        // page can link to /rcm/denials/{id}.
+        $recentDenials = (clone $denialBase)
+            ->leftJoin('claims', 'claims.id', '=', 'claim_denials.claim_id')
+            ->where(function ($q) use ($id) {
+                $q->where('claim_denials.triaged_by', $id)
+                  ->orWhere('claim_denials.letter_drafted_by', $id)
+                  ->orWhere('claim_denials.letter_sent_by', $id)
+                  ->orWhere('claim_denials.created_by', $id);
+            })
+            ->orderByDesc('claim_denials.updated_at')
+            ->limit(15)
+            ->get([
+                'claim_denials.id',
+                'claim_denials.status',
+                'claim_denials.denial_code',
+                'claim_denials.denied_amount',
+                'claim_denials.denial_category',
+                'claim_denials.updated_at',
+                'claim_denials.letter_sent_by',
+                'claim_denials.letter_drafted_by',
+                'claim_denials.triaged_by',
+                'claim_denials.created_by',
+                'claims.claim_number',
+                'claims.patient_name',
+                'claims.payer_name as claim_payer_name',
+            ])
+            ->map(function ($row) use ($id) {
+                // Surface the "last action by this user" so the UI
+                // doesn't have to recompute it.
+                $action = match (true) {
+                    $row->letter_sent_by === $id      => 'sent letter',
+                    $row->letter_drafted_by === $id   => 'drafted letter',
+                    $row->triaged_by === $id          => 'triaged',
+                    $row->created_by === $id          => 'created',
+                    default                            => 'touched',
+                };
+                $row->last_action_by_user = $action;
+                return $row;
+            });
+
+        $recentClaims = \DB::table('claims')
+            ->where('agency_id', $agencyId)
+            ->where('created_by', $id)
+            ->orderByDesc('created_at')
+            ->limit(15)
+            ->get(['id', 'claim_number', 'patient_name', 'payer_name', 'total_charges', 'status', 'date_of_service', 'created_at']);
+
+        // ── Login & audit history ──
+        $recentLogins = \DB::table('auth_events')
+            ->where('user_id', $id)
+            ->orderByDesc('id')
+            ->limit(15)
+            ->get(['id', 'event_type', 'ip_address', 'user_agent', 'created_at']);
+
+        $auditTrail = \DB::table('audit_logs')
+            ->where('agency_id', $agencyId)
+            ->where('user_id', $id)
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get(['id', 'action', 'auditable_type', 'auditable_id', 'created_at', 'impersonator_user_id']);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user' => $user,
+                'kpis' => [
+                    'applications_open'   => $appsOpen,
+                    'applications_total'  => $appsTotal,
+                    'tasks_open'          => $tasksOpen,
+                    'tasks_completed'     => $tasksCompleted,
+                    'tasks_total'         => $tasksTotal,
+                    'denials_open'        => $denialsOpen,
+                    'denials_resolved'    => $denialsResolved,
+                    'recovery_rate_pct'   => $recoveryRatePct,
+                    'claims_created'      => $claimsCreatedCount,
+                ],
+                'denial_work_breakdown' => [
+                    'created'  => $createdCount,
+                    'triaged'  => $triagedCount,
+                    'drafted'  => $draftedCount,
+                    'sent'     => $sentCount,
+                ],
+                'assignments' => [
+                    'applications' => $recentApplications,
+                    'tasks'        => $recentTasks,
+                ],
+                'denial_work'   => $recentDenials,
+                'claims'        => $recentClaims,
+                'history' => [
+                    'logins' => $recentLogins,
+                    'audit'  => $auditTrail,
+                ],
+            ],
         ]);
     }
 

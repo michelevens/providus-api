@@ -38,7 +38,11 @@ class EnsureAgencyRole
                 fn ($r) => User::ROLE_HIERARCHY[$r] ?? 99,
                 $roles
             ));
-            $userLevel = User::ROLE_HIERARCHY[$user->role] ?? 0;
+            // Fallback to -1 (lower than provider=0) so a user with an
+            // unknown role gets DENIED rather than silently treated as
+            // a provider. Pre-2026-05-16 this was `?? 0` which was
+            // ambiguous after we renumbered provider to 0.
+            $userLevel = User::ROLE_HIERARCHY[$user->role] ?? -1;
 
             if ($userLevel < $minLevel) {
                 return response()->json(['error' => 'Insufficient permissions'], 403);

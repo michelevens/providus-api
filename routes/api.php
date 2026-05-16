@@ -200,6 +200,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::prefix('agency/users')->group(function () {
             Route::get('/', [AgencyController::class, 'listUsers']);
             Route::post('/', [AgencyController::class, 'inviteUser']);
+            // {id}/activity must come BEFORE the bare {id} routes so the
+            // 'activity' segment isn't swallowed as an id.
+            Route::get('/{id}/activity', [AgencyController::class, 'userActivity'])->where('id', '[0-9]+');
             Route::put('/{id}', [AgencyController::class, 'updateUser']);
             Route::delete('/{id}', [AgencyController::class, 'deleteUser']);
             Route::post('/{id}/reset-password', [AgencyController::class, 'resetUserPassword']);
