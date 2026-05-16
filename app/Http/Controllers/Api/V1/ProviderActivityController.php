@@ -173,7 +173,7 @@ class ProviderActivityController extends Controller
         $claims = DB::table('claims')
             ->where('agency_id', $agencyId)
             ->where('provider_id', $providerId)
-            ->select('id', 'status', 'submitted_date', 'paid_at', 'created_at')
+            ->select('id', 'status', 'submitted_date', 'paid_date', 'created_at')
             ->get();
 
         $totalClaims = $claims->count();
@@ -198,7 +198,7 @@ class ProviderActivityController extends Controller
 
         // Clean-claim rate: paid without ever being denied, divided by
         // total claims. Industry benchmark is >95%.
-        $paidClaimIds = $claims->whereNotNull('paid_at')->pluck('id')->all();
+        $paidClaimIds = $claims->whereNotNull('paid_date')->pluck('id')->all();
         $deniedClaimIds = DB::table('claim_denials')
             ->whereIn('claim_id', $claimIds)
             ->distinct('claim_id')
@@ -208,15 +208,15 @@ class ProviderActivityController extends Controller
 
         // Avg days from submission to payment for claims that have paid.
         $daysToPay = $claims
-            ->filter(fn ($c) => $c->submitted_date && $c->paid_at)
-            ->map(fn ($c) => max(0, (strtotime((string) $c->paid_at) - strtotime((string) $c->submitted_date)) / 86400))
+            ->filter(fn ($c) => $c->submitted_date && $c->paid_date)
+            ->map(fn ($c) => max(0, (strtotime((string) $c->paid_date) - strtotime((string) $c->submitted_date)) / 86400))
             ->values();
         $avgDays = $daysToPay->count() > 0 ? round($daysToPay->avg(), 1) : null;
 
         // Throughput over the last 90 days.
         $cutoff = now()->subDays(90);
         $last90Submitted = $claims->filter(fn ($c) => $c->submitted_date && strtotime((string) $c->submitted_date) >= $cutoff->timestamp)->count();
-        $last90Paid      = $claims->filter(fn ($c) => $c->paid_at && strtotime((string) $c->paid_at) >= $cutoff->timestamp)->count();
+        $last90Paid      = $claims->filter(fn ($c) => $c->paid_date && strtotime((string) $c->paid_date) >= $cutoff->timestamp)->count();
 
         return [
             'totalClaims'     => $totalClaims,
