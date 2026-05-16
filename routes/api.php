@@ -404,6 +404,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/upload', [DocumentController::class, 'upload']);
         Route::post('/documents/{id}/replace', [DocumentController::class, 'replace']);
         Route::get('/documents/{id}/download', [DocumentController::class, 'download']);
+
+        // Activity aggregator + provider-scoped notes — powers the
+        // rebuilt ProviderProfilePage header (expiration countdown +
+        // performance stats + notes + timeline).
+        Route::get(   '/activity', [\App\Http\Controllers\Api\V1\ProviderActivityController::class, 'show']);
+        Route::post(  '/notes',         [\App\Http\Controllers\Api\V1\ProviderActivityController::class, 'storeNote']);
+        Route::put(   '/notes/{id}',    [\App\Http\Controllers\Api\V1\ProviderActivityController::class, 'updateNote']);
+        Route::delete('/notes/{id}',    [\App\Http\Controllers\Api\V1\ProviderActivityController::class, 'deleteNote']);
     });
 
     // ── Bulk Import ──
