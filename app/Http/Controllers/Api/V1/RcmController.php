@@ -1453,6 +1453,24 @@ class RcmController extends Controller
         return response()->json(['success' => true, 'data' => $query->orderByDesc('created_at')->get()]);
     }
 
+    /**
+     * GET /rcm/denials/{id} — single denial with claim + escalation
+     * chain eager-loaded for the V2 DenialDetailPage (Phase 3B).
+     *
+     * Returns: { data: Denial { ...row, claim: {...}, escalations: [...] } }
+     * 404 if the row doesn't exist in the requesting agency's scope.
+     */
+    public function showDenial(Request $request, int $id): JsonResponse
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
+            ->with([
+                'claim:id,claim_number,payer_name,patient_name,patient_dob,patient_member_id,date_of_service,payer_icn,total_charges,status,denial_reason',
+                'billingClient:id,organization_name',
+            ])
+            ->findOrFail($id);
+        return response()->json(['success' => true, 'data' => $denial]);
+    }
+
     public function storeDenial(Request $request): JsonResponse
     {
         $request->validate([

@@ -515,6 +515,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/denials/recovery-report', [RcmController::class, 'denialRecoveryReport']);
     Route::get('/rcm/denials', [RcmController::class, 'denials']);
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
+    Route::get('/rcm/denials/{id}', [RcmController::class, 'showDenial'])->where('id', '[0-9]+');
     Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
     Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial']);
     // Spawn a corrected claim from a denial — clones service lines,
