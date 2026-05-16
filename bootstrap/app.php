@@ -41,6 +41,18 @@ return Application::configure(basePath: dirname(__DIR__))
             'embed.cors' => EmbedCors::class,
             'plan.limit' => EnforcePlanLimits::class,
         ]);
+
+        // This is a JSON API; there is no /login route. When a guest
+        // hits an auth:sanctum endpoint with Accept: text/html (e.g.
+        // someone clicks an <a href> to /rcm/denials/{id}/pdf or
+        // /docx that opens in a new tab — those are navigation
+        // requests, not XHR), Laravel's default Authenticate
+        // middleware tries to redirect to route('login') and 500s
+        // with "Route [login] not defined."
+        //
+        // Returning null tells the middleware to abort with the
+        // standard 401 JSON response regardless of Accept header.
+        $middleware->redirectGuestsTo(fn () => null);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         //
