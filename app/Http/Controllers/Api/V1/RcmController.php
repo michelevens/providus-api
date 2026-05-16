@@ -1856,6 +1856,228 @@ class RcmController extends Controller
     }
 
     /**
+     * GET /rcm/denials/{id}/docx — render the appeal letter as a .docx
+     * file (Microsoft Word). Same content as denialPdf, but editable
+     * in Word. Operators who need to add payer-specific tweaks before
+     * mailing (custom appeals language, payer-required forms pasted
+     * into the letter, etc.) get a true Word document instead of a
+     * flat PDF.
+     *
+     * Uses phpoffice/phpword (added 2026-05-15). We don't share a
+     * Blade view with the PDF path because PhpWord builds the
+     * document programmatically — no HTML/CSS rendering. Layout
+     * intentionally mirrors the PDF: letterhead, date, payer block,
+     * subject line, claim ref table, body, signature, enclosures.
+     *
+     * Returns: binary .docx stream with the standard Office MIME
+     * type. Browser will offer to download (no inline preview
+     * support like PDF). Force-download is implicit; the ?download=1
+     * query param is accepted for symmetry with denialPdf but doesn't
+     * change behavior.
+     */
+    public function denialDocx(Request $request, int $id)
+    {
+        $denial = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
+            ->with(['claim.billingClient'])
+            ->findOrFail($id);
+
+        $claim = $denial->claim;
+        if (!$claim) {
+            return response()->json([
+                'success' => false,
+                'error'   => 'denial_orphaned',
+                'message' => 'Denial has no linked claim; cannot render letter.',
+            ], 422);
+        }
+
+        // Use saved letter_text if available; otherwise generate fresh.
+        // Same fallback the PDF endpoint uses — operator can hit
+        // "Download .docx" even on a never-drafted denial.
+        $letterText = $denial->letter_text;
+        if (empty($letterText)) {
+            /** @var \App\Services\AppealLetterService $svc */
+            $svc = app(\App\Services\AppealLetterService::class);
+            $letterText = $svc->render($denial);
+        }
+
+        $billingClient = $claim->billingClient;
+        $agency = $billingClient?->agency ?? $claim->agency ?? null;
+        $brand = $billingClient
+            ? \App\Services\BrandingResolver::forBillingClient($billingClient)
+            : ($agency ? \App\Services\BrandingResolver::forAgency($agency) : [
+                'name' => 'Credentik',
+                'primary_color' => '#4f46e5',
+            ]);
+
+        // Strip the salutation/signature that AppealLetterService
+        // adds so we can render them with proper styling below.
+        // (Same trim logic the pdf.blade.php template uses.)
+        $body = $letterText ?? '';
+        $marker = 'To Whom It May Concern:';
+        $pos = strpos($body, $marker);
+        $bodyOnly = $pos !== false ? substr($body, $pos + strlen($marker)) : $body;
+        $sincerelyPos = strrpos($bodyOnly, 'Sincerely,');
+        if ($sincerelyPos !== false) {
+            $bodyOnly = substr($bodyOnly, 0, $sincerelyPos);
+        }
+        $bodyOnly = preg_replace('/Enclosures:[^\n]*/i', '', $bodyOnly);
+        $bodyOnly = trim($bodyOnly);
+
+        $level = (int) ($denial->appeal_level ?: 1);
+        $levelLabel = $level === 1 ? 'Appeal' : ($level === 2 ? 'Second-Level Appeal' : 'Third-Level Appeal');
+
+        $brandColor = ltrim((string) ($brand['primary_color'] ?? '#4f46e5'), '#');
+
+        $phpWord = new \PhpOffice\PhpWord\PhpWord();
+        $phpWord->getCompatibility()->setOoxmlVersion(15);
+        $phpWord->setDefaultFontName('Calibri');
+        $phpWord->setDefaultFontSize(11);
+
+        $section = $phpWord->addSection([
+            'marginTop'    => 1080, // ~0.75in (1in = 1440 twips)
+            'marginBottom' => 1080,
+            'marginLeft'   => 1080,
+            'marginRight'  => 1080,
+        ]);
+
+        // ─── Letterhead ───
+        $section->addText(
+            (string) ($brand['name'] ?? 'Provider'),
+            ['name' => 'Calibri', 'size' => 18, 'bold' => true, 'color' => $brandColor],
+            ['spaceAfter' => 60]
+        );
+        $addrParts = [];
+        if (!empty($brand['address_street'])) $addrParts[] = $brand['address_street'];
+        $cityLine = trim(implode(', ', array_filter([
+            $brand['address_city'] ?? null,
+            trim(($brand['address_state'] ?? '') . ' ' . ($brand['address_zip'] ?? '')),
+        ])));
+        if ($cityLine) $addrParts[] = $cityLine;
+        $contactParts = [];
+        if (!empty($brand['phone'])) $contactParts[] = 'Phone: ' . $brand['phone'];
+        if (!empty($brand['email'])) $contactParts[] = 'Email: ' . $brand['email'];
+        if ($contactParts) $addrParts[] = implode('  ·  ', $contactParts);
+        foreach ($addrParts as $line) {
+            $section->addText($line, ['size' => 9, 'color' => '6b7280'], ['spaceAfter' => 0]);
+        }
+
+        // Letterhead divider (a single bottom-bordered paragraph).
+        $section->addTextBreak(1);
+
+        // ─── Date ───
+        $section->addText(now()->toFormattedDateString(), [], ['spaceAfter' => 240]);
+
+        // ─── Payer block ───
+        $section->addText((string) ($claim->payer_name ?: '[Payer]'));
+        $section->addText('[Payer Appeals Address]');
+        $section->addText('[City, State ZIP]', [], ['spaceAfter' => 240]);
+
+        // ─── Subject ───
+        $section->addText(
+            'RE: ' . $levelLabel . ' of Denied Claim',
+            ['bold' => true, 'size' => 12, 'allCaps' => true],
+            ['spaceAfter' => 200]
+        );
+
+        // ─── Claim reference table ───
+        $tableStyle = [
+            'borderColor' => 'e5e7eb',
+            'borderSize'  => 4,
+            'cellMargin'  => 80,
+        ];
+        $phpWord->addTableStyle('claimRef', $tableStyle);
+        $table = $section->addTable('claimRef');
+        $labelStyle = ['bold' => true, 'color' => '374151', 'size' => 10];
+        $valueStyle = ['size' => 10];
+        $addRow = function ($label, $value) use ($table, $labelStyle, $valueStyle) {
+            $row = $table->addRow();
+            $row->addCell(2200)->addText($label, $labelStyle);
+            $row->addCell(7000)->addText((string) $value, $valueStyle);
+        };
+        $patient = $claim->patient_name ?: '[Patient Name]';
+        if ($claim->patient_dob) {
+            $patient .= '  (DOB: ' . $claim->patient_dob . ')';
+        }
+        $addRow('Patient:',          $patient);
+        $addRow('Member ID:',        $claim->patient_member_id ?: '[Member ID]');
+        $addRow('Provider Claim #:', $claim->claim_number ?: ('#' . $claim->id));
+        if ($claim->payer_icn) {
+            $addRow('Payer Claim # (ICN):', $claim->payer_icn);
+        }
+        $addRow('Date of Service:',  $claim->date_of_service ?: '[DOS]');
+        $addRow('Denial Date:',      $denial->denial_date ?: '[Date]');
+        $addRow('Denial Code:',      $denial->denial_code ?: '[Code]');
+        $addRow('Denied Amount:',    '$' . number_format((float) $denial->denied_amount, 2));
+
+        $section->addTextBreak(1);
+
+        // ─── Body ───
+        $section->addText('To Whom It May Concern:', [], ['spaceAfter' => 160]);
+
+        // PhpWord renders \n as a paragraph break only if we split
+        // and add each. Preserving the operator's edits one line at
+        // a time keeps tight control over spacing.
+        $paragraphs = preg_split('/\n\s*\n/', $bodyOnly);
+        foreach ($paragraphs as $para) {
+            $para = trim((string) $para);
+            if ($para === '') continue;
+            // Single newlines inside a paragraph become line breaks
+            // (Shift+Enter in Word), not new paragraphs.
+            $lines = preg_split('/\n/', $para);
+            $textRun = $section->addTextRun(['spaceAfter' => 160, 'alignment' => 'both']);
+            foreach ($lines as $i => $line) {
+                if ($i > 0) $textRun->addTextBreak();
+                $textRun->addText($line);
+            }
+        }
+
+        // ─── Signature ───
+        $section->addTextBreak(2);
+        $section->addText('Sincerely,', [], ['spaceAfter' => 480]);
+        $section->addText('[Billing Manager Name]', ['size' => 10]);
+        $section->addText((string) ($brand['name'] ?? 'Provider'), ['size' => 10]);
+        if (!empty($brand['phone'])) {
+            $section->addText('Phone: ' . $brand['phone'], ['size' => 10]);
+        }
+        if (!empty($brand['email'])) {
+            $section->addText('Email: ' . $brand['email'], ['size' => 10]);
+        }
+
+        // ─── Enclosures ───
+        $section->addTextBreak(1);
+        $enclLine = 'Enclosures: ';
+        $atc = is_array($denial->attachments) ? count($denial->attachments) : 0;
+        $enclLine .= $atc > 0
+            ? ($atc . ' document' . ($atc === 1 ? '' : 's') . ' attached (see accompanying list).')
+            : '[List supporting documentation attached]';
+        $section->addText($enclLine, ['size' => 10, 'color' => '4b5563']);
+
+        // ─── Stream the file ───
+        $filename = sprintf(
+            'appeal-%s-%s.docx',
+            preg_replace('/[^A-Za-z0-9_-]/', '', $claim->claim_number ?: 'claim' . $claim->id),
+            now()->format('Y-m-d')
+        );
+
+        // Write to a temp file (PhpWord's writers require seekable
+        // streams), then return the binary response.
+        $tmp = tempnam(sys_get_temp_dir(), 'docx');
+        try {
+            $writer = \PhpOffice\PhpWord\IOFactory::createWriter($phpWord, 'Word2007');
+            $writer->save($tmp);
+            $bytes = file_get_contents($tmp);
+        } finally {
+            @unlink($tmp);
+        }
+
+        return response($bytes, 200, [
+            'Content-Type'        => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Length'      => (string) strlen($bytes),
+        ]);
+    }
+
+    /**
      * GET /rcm/denials/recovery-report — agency-wide denial recovery
      * analytics. Powers the V2 Denial Recovery Report panel.
      *
