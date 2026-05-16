@@ -3,11 +3,11 @@
      separately, then this template wraps it with the standard
      header / claim-reference block / closing / signature.
 
-     Heads up: @php must sit on its own line. Putting it on the
-     same line as the closing --}} of a comment confuses Blade's
-     directive extractor — the block leaks as a raw placeholder
-     (@__raw_block_0__) and the local variables it defines never
-     get assigned. Bit me 2026-05-16. --}}
+     Layout note: the php directive below must sit on its own line.
+     Gluing it to the closing of a Blade comment on the same line
+     confuses the directive extractor — the block leaks as a raw
+     placeholder and the local variables never get assigned. Bit
+     me 2026-05-16. --}}
 @php
     $addrLine2 = trim(implode(', ', array_filter([
         $brand['address_city'] ?? null,
