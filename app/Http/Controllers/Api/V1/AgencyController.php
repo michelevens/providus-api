@@ -404,7 +404,11 @@ class AgencyController extends Controller
         // Multiple per-stage attribution columns. A denial "worked by
         // this user" = touched at any stage. Counted per stage so the
         // operator can see balance (lots of drafted, no sent = stuck).
-        $denialBase = \DB::table('claim_denials')->where('agency_id', $agencyId);
+        // Qualify agency_id to claim_denials because some derived
+        // queries below leftJoin the claims table (which also has an
+        // agency_id) — without the qualifier Postgres raises
+        // "ambiguous column" after the join is applied to the clone.
+        $denialBase = \DB::table('claim_denials')->where('claim_denials.agency_id', $agencyId);
         $triagedCount = (clone $denialBase)->where('triaged_by', $id)->count();
         $draftedCount = (clone $denialBase)->where('letter_drafted_by', $id)->count();
         $sentCount    = (clone $denialBase)->where('letter_sent_by', $id)->count();
@@ -445,10 +449,14 @@ class AgencyController extends Controller
             ->count();
 
         // ── Recent rows for each tab (capped) ──
+        // Qualify every where on `agency_id` / `assigned_to` to the
+        // applications table because the joined providers and
+        // organizations tables also have agency_id columns (Postgres
+        // would otherwise raise "column reference is ambiguous").
         $recentApplications = \DB::table('applications')
-            ->where('agency_id', $agencyId)
-            ->where('assigned_to', $id)
-            ->whereNull('deleted_at')
+            ->where('applications.agency_id', $agencyId)
+            ->where('applications.assigned_to', $id)
+            ->whereNull('applications.deleted_at')
             ->leftJoin('providers', 'providers.id', '=', 'applications.provider_id')
             ->leftJoin('organizations', 'organizations.id', '=', 'applications.organization_id')
             ->orderByDesc('applications.updated_at')
