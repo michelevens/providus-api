@@ -173,7 +173,7 @@ class ProviderActivityController extends Controller
         $claims = DB::table('claims')
             ->where('agency_id', $agencyId)
             ->where('provider_id', $providerId)
-            ->select('id', 'status', 'submitted_at', 'paid_at', 'created_at')
+            ->select('id', 'status', 'submitted_date', 'paid_at', 'created_at')
             ->get();
 
         $totalClaims = $claims->count();
@@ -208,14 +208,14 @@ class ProviderActivityController extends Controller
 
         // Avg days from submission to payment for claims that have paid.
         $daysToPay = $claims
-            ->filter(fn ($c) => $c->submitted_at && $c->paid_at)
-            ->map(fn ($c) => max(0, (strtotime((string) $c->paid_at) - strtotime((string) $c->submitted_at)) / 86400))
+            ->filter(fn ($c) => $c->submitted_date && $c->paid_at)
+            ->map(fn ($c) => max(0, (strtotime((string) $c->paid_at) - strtotime((string) $c->submitted_date)) / 86400))
             ->values();
         $avgDays = $daysToPay->count() > 0 ? round($daysToPay->avg(), 1) : null;
 
         // Throughput over the last 90 days.
         $cutoff = now()->subDays(90);
-        $last90Submitted = $claims->filter(fn ($c) => $c->submitted_at && strtotime((string) $c->submitted_at) >= $cutoff->timestamp)->count();
+        $last90Submitted = $claims->filter(fn ($c) => $c->submitted_date && strtotime((string) $c->submitted_date) >= $cutoff->timestamp)->count();
         $last90Paid      = $claims->filter(fn ($c) => $c->paid_at && strtotime((string) $c->paid_at) >= $cutoff->timestamp)->count();
 
         return [
@@ -253,11 +253,11 @@ class ProviderActivityController extends Controller
             ->where('provider_id', $providerId)
             ->orderByDesc('id')
             ->limit(50)
-            ->get(['id', 'status', 'created_at', 'submitted_at', 'effective_date', 'payer_name']);
+            ->get(['id', 'status', 'created_at', 'submitted_date', 'effective_date', 'payer_name']);
         foreach ($apps as $a) {
             $events[] = [
                 'type'  => 'application',
-                'at'    => (string) ($a->submitted_at ?: $a->created_at),
+                'at'    => (string) ($a->submitted_date ?: $a->created_at),
                 'title' => 'Application — ' . ($a->payer_name ?: 'Payer'),
                 'sub'   => ucfirst((string) $a->status),
                 'severity' => match ($a->status) {
