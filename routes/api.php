@@ -612,6 +612,20 @@ Route::middleware('auth:sanctum')->group(function () {
     // Structured patient commitment: amount + date.
     Route::post('/rcm/patient-statements/{id}/promise-to-pay', [RcmPhase2Controller::class, 'promiseToPayPatientStatement']);
 
+    // ── Patient-detail aggregator + notes ──────────────────
+    // {key} is lowercased + trimmed patient_name (URL-encoded so it
+    // can contain spaces). No real patients table — V2 uses name as
+    // the identity. PatientActivityController normalizes defensively.
+    // Constraint allows spaces, apostrophes, hyphens, common punctuation.
+    Route::get(   '/rcm/patients/{key}/activity', [\App\Http\Controllers\Api\V1\PatientActivityController::class, 'show'])
+        ->where('key', '[^/]+');
+    Route::post(  '/rcm/patients/{key}/notes', [\App\Http\Controllers\Api\V1\PatientActivityController::class, 'storeNote'])
+        ->where('key', '[^/]+');
+    Route::put(   '/rcm/patients/{key}/notes/{id}', [\App\Http\Controllers\Api\V1\PatientActivityController::class, 'updateNote'])
+        ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
+    Route::delete('/rcm/patients/{key}/notes/{id}', [\App\Http\Controllers\Api\V1\PatientActivityController::class, 'deleteNote'])
+        ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
+
     Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);
     Route::put('/rcm/eligibility/{id}', [RcmPhase2Controller::class, 'updateEligibilityCheck']);
