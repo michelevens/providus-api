@@ -582,7 +582,25 @@ class RcmPhase2Controller extends Controller
 
     public function patientStatements(Request $request): JsonResponse
     {
-        $query = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request));
+        $agencyId = $request->user()->effectiveAgencyId($request);
+
+        // Lazy broken-promise detection. Any statement whose
+        // promised_pay_date has passed but no promise_broken_at stamp
+        // (and that hasn't been paid in full) gets promise_broken_at
+        // stamped here. Done in the list endpoint rather than a cron
+        // because (a) it's the only place that surfaces them anyway,
+        // (b) one short UPDATE is cheaper than a daily scheduled job,
+        // and (c) the timestamp shows on V2 immediately on next refetch.
+        \DB::table('patient_statements')
+            ->where('agency_id', $agencyId)
+            ->whereNotNull('promised_pay_date')
+            ->whereNull('promise_broken_at')
+            ->whereDate('promised_pay_date', '<', now()->toDateString())
+            ->where('patient_balance', '>', 0)
+            ->whereNotIn('status', ['paid', 'written_off', 'in_collections'])
+            ->update(['promise_broken_at' => now()]);
+
+        $query = PatientStatement::where('agency_id', $agencyId);
         if ($s = $request->input('status')) $query->where('status', $s);
         return response()->json(['success' => true, 'data' => $query->orderByDesc('created_at')->get()]);
     }
@@ -759,6 +777,131 @@ class RcmPhase2Controller extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Handed off to collections',
+            'data'    => $statement->fresh(),
+        ]);
+    }
+
+    /**
+     * POST /rcm/patient-statements/{id}/snooze — temporarily hide
+     * this row from the active Balance Reminders queue. Operator's
+     * "I just talked to them, check in 7 days" button. No
+     * commitment tracking — for that use promise-to-pay.
+     *
+     * Body:
+     *   - days:   1..120 integer; sets snoozed_until = now + days
+     *   - reason: optional free text (200 chars)
+     *
+     * Re-snoozing is allowed (operator can extend). Setting days=0
+     * clears the snooze immediately.
+     */
+    public function snoozePatientStatement(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'days'   => 'required|integer|min:0|max:120',
+            'reason' => 'nullable|string|max:200',
+        ]);
+
+        $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        if (!empty($statement->handed_off_to_collections_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Statement was handed off to collections; snooze does not apply.',
+            ], 422);
+        }
+
+        $days = (int) $request->input('days');
+        if ($days === 0) {
+            $statement->update([
+                'snoozed_until' => null,
+                'snoozed_by'    => null,
+                'snooze_reason' => null,
+            ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Snooze cleared',
+                'data'    => $statement->fresh(),
+            ]);
+        }
+
+        $statement->update([
+            'snoozed_until' => now()->addDays($days),
+            'snoozed_by'    => $request->user()->id,
+            'snooze_reason' => $request->input('reason'),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => "Snoozed for {$days} days",
+            'data'    => $statement->fresh(),
+        ]);
+    }
+
+    /**
+     * POST /rcm/patient-statements/{id}/promise-to-pay — record a
+     * structured patient commitment: amount + date.
+     *
+     * Body:
+     *   - date:   required, must be in the future (operator entered
+     *             a date the patient promised to pay by)
+     *   - amount: required, >= 0
+     *   - notes:  optional free text
+     *
+     * Effect: row hides from the active queue until the date. If a
+     * matching payment lands before the date, status flips to paid
+     * via the normal payment-posting flow. If the date passes
+     * without payment, the list endpoint's lazy broken-promise
+     * detection stamps promise_broken_at and the row returns to the
+     * queue with a 'BROKEN PROMISE' badge in V2.
+     *
+     * Setting amount=0 clears any existing promise.
+     */
+    public function promiseToPayPatientStatement(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'date'   => 'required|date|after_or_equal:today',
+            'amount' => 'required|numeric|min:0',
+            'notes'  => 'nullable|string|max:2000',
+        ]);
+
+        $statement = PatientStatement::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+
+        if (!empty($statement->handed_off_to_collections_at)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Statement was handed off to collections; promise-to-pay does not apply.',
+            ], 422);
+        }
+
+        $amount = (float) $request->input('amount');
+        if ($amount === 0.0) {
+            $statement->update([
+                'promised_pay_date'   => null,
+                'promised_pay_amount' => null,
+                'promised_pay_by'     => null,
+                'promise_notes'       => null,
+                'promise_broken_at'   => null,
+            ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Promise cleared',
+                'data'    => $statement->fresh(),
+            ]);
+        }
+
+        $statement->update([
+            'promised_pay_date'   => $request->input('date'),
+            'promised_pay_amount' => $amount,
+            'promised_pay_by'     => $request->user()->id,
+            'promise_notes'       => $request->input('notes'),
+            // Re-setting a promise clears any prior broken-promise
+            // stamp — operator may have re-negotiated.
+            'promise_broken_at'   => null,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Promise to pay recorded',
             'data'    => $statement->fresh(),
         ]);
     }

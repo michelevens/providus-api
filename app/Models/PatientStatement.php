@@ -19,6 +19,10 @@ class PatientStatement extends Model
         'last_sent_date', 'times_sent', 'notes', 'created_by',
         // Collections handoff (2026-05-16 migration)
         'handed_off_to_collections_at', 'handed_off_to_collections_by', 'handoff_notes',
+        // Snooze + Promise-to-pay (2026-05-16 migration #2)
+        'snoozed_until', 'snoozed_by', 'snooze_reason',
+        'promised_pay_date', 'promised_pay_amount', 'promised_pay_by',
+        'promise_notes', 'promise_broken_at',
     ];
 
     protected $casts = [
@@ -26,6 +30,10 @@ class PatientStatement extends Model
         'patient_balance' => 'decimal:2', 'amount_paid' => 'decimal:2',
         'statement_date' => 'date', 'due_date' => 'date', 'last_sent_date' => 'date',
         'handed_off_to_collections_at' => 'datetime',
+        'snoozed_until' => 'datetime',
+        'promised_pay_date' => 'date',
+        'promised_pay_amount' => 'decimal:2',
+        'promise_broken_at' => 'datetime',
     ];
 
     public function claim(): BelongsTo { return $this->belongsTo(Claim::class); }

@@ -607,6 +607,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/patient-statements/{id}/log-call', [RcmPhase2Controller::class, 'logCallPatientStatement']);
     // Terminal handoff to outside collections agency. Agency-admin only.
     Route::post('/rcm/patient-statements/{id}/handoff-collections', [RcmPhase2Controller::class, 'handoffPatientStatement']);
+    // Temporarily hide from the active Balance Reminders queue.
+    Route::post('/rcm/patient-statements/{id}/snooze', [RcmPhase2Controller::class, 'snoozePatientStatement']);
+    // Structured patient commitment: amount + date.
+    Route::post('/rcm/patient-statements/{id}/promise-to-pay', [RcmPhase2Controller::class, 'promiseToPayPatientStatement']);
 
     Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);
