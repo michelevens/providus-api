@@ -532,6 +532,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials/{id}/draft-letter',    [RcmController::class, 'draftLetter']);
     Route::get( '/rcm/denials/{id}/pdf',              [RcmController::class, 'denialPdf']);
     Route::get( '/rcm/denials/{id}/docx',             [RcmController::class, 'denialDocx']);
+
+    // Denial attachments — supporting docs uploaded for the appeal.
+    // Storage: Cloudflare R2 (private bucket; signed URLs returned to
+    // V2). See DenialAttachmentController for the metadata shape.
+    Route::get(   '/rcm/denials/{id}/attachments', [\App\Http\Controllers\Api\V1\DenialAttachmentController::class, 'index']);
+    Route::post(  '/rcm/denials/{id}/attachments', [\App\Http\Controllers\Api\V1\DenialAttachmentController::class, 'store']);
+    Route::delete('/rcm/denials/{id}/attachments', [\App\Http\Controllers\Api\V1\DenialAttachmentController::class, 'destroy']);
     Route::post('/rcm/denials/{id}/mark-sent',       [RcmController::class, 'markLetterSent']);
     Route::post('/rcm/denials/{id}/record-response', [RcmController::class, 'recordResponse']);
     Route::post('/rcm/denials/{id}/escalate',        [RcmController::class, 'escalateDenial']);

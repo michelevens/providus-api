@@ -60,6 +60,29 @@ return [
             'report' => false,
         ],
 
+        // Cloudflare R2 — S3-compatible object storage. Used for denial
+        // appeal attachments (Phase 5, 2026-05-15). Region must be
+        // 'auto'; path-style endpoint required. Env vars are set on
+        // Railway by the operator (Phase 5C). Falls back to 's3'-style
+        // env names so we share one set of creds if/when we move other
+        // file uploads here too.
+        'r2' => [
+            'driver' => 's3',
+            'key'      => env('R2_ACCESS_KEY_ID',     env('AWS_ACCESS_KEY_ID')),
+            'secret'   => env('R2_SECRET_ACCESS_KEY', env('AWS_SECRET_ACCESS_KEY')),
+            'region'   => env('R2_REGION', 'auto'),
+            'bucket'   => env('R2_BUCKET',   env('AWS_BUCKET')),
+            'endpoint' => env('R2_ENDPOINT', env('AWS_ENDPOINT')),
+            // R2 requires path-style addressing.
+            'use_path_style_endpoint' => true,
+            // Public URL prefix (set when bucket is served via a
+            // public-domain custom hostname). Empty → use temporary
+            // signed URLs only (preferred for PHI-adjacent content).
+            'url'      => env('R2_PUBLIC_URL'),
+            'throw'  => false,
+            'report' => false,
+        ],
+
     ],
 
     /*
