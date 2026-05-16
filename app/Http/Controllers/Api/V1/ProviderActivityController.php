@@ -279,13 +279,13 @@ class ProviderActivityController extends Controller
                 ->whereIn('claim_id', $claimIds)
                 ->orderByDesc('id')
                 ->limit(50)
-                ->get(['id', 'created_at', 'denial_code', 'denial_reason', 'denial_status']);
+                ->get(['id', 'created_at', 'denial_code', 'denial_reason', 'status']);
             foreach ($denials as $d) {
                 $events[] = [
                     'type'  => 'denial',
                     'at'    => (string) $d->created_at,
                     'title' => 'Denial ' . ($d->denial_code ?: ''),
-                    'sub'   => $d->denial_reason ?: ucfirst((string) $d->denial_status),
+                    'sub'   => $d->denial_reason ?: ucfirst((string) $d->status),
                     'severity' => 'danger',
                 ];
             }
