@@ -74,9 +74,15 @@ class Application extends Model
     public function activityLogs(): HasMany { return $this->hasMany(ActivityLog::class); }
     public function tasks(): HasMany { return $this->hasMany(Task::class, 'linked_application_id'); }
 
+    /**
+     * Permissive transitions (2026-05-16): any status → any status is
+     * allowed as long as the target is one of the 11 V2 statuses (or a
+     * legacy alias). Solo operator owns workflow QA; the state machine
+     * was causing 422s on legitimate corrections. VALID_TRANSITIONS is
+     * kept for documentation + future ACL tightening if a team grows.
+     */
     public function canTransitionTo(string $status): bool
     {
-        $allowed = self::VALID_TRANSITIONS[$this->status] ?? [];
-        return in_array($status, $allowed);
+        return array_key_exists($status, self::VALID_TRANSITIONS);
     }
 }
