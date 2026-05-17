@@ -634,6 +634,19 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::delete('/rcm/patients/{key}/notes/{id}', [\App\Http\Controllers\Api\V1\PatientActivityController::class, 'deleteNote'])
         ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
 
+    // Patient document storage — R2-backed file CRUD. Mirrors the
+    // provider-side /providers/{id}/documents routes, keyed by patient_key.
+    Route::get(   '/rcm/patients/{key}/documents',                  [\App\Http\Controllers\Api\V1\PatientDocumentController::class, 'index'])
+        ->where('key', '[^/]+');
+    Route::post(  '/rcm/patients/{key}/documents/upload',           [\App\Http\Controllers\Api\V1\PatientDocumentController::class, 'upload'])
+        ->where('key', '[^/]+');
+    Route::get(   '/rcm/patients/{key}/documents/{id}/download',    [\App\Http\Controllers\Api\V1\PatientDocumentController::class, 'download'])
+        ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
+    Route::put(   '/rcm/patients/{key}/documents/{id}',             [\App\Http\Controllers\Api\V1\PatientDocumentController::class, 'update'])
+        ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
+    Route::delete('/rcm/patients/{key}/documents/{id}',             [\App\Http\Controllers\Api\V1\PatientDocumentController::class, 'destroy'])
+        ->where(['key' => '[^/]+', 'id' => '[0-9]+']);
+
     Route::get('/rcm/eligibility', [RcmPhase2Controller::class, 'eligibilityChecks']);
     Route::post('/rcm/eligibility/check', [RcmPhase2Controller::class, 'checkEligibility']);
     Route::put('/rcm/eligibility/{id}', [RcmPhase2Controller::class, 'updateEligibilityCheck']);
