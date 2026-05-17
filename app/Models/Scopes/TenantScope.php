@@ -47,14 +47,28 @@ class TenantScope implements Scope
         $scopeOrgId = request()->header('X-Scope-Org-Id', '');
         $scopeProviderId = request()->header('X-Scope-Provider-Id', '');
 
-        // Organization role users are always scoped to their org
-        if ($user->role === 'organization' && $user->organization_id) {
+        // Organization role users are always scoped to their org.
+        // FAIL-CLOSED: if the user is org-role but organization_id is null,
+        // return zero rows. Otherwise the conditional silently falls through
+        // and the user sees the whole tenant — a leak we found during the
+        // 2026-05-17 RBAC audit when a provider-role user with provider_id=NULL
+        // returned the whole agency's data.
+        if ($user->role === 'organization') {
+            if (!$user->organization_id) {
+                $builder->whereRaw('1=0');
+                return;
+            }
             $scopeType = 'organization';
             $scopeOrgId = $user->organization_id;
         }
 
-        // Provider role users are always scoped to their provider
-        if ($user->role === 'provider' && $user->provider_id) {
+        // Provider role users are always scoped to their provider. Same
+        // fail-closed guarantee as the organization branch above.
+        if ($user->role === 'provider') {
+            if (!$user->provider_id) {
+                $builder->whereRaw('1=0');
+                return;
+            }
             $scopeType = 'provider';
             $scopeProviderId = $user->provider_id;
         }
