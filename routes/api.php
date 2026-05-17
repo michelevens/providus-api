@@ -445,7 +445,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/contracts/stats', [ContractController::class, 'stats']);
     Route::apiResource('contracts', ContractController::class);
     Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
-    Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate']);
+    Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate'])->middleware('role:agency');
     Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);
 
     // ── Billing Services Management ──
@@ -455,15 +455,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/billing-clients/{id}', [BillingServiceController::class, 'showClient']);
     Route::post('/billing-clients', [BillingServiceController::class, 'storeClient']);
     Route::put('/billing-clients/{id}', [BillingServiceController::class, 'updateClient']);
-    Route::delete('/billing-clients/{id}', [BillingServiceController::class, 'destroyClient']);
-    Route::post('/billing-clients/{id}/generate-ledger', [BillingServiceController::class, 'generateLedger']);
+    Route::delete('/billing-clients/{id}', [BillingServiceController::class, 'destroyClient'])->middleware('role:agency');
+    Route::post('/billing-clients/{id}/generate-ledger', [BillingServiceController::class, 'generateLedger'])->middleware('role:agency');
     Route::get('/billing-clients/{id}/ledger', [BillingServiceController::class, 'getLedger']);
     Route::get('/billing-clients/{id}/branding', [BillingServiceController::class, 'getClientBranding']);
     Route::put('/billing-clients/{id}/branding', [BillingServiceController::class, 'updateClientBranding']);
     // Monthly statement — RCM + Credentialing recap for a billing client.
     // Period defaults to last calendar month; pass ?period=YYYY-MM to override.
     Route::get('/billing-clients/{id}/monthly-statement', [BillingServiceController::class, 'monthlyStatement']);
-    Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance']);
+    Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance'])->middleware('role:agency');
 
     Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);
     Route::post('/billing-tasks/generate', [BillingServiceController::class, 'generateTasks']);
@@ -487,7 +487,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/claims/{id}', [RcmController::class, 'showClaim']);
     Route::post('/rcm/claims', [RcmController::class, 'storeClaim']);
     Route::put('/rcm/claims/{id}', [RcmController::class, 'updateClaim']);
-    Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim']);
+    Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim'])->middleware('role:agency');
     // Dedicated write-off endpoint — enforces the $500 owner-approval
     // threshold and keeps adjustments/balance math + note marker in
     // one server-side transaction. Returns 403 with the structured
@@ -499,7 +499,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // Assignment / snooze / follow-up-date. Single + bulk variants.
     // Single keeps the validation simple; bulk takes claim_ids[].
     Route::patch('/rcm/claims/{id}/assignment', [RcmController::class, 'updateAssignment']);
-    Route::patch('/rcm/claims/bulk-assignment', [RcmController::class, 'bulkUpdateAssignment']);
+    Route::patch('/rcm/claims/bulk-assignment', [RcmController::class, 'bulkUpdateAssignment'])->middleware('role:agency');
     Route::post('/rcm/claims/{id}/write-off', [RcmController::class, 'writeOffClaim']);
     // Below-threshold staff can request approval; the request rides
     // on billing_tasks with category='writeoff_approval'. Owners see
@@ -518,7 +518,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/write-offs/org-requests/{id}/approve', [RcmController::class, 'approveOrgWriteOffRequest']);
     Route::post('/rcm/write-offs/org-requests/{id}/reject', [RcmController::class, 'rejectOrgWriteOffRequest']);
     Route::post('/rcm/claims/bulk-import', [RcmController::class, 'bulkImportClaims']);
-    Route::post('/rcm/claims/purge', [RcmController::class, 'purgeAllClaims']);
+    Route::post('/rcm/claims/purge', [RcmController::class, 'purgeAllClaims'])->middleware('role:agency');
 
     Route::get('/rcm/denials/stats', [RcmController::class, 'denialStats']);
     // Static path BEFORE the /{id} pattern so Laravel doesn't match
@@ -528,7 +528,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::get('/rcm/denials/{id}', [RcmController::class, 'showDenial'])->where('id', '[0-9]+');
     Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
-    Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial']);
+    Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial'])->middleware('role:agency');
     // Spawn a corrected claim from a denial — clones service lines,
     // links lineage, leaves status=draft for the biller to fix and
     // re-submit. Endpoint sits next to the denial CRUD because the
@@ -560,9 +560,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/payments', [RcmController::class, 'payments']);
     Route::get('/rcm/payments/{id}', [RcmController::class, 'showPayment']);
     Route::post('/rcm/payments', [RcmController::class, 'storePayment']);
-    Route::post('/rcm/payments/bulk-match', [RcmController::class, 'bulkMatchPayments']);
+    Route::post('/rcm/payments/bulk-match', [RcmController::class, 'bulkMatchPayments'])->middleware('role:agency');
     Route::put('/rcm/payments/{id}', [RcmController::class, 'updatePayment']);
-    Route::delete('/rcm/payments/{id}', [RcmController::class, 'destroyPayment']);
+    Route::delete('/rcm/payments/{id}', [RcmController::class, 'destroyPayment'])->middleware('role:agency');
 
     Route::get('/rcm/charges', [RcmController::class, 'charges']);
     Route::post('/rcm/charges', [RcmController::class, 'storeCharge']);
@@ -586,9 +586,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/rcm/appeal-templates/{id}', [RcmPhase2Controller::class, 'updateAppealTemplate']);
     Route::delete('/rcm/appeal-templates/{id}', [RcmPhase2Controller::class, 'destroyAppealTemplate']);
     Route::post('/rcm/denials/generate-appeal', [RcmPhase2Controller::class, 'generateAppealLetter']);
-    Route::post('/rcm/denials/escalate', [RcmPhase2Controller::class, 'escalateDenials']);
+    Route::post('/rcm/denials/escalate', [RcmPhase2Controller::class, 'escalateDenials'])->middleware('role:agency');
 
-    Route::post('/rcm/payments/batch-allocate', [RcmPhase2Controller::class, 'batchAllocatePayment']);
+    Route::post('/rcm/payments/batch-allocate', [RcmPhase2Controller::class, 'batchAllocatePayment'])->middleware('role:agency');
 
     Route::get('/rcm/followups', [RcmPhase2Controller::class, 'followups']);
     Route::post('/rcm/followups', [RcmPhase2Controller::class, 'storeFollowup']);
@@ -608,7 +608,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/patient-statements', [RcmPhase2Controller::class, 'patientStatements']);
     Route::post('/rcm/patient-statements', [RcmPhase2Controller::class, 'storePatientStatement']);
     Route::put('/rcm/patient-statements/{id}', [RcmPhase2Controller::class, 'updatePatientStatement']);
-    Route::post('/rcm/patient-statements/generate', [RcmPhase2Controller::class, 'generatePatientStatements']);
+    Route::post('/rcm/patient-statements/generate', [RcmPhase2Controller::class, 'generatePatientStatements'])->middleware('role:agency');
     Route::post('/rcm/patient-statements/{id}/send', [RcmPhase2Controller::class, 'sendPatientStatement']);
     // Log an outbound call attempt to the patient. Bumps the reminders
     // counter so the row reflects the outreach in BalanceRemindersTab.
@@ -681,7 +681,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ─── Clearinghouse config (Availity OAuth creds) ───
     Route::get('/rcm/clearinghouse/config', [RcmExtrasController::class, 'getClearinghouseConfig']);
-    Route::put('/rcm/clearinghouse/config', [RcmExtrasController::class, 'updateClearinghouseConfig']);
+    Route::put('/rcm/clearinghouse/config', [RcmExtrasController::class, 'updateClearinghouseConfig'])->middleware('role:agency');
 
     // ─── Availity import/pull stubs — return 501 until full integration ships ───
     Route::post('/rcm/availity/import', [RcmExtrasController::class, 'availityImport']);
@@ -690,7 +690,7 @@ Route::middleware('auth:sanctum')->group(function () {
     // ─── Patient payment links (auth side — public read/status routes live above) ───
     Route::post('/payments/checkout', [PaymentLinkController::class, 'createCheckout']);
     Route::post('/payments/{id}/resend', [PaymentLinkController::class, 'resendEmail'])->where('id', '[0-9]+');
-    Route::post('/payments/{id}/refund', [PaymentLinkController::class, 'refund'])->where('id', '[0-9]+');
+    Route::post('/payments/{id}/refund', [PaymentLinkController::class, 'refund'])->where('id', '[0-9]+')->middleware('role:agency');
 
     Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
     Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);
@@ -705,7 +705,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/payer-rules/extract-policy', [RcmPhase2Controller::class, 'extractPayerPolicy']);
 
     // Reconciliation
-    Route::post('/rcm/reconcile', [RcmPhase2Controller::class, 'autoReconcile']);
+    Route::post('/rcm/reconcile', [RcmPhase2Controller::class, 'autoReconcile'])->middleware('role:agency');
     Route::post('/rcm/sync-charge-statuses', [RcmPhase2Controller::class, 'syncChargeStatuses']);
     Route::get('/rcm/reconciliation-report', [RcmPhase2Controller::class, 'reconciliationReport']);
 
@@ -760,8 +760,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/plans', [SubscriptionController::class, 'plans']);
         Route::post('/checkout', [SubscriptionController::class, 'checkout']);
         Route::post('/portal', [SubscriptionController::class, 'portal']);
-        Route::post('/cancel', [SubscriptionController::class, 'cancel']);
-        Route::post('/resume', [SubscriptionController::class, 'resume']);
+        // Cancel/resume affect billing on the agency record — owner+ only.
+        Route::post('/cancel', [SubscriptionController::class, 'cancel'])->middleware('role:owner');
+        Route::post('/resume', [SubscriptionController::class, 'resume'])->middleware('role:owner');
     });
 });
 
