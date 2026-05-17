@@ -169,6 +169,18 @@ class RcmController extends Controller
 
     public function destroyClaim(Request $request, int $id): JsonResponse
     {
+        // Claim deletion is destructive — wipes payment history,
+        // denials, and audit trail with it. Staff billers can't run
+        // this; only agency/owner/superadmin. Matches the WriteOff
+        // approval pattern: route is reachable to everyone authed, but
+        // the act itself requires role:agency+.
+        if (!$request->user()->hasMinimumRole('agency')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only agency-admin roles or above can delete claims.',
+                'error'   => 'role_required',
+            ], 403);
+        }
         Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
@@ -1529,6 +1541,16 @@ class RcmController extends Controller
 
     public function destroyDenial(Request $request, int $id): JsonResponse
     {
+        // Denial deletion erases appeal history. Same role gate as
+        // destroyClaim — staff billers can't permanently destroy
+        // denial records; they have to escalate or resolve them instead.
+        if (!$request->user()->hasMinimumRole('agency')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Only agency-admin roles or above can delete denials.',
+                'error'   => 'role_required',
+            ], 403);
+        }
         ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
     }
