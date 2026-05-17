@@ -18,14 +18,32 @@ class Application extends Model
         'approved', 'denied', 'withdrawn',
     ];
 
+    // Application status state machine. Must stay in sync with V2's
+    // APPLICATION_STATUSES list in v2/src/lib/statuses.ts; otherwise the
+    // dropdown shows statuses the backend won't accept (422 "Cannot
+    // transition from X to Y"). Empty array = terminal status.
+    //
+    // Flow narrative:
+    //   planned → gathering_docs → submitted → in_review → approved → credentialed
+    //   At any stage operator can go on_hold, withdraw, or be denied.
+    //   pending_info loops back to in_review when the payer responds.
+    //   on_hold and withdrawn can be revived back into the pipeline.
+    //   'new' is a legacy alias for 'gathering_docs' (kept for old data).
+    //   'not_started' is a legacy alias for 'planned' (kept for old data).
     const VALID_TRANSITIONS = [
-        'not_started' => ['submitted', 'withdrawn'],
-        'submitted' => ['in_review', 'pending_info', 'approved', 'denied', 'withdrawn'],
-        'in_review' => ['pending_info', 'approved', 'denied', 'withdrawn'],
-        'pending_info' => ['in_review', 'submitted', 'approved', 'denied', 'withdrawn'],
-        'approved' => ['withdrawn'],
-        'denied' => ['submitted', 'not_started'],
-        'withdrawn' => ['not_started', 'submitted'],
+        'planned'        => ['new', 'gathering_docs', 'submitted', 'on_hold', 'withdrawn'],
+        'new'            => ['gathering_docs', 'submitted', 'pending_info', 'in_review', 'on_hold', 'withdrawn', 'denied'],
+        'gathering_docs' => ['submitted', 'pending_info', 'on_hold', 'withdrawn'],
+        'submitted'      => ['in_review', 'pending_info', 'approved', 'denied', 'on_hold', 'withdrawn'],
+        'in_review'      => ['pending_info', 'approved', 'denied', 'on_hold', 'withdrawn'],
+        'pending_info'   => ['in_review', 'submitted', 'gathering_docs', 'approved', 'denied', 'on_hold', 'withdrawn'],
+        'approved'       => ['credentialed', 'withdrawn'],
+        'credentialed'   => ['withdrawn'],
+        'denied'         => ['submitted', 'gathering_docs', 'new', 'planned', 'withdrawn'],
+        'on_hold'        => ['planned', 'new', 'gathering_docs', 'submitted', 'in_review', 'withdrawn'],
+        'withdrawn'      => ['planned', 'new', 'gathering_docs', 'submitted'],
+        // Legacy alias preserved so historical rows can move forward.
+        'not_started'    => ['planned', 'new', 'gathering_docs', 'submitted', 'withdrawn'],
     ];
 
     protected $fillable = [

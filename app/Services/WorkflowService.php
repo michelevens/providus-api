@@ -13,14 +13,21 @@ class WorkflowService
     /**
      * All valid application statuses with display metadata.
      */
+    // Must match v2/src/lib/statuses.ts APPLICATION_STATUSES.
     const STATUS_META = [
-        'not_started'  => ['label' => 'Not Started',  'color' => '#64748b'],
-        'submitted'    => ['label' => 'Submitted',     'color' => '#1d4ed8'],
-        'in_review'    => ['label' => 'In Review',     'color' => '#92400e'],
-        'pending_info' => ['label' => 'Pending Info',  'color' => '#6b21a8'],
-        'approved'     => ['label' => 'Approved',      'color' => '#166534'],
-        'denied'       => ['label' => 'Denied',        'color' => '#991b1b'],
-        'withdrawn'    => ['label' => 'Withdrawn',     'color' => '#78716c'],
+        'planned'        => ['label' => 'Planned',        'color' => '#6366f1'],
+        'new'            => ['label' => 'New',            'color' => '#6b7280'],
+        'gathering_docs' => ['label' => 'Gathering Docs', 'color' => '#3b82f6'],
+        'submitted'      => ['label' => 'Submitted',      'color' => '#8b5cf6'],
+        'in_review'      => ['label' => 'In Review',      'color' => '#f59e0b'],
+        'pending_info'   => ['label' => 'Pending Info',   'color' => '#ef4444'],
+        'approved'       => ['label' => 'Approved',       'color' => '#10b981'],
+        'credentialed'   => ['label' => 'Credentialed',   'color' => '#059669'],
+        'denied'         => ['label' => 'Denied',         'color' => '#dc2626'],
+        'on_hold'        => ['label' => 'On Hold',        'color' => '#9ca3af'],
+        'withdrawn'      => ['label' => 'Withdrawn',      'color' => '#6b7280'],
+        // Legacy alias kept for historical rows.
+        'not_started'    => ['label' => 'Not Started',    'color' => '#64748b'],
     ];
 
     /**
