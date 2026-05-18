@@ -93,6 +93,23 @@ class BillingServiceController extends Controller
             'status' => 'nullable|in:onboarding,active,paused,cancelled',
             'start_date' => 'nullable|date',
             'notes' => 'nullable|string',
+            // Auto-invoice pricing fields (2026-05-18).
+            'rcm_pricing_model' => 'nullable|in:percentage,per_claim,flat_monthly,hybrid,none',
+            'rcm_percentage_rate' => 'nullable|numeric|min:0|max:1',
+            'rcm_percentage_basis' => 'nullable|in:collections,billed,adjudicated',
+            'rcm_per_claim_rate' => 'nullable|numeric|min:0',
+            'rcm_monthly_base' => 'nullable|numeric|min:0',
+            'credentialing_pricing_model' => 'nullable|in:per_app,per_provider_monthly,included,none',
+            'credentialing_per_app_rate' => 'nullable|numeric|min:0',
+            'credentialing_per_provider_rate' => 'nullable|numeric|min:0',
+            'setup_fee' => 'nullable|numeric|min:0',
+            'setup_fee_billed' => 'nullable|boolean',
+            'statement_send_rate' => 'nullable|numeric|min:0',
+            'eligibility_check_rate' => 'nullable|numeric|min:0',
+            'denial_appeal_rate' => 'nullable|numeric|min:0',
+            'contract_start_date' => 'nullable|date',
+            'contract_end_date' => 'nullable|date',
+            'billing_day' => 'nullable|string|max:5',
         ]);
 
         $client->update($request->only([
@@ -101,9 +118,139 @@ class BillingServiceController extends Controller
             'billing_platform', 'monthly_fee', 'fee_structure',
             'payment_mode', 'agency_fee_percent',
             'status', 'start_date', 'notes',
+            'rcm_pricing_model', 'rcm_percentage_rate', 'rcm_percentage_basis',
+            'rcm_per_claim_rate', 'rcm_monthly_base',
+            'credentialing_pricing_model', 'credentialing_per_app_rate', 'credentialing_per_provider_rate',
+            'setup_fee', 'setup_fee_billed',
+            'statement_send_rate', 'eligibility_check_rate', 'denial_appeal_rate',
+            'contract_start_date', 'contract_end_date', 'billing_day',
         ]));
 
         return response()->json(['success' => true, 'data' => $client]);
+    }
+
+    /**
+     * Preview the invoice that would be generated for a billing
+     * client + period. Side-effect-free; the UI uses this to show
+     * "last month would have been $X" before the operator commits.
+     *
+     * Defaults to last calendar month if no period passed. Accepts
+     * ?period=YYYY-MM or explicit ?start=YYYY-MM-DD&end=YYYY-MM-DD.
+     */
+    public function previewInvoice(Request $request, int $id): JsonResponse
+    {
+        $bc = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+        [$start, $end] = $this->resolvePeriod($request);
+
+        $generator = new \App\Services\AgencyInvoiceGenerator();
+        $result = $generator->preview($bc, $start, $end);
+        // Drop the BillingClient model from the response (caller already has it).
+        unset($result['billing_client']);
+
+        return response()->json(['success' => true, 'data' => $result]);
+    }
+
+    /**
+     * Generate + persist an invoice for the billing client based on
+     * activity in the given period. Creates an Invoice + InvoiceItem
+     * rows, sets the setup-fee-billed flag if applicable, returns the
+     * created invoice id so the UI can navigate to it.
+     */
+    public function generateInvoice(Request $request, int $id): JsonResponse
+    {
+        $bc = BillingClient::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id);
+        [$start, $end] = $this->resolvePeriod($request);
+
+        $generator = new \App\Services\AgencyInvoiceGenerator();
+        $payload = $generator->preview($bc, $start, $end);
+
+        if (empty($payload['line_items'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No billable activity for this period — no invoice generated.',
+            ], 422);
+        }
+
+        return \DB::transaction(function () use ($bc, $payload, $request) {
+            $agencyId = $request->user()->effectiveAgencyId($request);
+            $issueDate = \Carbon\Carbon::today();
+            $dueDate = $issueDate->copy()->addDays(30);
+
+            // Invoice number — agency-prefixed sequential. Falls back to
+            // timestamp if a unique collision would occur (concurrent
+            // generation is rare but worth guarding against).
+            $invoiceNumber = sprintf('INV-%d-%s', $agencyId, $issueDate->format('Ymd-His'));
+
+            $invoice = \App\Models\Invoice::create([
+                'agency_id' => $agencyId,
+                'invoice_number' => $invoiceNumber,
+                'type' => 'invoice',
+                'status' => 'draft',
+                'organization_id' => $bc->organization_id,
+                'client_name' => $bc->organization_name,
+                'client_email' => $bc->contact_email,
+                'issue_date' => $issueDate,
+                'due_date' => $dueDate,
+                'subtotal' => $payload['subtotal'],
+                'total' => $payload['subtotal'],
+                'balance_due' => $payload['subtotal'],
+                'notes' => sprintf('Auto-generated for period %s to %s', $payload['period_start'], $payload['period_end']),
+                'created_by' => $request->user()->id,
+            ]);
+
+            foreach ($payload['line_items'] as $i => $item) {
+                \App\Models\InvoiceItem::create([
+                    'invoice_id' => $invoice->id,
+                    'description' => $item['description'],
+                    'quantity' => $item['quantity'],
+                    'unit_price' => $item['unit_price'],
+                    'total' => $item['total'],
+                    'sort_order' => $i,
+                ]);
+            }
+
+            // Mark setup fee billed if it was on this invoice.
+            $hasSetup = collect($payload['line_items'])->contains(fn ($it) => str_contains($it['description'], 'setup fee'));
+            if ($hasSetup && !$bc->setup_fee_billed) {
+                $bc->update(['setup_fee_billed' => true]);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'invoice_id' => $invoice->id,
+                    'invoice_number' => $invoice->invoice_number,
+                    'total' => $payload['subtotal'],
+                    'period_start' => $payload['period_start'],
+                    'period_end' => $payload['period_end'],
+                ],
+            ], 201);
+        });
+    }
+
+    /**
+     * Resolve the billing period from the request. Order of preference:
+     *   1. ?start=...&end=...    (explicit range)
+     *   2. ?period=YYYY-MM       (named month)
+     *   3. last calendar month   (default)
+     *
+     * @return array{0: \Carbon\Carbon, 1: \Carbon\Carbon}  [start, end] inclusive
+     */
+    private function resolvePeriod(Request $request): array
+    {
+        $start = $request->query('start');
+        $end = $request->query('end');
+        if ($start && $end) {
+            return [\Carbon\Carbon::parse($start)->startOfDay(), \Carbon\Carbon::parse($end)->endOfDay()];
+        }
+        $period = $request->query('period');
+        if ($period && preg_match('/^\d{4}-\d{2}$/', $period)) {
+            $month = \Carbon\Carbon::parse($period . '-01');
+            return [$month->copy()->startOfMonth(), $month->copy()->endOfMonth()];
+        }
+        // Default: last calendar month.
+        $lastMonth = \Carbon\Carbon::now()->subMonth();
+        return [$lastMonth->copy()->startOfMonth(), $lastMonth->copy()->endOfMonth()];
     }
 
     public function destroyClient(Request $request, int $id): JsonResponse

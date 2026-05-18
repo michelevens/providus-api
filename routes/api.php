@@ -463,6 +463,10 @@ Route::middleware('auth:sanctum')->group(function () {
     // Monthly statement — RCM + Credentialing recap for a billing client.
     // Period defaults to last calendar month; pass ?period=YYYY-MM to override.
     Route::get('/billing-clients/{id}/monthly-statement', [BillingServiceController::class, 'monthlyStatement']);
+    // Auto-invoice from RCM + credentialing activity (2026-05-18).
+    // GET preview is side-effect-free; POST actually creates the invoice.
+    Route::get('/billing-clients/{id}/invoice-preview', [BillingServiceController::class, 'previewInvoice']);
+    Route::post('/billing-clients/{id}/generate-invoice', [BillingServiceController::class, 'generateInvoice'])->middleware('role:agency');
     Route::put('/billing-ledger/{id}/remittance', [BillingServiceController::class, 'recordRemittance'])->middleware('role:agency');
 
     Route::get('/billing-tasks', [BillingServiceController::class, 'tasks']);
