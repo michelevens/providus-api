@@ -12,6 +12,7 @@ use App\Http\Controllers\Controller;
 use App\Models\PatientDocument;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -92,7 +93,16 @@ class PatientDocumentController extends Controller
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $path = "patient-documents/{$agencyId}/{$keyHash}/{$filename}";
 
-        $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        // Wrap R2 put: a network blip or expired token throws and the
+        // request 500s with a stack trace if uncaught. We surface a
+        // clean 503 instead so the client knows the file didn't land
+        // and no DB row exists for a phantom upload.
+        try {
+            $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('patient-document R2 put failed', ['agency_id' => $agencyId, 'path' => $path, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Storage unavailable — please retry.'], 503);
+        }
 
         $doc = PatientDocument::create([
             'agency_id'         => $agencyId,

@@ -10,6 +10,7 @@ use App\Models\Payment;
 use App\Models\ServiceCatalog;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class InvoiceController extends Controller
@@ -249,7 +250,12 @@ class InvoiceController extends Controller
             return response()->json(['success' => false, 'message' => 'No client email on this invoice'], 422);
         }
 
-        Mail::to($invoice->client_email)->send(new InvoiceReminder($invoice));
+        try {
+            Mail::to($invoice->client_email)->send(new InvoiceReminder($invoice));
+        } catch (\Throwable $e) {
+            Log::error('invoice-reminder email send failed', ['invoice_id' => $invoice->id, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Email could not be sent — please retry.'], 502);
+        }
 
         return response()->json(['success' => true, 'message' => 'Reminder sent']);
     }

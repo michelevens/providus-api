@@ -211,9 +211,14 @@ class SubscriptionController extends Controller
             'cancel_at_period_end' => true,
         ]);
 
+        // Stripe occasionally returns null current_period_end for subscriptions
+        // already in a terminal state (canceled, paused, incomplete_expired).
+        // Carbon::createFromTimestamp(null) throws — fall back to "now" so the
+        // cancel still records cleanly. The cancellation itself succeeded above.
+        $periodEnd = $subscription->current_period_end ?? now()->timestamp;
         $agency->update([
             'subscription_status' => 'canceling',
-            'subscription_ends_at' => \Carbon\Carbon::createFromTimestamp($subscription->current_period_end),
+            'subscription_ends_at' => \Carbon\Carbon::createFromTimestamp($periodEnd),
         ]);
 
         return response()->json(['success' => true, 'message' => 'Subscription will cancel at period end.']);

@@ -166,14 +166,24 @@ class DenialAttachmentController extends Controller
             );
 
             $stream = fopen($file->getRealPath(), 'rb');
+            $r2Failed = false;
             try {
                 Storage::disk(self::DISK)->put($key, $stream, [
                     'visibility' => 'private',
                     'ContentType' => $mime,
                 ]);
+            } catch (\Throwable $e) {
+                // R2 outage / expired credentials — log and skip THIS file
+                // but keep processing the rest of the batch. The user can
+                // re-upload the failed one without losing the others.
+                Log::error('denial.attachment.r2_put_failed', [
+                    'denial_id' => $denial->id, 'key' => $key, 'err' => $e->getMessage(),
+                ]);
+                $r2Failed = true;
             } finally {
                 if (is_resource($stream)) fclose($stream);
             }
+            if ($r2Failed) continue;
 
             $meta = [
                 'key'                => $key,

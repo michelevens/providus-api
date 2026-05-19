@@ -7,6 +7,7 @@ use App\Models\Provider;
 use App\Models\ProviderDocument;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -49,8 +50,14 @@ class DocumentController extends Controller
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $path = "documents/{$agencyId}/{$providerId}/{$filename}";
 
-        // Store file
-        $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        // Store file — wrap so an R2 hiccup returns a clean 503 instead
+        // of crashing the request with a stack trace.
+        try {
+            $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('provider-document R2 put failed', ['agency_id' => $agencyId, 'provider_id' => $providerId, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Storage unavailable — please retry.'], 503);
+        }
 
         $doc = ProviderDocument::create([
             'agency_id' => $agencyId,
@@ -97,7 +104,12 @@ class DocumentController extends Controller
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $path = "documents/{$agencyId}/{$providerId}/{$filename}";
 
-        $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        try {
+            $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('provider-document R2 replace failed', ['agency_id' => $agencyId, 'provider_id' => $providerId, 'doc_id' => $doc->id, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Storage unavailable — please retry.'], 503);
+        }
 
         $doc->update([
             'file_path' => $path,

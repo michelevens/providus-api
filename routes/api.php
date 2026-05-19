@@ -231,10 +231,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/{id}', [OnboardController::class, 'destroy']);
     });
 
-    // Credentialing CRUD
-    Route::apiResource('organizations', OrganizationController::class);
-    Route::apiResource('providers', ProviderController::class);
-    Route::apiResource('licenses', LicenseController::class);
+    // Credentialing CRUD — reads open to any authenticated user;
+    // writes (store/update/destroy) gated behind role:agency so client-
+    // facing user roles (provider, organization) can't mutate tenant data
+    // even though they share the auth:sanctum middleware. We split the
+    // apiResource into read-only + write-only halves rather than putting
+    // a single role:agency on the whole thing — that would block legit
+    // GETs from lower-privilege users.
+    Route::apiResource('organizations', OrganizationController::class)->only(['index', 'show']);
+    Route::apiResource('organizations', OrganizationController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
+    Route::apiResource('providers', ProviderController::class)->only(['index', 'show']);
+    Route::apiResource('providers', ProviderController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
+    Route::apiResource('licenses', LicenseController::class)->only(['index', 'show']);
+    Route::apiResource('licenses', LicenseController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
 
     // ── Organization Contacts ──
     Route::prefix('organizations/{organizationId}/contacts')->group(function () {
@@ -257,7 +266,9 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/dea-registrations/{id}', [LicenseController::class, 'deaUpdate']);
     Route::delete('/dea-registrations/{id}', [LicenseController::class, 'deaDestroy']);
 
-    Route::apiResource('applications', ApplicationController::class);
+    // applications — same read/write split (see organizations above).
+    Route::apiResource('applications', ApplicationController::class)->only(['index', 'show']);
+    Route::apiResource('applications', ApplicationController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/applications/{id}/transition', [ApplicationController::class, 'transition']);
     Route::get('/applications-stats', [ApplicationController::class, 'stats']);
     // Alternate create route — workaround for CDN caching 503 on POST /applications
@@ -269,7 +280,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/applications/{id}/attachments/{attachmentId}/download', [ApplicationAttachmentController::class, 'download']);
     Route::delete('/applications/{id}/attachments/{attachmentId}', [ApplicationAttachmentController::class, 'destroy']);
 
-    Route::apiResource('followups', FollowupController::class);
+    Route::apiResource('followups', FollowupController::class)->only(['index', 'show']);
+    Route::apiResource('followups', FollowupController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/followups/{id}/complete', [FollowupController::class, 'complete']);
     Route::get('/followups-overdue', [FollowupController::class, 'overdue']);
     Route::get('/followups-upcoming', [FollowupController::class, 'upcoming']);
@@ -296,10 +308,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/messages/threads/{threadId}/read', [MessageController::class, 'markRead']);
     Route::post('/messages/send', [MessageController::class, 'send']);
 
-    Route::apiResource('tasks', TaskController::class);
+    Route::apiResource('tasks', TaskController::class)->only(['index', 'show']);
+    Route::apiResource('tasks', TaskController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/tasks/{id}/complete', [TaskController::class, 'complete']);
 
-    Route::apiResource('strategies', StrategyProfileController::class);
+    Route::apiResource('strategies', StrategyProfileController::class)->only(['index', 'show']);
+    Route::apiResource('strategies', StrategyProfileController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
 
     // Payers (global catalog + agency plans)
     Route::get('/payers', [PayerController::class, 'index']);
@@ -338,7 +352,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/exclusions/screen-all', [ExclusionController::class, 'screenAll']);
 
     // ── Facilities ──
-    Route::apiResource('facilities', FacilityController::class);
+    Route::apiResource('facilities', FacilityController::class)->only(['index', 'show']);
+    Route::apiResource('facilities', FacilityController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/facilities/from-npi', [FacilityController::class, 'createFromNpi']);
 
     // ── Share Links ──
@@ -356,8 +371,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::put('/agency/branding', [AgencyController::class, 'updateBranding']);
 
     // ── API Keys & Webhooks (agency+ role) ──
-    Route::apiResource('api-keys', ApiKeyController::class)->only(['index', 'store', 'destroy']);
-    Route::apiResource('webhooks', WebhookController::class);
+    // api-keys: index open, store/destroy gated. Minting an API key
+    // bypasses RBAC entirely so writes MUST be agency+.
+    Route::apiResource('api-keys', ApiKeyController::class)->only(['index']);
+    Route::apiResource('api-keys', ApiKeyController::class)->only(['store', 'destroy'])->middleware('role:agency');
+    Route::apiResource('webhooks', WebhookController::class)->only(['index', 'show']);
+    Route::apiResource('webhooks', WebhookController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/webhooks/{id}/test', [WebhookController::class, 'test']);
     Route::get('/webhooks/{id}/deliveries', [WebhookController::class, 'deliveries']);
 
@@ -366,7 +385,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/billing/services', [InvoiceController::class, 'services']);
     Route::post('/billing/services', [InvoiceController::class, 'storeService']);
     Route::put('/billing/services/{id}', [InvoiceController::class, 'updateService']);
-    Route::apiResource('invoices', InvoiceController::class);
+    Route::apiResource('invoices', InvoiceController::class)->only(['index', 'show']);
+    Route::apiResource('invoices', InvoiceController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/invoices/{id}/payments', [InvoiceController::class, 'addPayment']);
     Route::post('/invoices/{id}/send-reminder', [InvoiceController::class, 'sendReminder']);
 
@@ -452,7 +472,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // ── Contracts & Agreements ──
     Route::get('/contracts/stats', [ContractController::class, 'stats']);
-    Route::apiResource('contracts', ContractController::class);
+    Route::apiResource('contracts', ContractController::class)->only(['index', 'show']);
+    Route::apiResource('contracts', ContractController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
     Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate'])->middleware('role:agency');
     Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);

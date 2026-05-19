@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Cookie;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -348,7 +349,14 @@ class AuthController extends Controller
         $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://credentik.com'));
         $resetUrl = "{$frontendUrl}/#reset-password/{$resetToken}";
 
-        Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
+        // Public forgot-password — we already return a generic
+        // "if that email exists" message for anti-enumeration. Mail
+        // failure shouldn't change that response shape. Log only.
+        try {
+            Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
+        } catch (\Throwable $e) {
+            Log::error('forgot-password email send failed', ['user_id' => $user->id, 'err' => $e->getMessage()]);
+        }
 
         \App\Support\AuthEventLogger::record(
             'password_reset_requested',

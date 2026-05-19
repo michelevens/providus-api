@@ -9,6 +9,7 @@ use App\Models\Testimonial;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -60,7 +61,13 @@ class TestimonialController extends Controller
             $agency = $request->user()->agency;
             $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
             $reviewUrl = "{$frontendUrl}/#review/{$testimonial->token}";
-            Mail::to($request->patient_email)->send(new TestimonialRequest($testimonial, $agency, $reviewUrl));
+            // Best-effort: testimonial row IS created, link is still
+            // shareable manually if email fails.
+            try {
+                Mail::to($request->patient_email)->send(new TestimonialRequest($testimonial, $agency, $reviewUrl));
+            } catch (\Throwable $e) {
+                Log::error('testimonial-request email send failed', ['testimonial_id' => $testimonial->id, 'err' => $e->getMessage()]);
+            }
         }
 
         return response()->json(['success' => true, 'data' => $testimonial], 201);

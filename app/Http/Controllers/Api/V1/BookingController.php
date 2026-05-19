@@ -10,6 +10,7 @@ use App\Models\OfficeHour;
 use App\Services\NotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
 class BookingController extends Controller
@@ -111,9 +112,14 @@ class BookingController extends Controller
             'status' => 'pending',
         ]);
 
-        // Send confirmation email
+        // Send confirmation email — best-effort, the booking IS created
+        // regardless. Patient can confirm via portal or phone if mail fails.
         if ($booking->patient_email) {
-            Mail::to($booking->patient_email)->send(new BookingConfirmation($booking, $agency));
+            try {
+                Mail::to($booking->patient_email)->send(new BookingConfirmation($booking, $agency));
+            } catch (\Throwable $e) {
+                Log::error('booking confirmation email send failed', ['booking_id' => $booking->id, 'err' => $e->getMessage()]);
+            }
         }
 
         // Notify agency of new booking

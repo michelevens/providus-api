@@ -22,6 +22,7 @@ use App\Services\WebhookDispatcher;
 use App\Support\WebhookPayloads;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
@@ -677,7 +678,12 @@ class RcmPhase2Controller extends Controller
         // silently falls back to 'neutral' in the Mailable's constructor.
         $tone = (string) $request->input('tone', 'neutral');
 
-        Mail::to($email)->send(new PatientStatementEmail($statement, $payUrl, $tone));
+        try {
+            Mail::to($email)->send(new PatientStatementEmail($statement, $payUrl, $tone));
+        } catch (\Throwable $e) {
+            Log::error('patient-statement email send failed', ['statement_id' => $statement->id, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Statement email could not be sent — please retry.'], 502);
+        }
 
         $statement->update([
             'last_sent_date' => now()->toDateString(),

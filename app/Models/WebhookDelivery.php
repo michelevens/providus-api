@@ -2,11 +2,18 @@
 
 namespace App\Models;
 
+use App\Models\Traits\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class WebhookDelivery extends Model
 {
+    // Tenant-scoped: a webhook delivery record belongs to ONE agency's
+    // outbound webhook config. The global TenantScope prevents an
+    // authenticated user of agency A from listing/inspecting another
+    // agency's deliveries even if a controller forgets to filter.
+    use BelongsToAgency;
+
     public const STATUS_PENDING   = 'pending';
     public const STATUS_DELIVERED = 'delivered';
     public const STATUS_FAILED    = 'failed';

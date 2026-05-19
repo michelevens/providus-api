@@ -10,6 +10,7 @@ use App\Models\Provider;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 
@@ -214,12 +215,23 @@ class AgencyController extends Controller
         $agencyName = $request->user()->agency->name;
 
         $agency = $request->user()->agency;
-        Mail::to($user->email)->send(new UserInvite($user, $agency, $inviteUrl));
+        // Best-effort: the user IS created either way; the invite URL is
+        // also returned in the response so the admin can copy/paste it
+        // if Resend bombs. Don't 500 the whole create just because mail
+        // provider hiccupped.
+        $emailSent = true;
+        try {
+            Mail::to($user->email)->send(new UserInvite($user, $agency, $inviteUrl));
+        } catch (\Throwable $e) {
+            Log::error('user-invite email send failed', ['user_id' => $user->id, 'err' => $e->getMessage()]);
+            $emailSent = false;
+        }
 
         return response()->json([
             'success' => true,
             'data' => $user->load(['organization', 'provider']),
             'invite_url' => $inviteUrl,
+            'email_sent' => $emailSent,
         ], 201);
     }
 
@@ -332,7 +344,18 @@ class AgencyController extends Controller
         $frontendUrl = config('app.frontend_url', env('FRONTEND_URL', 'https://app.credentik.com'));
         $resetUrl = "{$frontendUrl}/#reset-password/{$resetToken}";
 
-        Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
+        // Password reset is admin-initiated and the token is already
+        // persisted — surface the failure as 502 if Resend bombs so the
+        // admin knows to retry. The token is valid for 24h either way.
+        try {
+            Mail::to($user->email)->send(new PasswordResetMail($user, $resetUrl));
+        } catch (\Throwable $e) {
+            Log::error('password-reset email send failed', ['user_id' => $user->id, 'err' => $e->getMessage()]);
+            return response()->json([
+                'success' => false,
+                'message' => "Token created but email could not be sent to {$user->email}. Retry, or use the reset URL directly: {$resetUrl}",
+            ], 502);
+        }
 
         return response()->json([
             'success' => true,

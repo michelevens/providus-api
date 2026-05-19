@@ -7,6 +7,7 @@ use App\Models\Application;
 use App\Models\ApplicationAttachment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -78,7 +79,12 @@ class ApplicationAttachmentController extends Controller
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $path = "attachments/{$agencyId}/applications/{$applicationId}/{$filename}";
 
-        $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        try {
+            $this->disk()->put($path, file_get_contents($file->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('application-attachment R2 put failed', ['agency_id' => $agencyId, 'application_id' => $applicationId, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Storage unavailable — please retry.'], 503);
+        }
 
         $attachment = ApplicationAttachment::create([
             'agency_id' => $agencyId,

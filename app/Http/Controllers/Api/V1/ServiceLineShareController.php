@@ -67,7 +67,12 @@ class ServiceLineShareController extends Controller
         $file = $request->file('file');
         $filename = time() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '_', $file->getClientOriginalName());
         $r2Key = "service-line-plans/{$agencyId}/{$request->service_line_id}/{$filename}";
-        $this->disk()->put($r2Key, file_get_contents($file->getRealPath()));
+        try {
+            $this->disk()->put($r2Key, file_get_contents($file->getRealPath()));
+        } catch (\Throwable $e) {
+            Log::error('service-line plan R2 put failed', ['agency_id' => $agencyId, 'r2_key' => $r2Key, 'err' => $e->getMessage()]);
+            return response()->json(['success' => false, 'message' => 'Storage unavailable — please retry.'], 503);
+        }
 
         $expiresDays = (int) ($request->input('expires_days') ?? 90);
 
