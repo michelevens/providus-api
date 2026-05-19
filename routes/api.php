@@ -37,6 +37,7 @@ use App\Http\Controllers\Api\V1\RcmController;
 use App\Http\Controllers\Api\V1\RcmExtrasController;
 use App\Http\Controllers\Api\V1\RcmPhase2Controller;
 use App\Http\Controllers\Api\V1\PaymentLinkController;
+use App\Http\Controllers\Api\V1\ServiceLineShareController;
 use App\Http\Controllers\Api\V1\ContractController;
 use App\Http\Controllers\Api\V1\StripeWebhookController;
 use App\Http\Controllers\Api\V1\SubscriptionController;
@@ -179,6 +180,14 @@ Route::post('/portal/write-off/{token}/approve', [\App\Http\Controllers\Api\V1\W
 Route::post('/portal/write-off/{token}/reject', [\App\Http\Controllers\Api\V1\WriteOffPortalController::class, 'reject'])
     ->where('token', '[A-Za-z0-9_-]{64}')
     ->middleware('throttle:10,1');
+
+// ─── Public service-line plan download (no auth, tokenized) ───
+// Token is Str::random(40), alphanumeric. Same enumeration-defense
+// posture as the payment-link route: tight regex + per-IP throttle.
+// 302-redirects to a 15-minute presigned R2 URL.
+Route::get('/public/service-line-plans/{token}', [ServiceLineShareController::class, 'publicShow'])
+    ->where('token', '[A-Za-z0-9]{40}')
+    ->middleware('throttle:60,1');
 
 /*
 |--------------------------------------------------------------------------
@@ -695,6 +704,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/payments/checkout', [PaymentLinkController::class, 'createCheckout']);
     Route::post('/payments/{id}/resend', [PaymentLinkController::class, 'resendEmail'])->where('id', '[0-9]+');
     Route::post('/payments/{id}/refund', [PaymentLinkController::class, 'refund'])->where('id', '[0-9]+')->middleware('role:agency');
+
+    // ─── Service-line business-plan share links (auth side — public token route lives above) ───
+    Route::post('/service-line-plans/share', [ServiceLineShareController::class, 'store']);
+    Route::get('/service-line-plans/links', [ServiceLineShareController::class, 'index']);
+    Route::delete('/service-line-plans/links/{id}', [ServiceLineShareController::class, 'destroy'])->where('id', '[0-9]+');
 
     Route::get('/rcm/denial-risk', [RcmPhase2Controller::class, 'denialRiskAnalysis']);
     Route::post('/rcm/pre-submission-check', [RcmPhase2Controller::class, 'preSubmissionCheck']);
