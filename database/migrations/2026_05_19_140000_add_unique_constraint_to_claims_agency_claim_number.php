@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -40,14 +41,20 @@ return new class extends Migration {
             ->get();
 
         if ($dupes->isNotEmpty()) {
-            // Don't crash — surface the issue. The operator can run the
-            // V2 duplicate-check tool to merge, then re-run this migration.
+            // Skip the constraint application this run rather than
+            // crashing the deploy. A throw here would block container
+            // startup on Railway because `migrate --force` runs in the
+            // deploy hook — and a failed migration = failed deploy =
+            // login outage. Log the dupes so the operator can clean
+            // them up via the V2 duplicate-check tool, then re-run
+            // this migration manually (or push a no-op-then-real
+            // follow-up after dedup).
             $detail = $dupes->map(fn ($r) => "agency_id={$r->agency_id} claim_number={$r->claim_number} count={$r->cnt}")->take(10)->implode('; ');
-            throw new \RuntimeException(
-                "Cannot add UNIQUE(claims.agency_id, claim_number) — duplicate rows exist. "
-                . "Resolve via the V2 duplicate-check tool then re-run this migration. "
-                . "First {$dupes->count()} dupes: {$detail}"
-            );
+            Log::warning('claims unique-constraint migration skipped — duplicates present', [
+                'dupe_count' => $dupes->count(),
+                'samples'    => $detail,
+            ]);
+            return;
         }
 
         Schema::table('claims', function (Blueprint $table) {
