@@ -89,21 +89,32 @@ class ServiceLineShareController extends Controller
 
         $publicUrl = $this->buildPublicUrl($link->public_token);
 
+        // emailStatus: 'sent' | 'skipped' | 'failed'
+        // We surface this in the API response so the frontend can show a
+        // warning state instead of falsely claiming success when the
+        // mail provider rejects the message. The share link itself is
+        // still valid — copy/share fallback works regardless.
+        $emailStatus = 'skipped';
+        $emailError = null;
         $shouldSend = $request->boolean('send_email', true) && !empty($request->recipient_email);
         if ($shouldSend) {
-            $this->sendEmail($link, $publicUrl);
+            $result = $this->sendEmail($link, $publicUrl);
+            $emailStatus = $result['status'];
+            $emailError = $result['error'] ?? null;
         }
 
         return response()->json([
             'success' => true,
             'data' => [
-                'id'             => $link->id,
-                'public_token'   => $link->public_token,
-                'public_url'     => $publicUrl,
-                'expires_at'     => $link->expires_at?->toIso8601String(),
-                'email_sent_at'  => $link->email_sent_at?->toIso8601String(),
-                'recipient_email'=> $link->recipient_email,
-                'view_count'     => $link->view_count,
+                'id'              => $link->id,
+                'public_token'    => $link->public_token,
+                'public_url'      => $publicUrl,
+                'expires_at'      => $link->expires_at?->toIso8601String(),
+                'email_sent_at'   => $link->email_sent_at?->toIso8601String(),
+                'email_status'    => $emailStatus,
+                'email_error'     => $emailError,
+                'recipient_email' => $link->recipient_email,
+                'view_count'      => $link->view_count,
             ],
         ], 201);
     }
@@ -213,21 +224,27 @@ class ServiceLineShareController extends Controller
         return rtrim(config('app.url'), '/') . '/api/public/service-line-plans/' . $token;
     }
 
-    private function sendEmail(ServiceLineShareLink $link, string $publicUrl): void
+    /**
+     * @return array{status: 'sent'|'failed', error?: string}
+     */
+    private function sendEmail(ServiceLineShareLink $link, string $publicUrl): array
     {
         try {
             $agency = Agency::find($link->agency_id);
             if (!$agency) {
                 Log::warning('service-line plan email skipped — agency missing', ['link_id' => $link->id]);
-                return;
+                return ['status' => 'failed', 'error' => 'Agency record missing.'];
             }
             Mail::to($link->recipient_email)->send(new ServiceLinePlanShared($link, $publicUrl, $agency));
             $link->forceFill(['email_sent_at' => now()])->saveQuietly();
+            return ['status' => 'sent'];
         } catch (\Throwable $e) {
-            // Don't fail the API call if the mail provider hiccups —
-            // the link is still valid and copy-share works. Log so
-            // we can surface a "resend" affordance later.
+            // Don't fail the whole API call if the mail provider
+            // hiccups — the link is still valid and the copy/share
+            // fallback works. Surface the error string to the UI so
+            // the operator can take action (retry, fix address, etc).
             Log::error('service-line plan email send failed', ['link_id' => $link->id, 'err' => $e->getMessage()]);
+            return ['status' => 'failed', 'error' => $e->getMessage()];
         }
     }
 }
