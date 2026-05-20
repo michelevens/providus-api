@@ -563,6 +563,11 @@ Route::middleware('auth:sanctum')->group(function () {
     // Static path BEFORE the /{id} pattern so Laravel doesn't match
     // 'recovery-report' as an id.
     Route::get('/rcm/denials/recovery-report', [RcmController::class, 'denialRecoveryReport']);
+    // Denial trends — what's getting denied, by whom, when. Monthly
+    // time series for top denial codes + top payers, plus a
+    // payer-x-code cross-tab. Lives next to recovery-report; must be
+    // declared BEFORE /rcm/denials/{id} so the static path wins.
+    Route::get('/rcm/denials/trends', [RcmController::class, 'denialTrends']);
     Route::get('/rcm/denials', [RcmController::class, 'denials']);
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::get('/rcm/denials/{id}', [RcmController::class, 'showDenial'])->where('id', '[0-9]+');

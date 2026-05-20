@@ -2508,6 +2508,174 @@ class RcmController extends Controller
     }
 
     /**
+     * GET /rcm/denials/trends — denial-pattern intelligence over time.
+     *
+     * Where the recovery report answers "what have we won back?", this
+     * endpoint answers "what's getting denied, by whom, when?" so the
+     * operator can spot preventable patterns before they recur.
+     *
+     * Returns four series:
+     *   - monthly_total   : agency-wide denied $ + count per month
+     *   - top_codes       : top 8 denial codes by count + their monthly
+     *                       breakdown (chartable as stacked area or
+     *                       multi-line). Includes recovery rate so the
+     *                       operator can spot codes that keep coming
+     *                       back AND keep losing money.
+     *   - top_payers      : top 8 payers by denial count + monthly
+     *                       breakdown. Surfaces "payer X started
+     *                       denying way more in March" patterns.
+     *   - payer_x_code    : flat list of (payer × denial_code) pairs
+     *                       ranked by count for the whole window.
+     *                       The cross-tab for "what's payer X denying
+     *                       most?" / "who denies code Y the most?"
+     *
+     * Window: trailing 12 months by default, ?from + ?to override.
+     */
+    public function denialTrends(Request $request): JsonResponse
+    {
+        $aid = $request->user()->effectiveAgencyId($request);
+
+        $from = $request->filled('from')
+            ? \Carbon\Carbon::parse($request->input('from'))->startOfMonth()
+            : now()->subMonths(11)->startOfMonth();
+        $to = $request->filled('to')
+            ? \Carbon\Carbon::parse($request->input('to'))->endOfMonth()
+            : now()->endOfMonth();
+
+        // Build month buckets up front so months with zero denials still
+        // show up as data points (otherwise gaps in the time series
+        // make line charts look like the data ends abruptly).
+        $monthKeys = [];
+        $cursor = $from->copy()->startOfMonth();
+        while ($cursor->lte($to)) {
+            $monthKeys[] = $cursor->format('Y-m');
+            $cursor->addMonth();
+        }
+
+        $rows = ClaimDenial::where('agency_id', $aid)
+            ->whereBetween('denial_date', [$from, $to])
+            ->with(['claim:id,payer_name'])
+            ->get();
+
+        $recoveredStatuses = ['resolved_recovered', 'resolved_won', 'resolved_partial'];
+
+        // 1. Monthly total — denied $ + count per month
+        $monthlyTotal = collect($monthKeys)->map(function ($mk) use ($rows) {
+            $month = $rows->filter(fn ($d) => $d->denial_date && \Carbon\Carbon::parse($d->denial_date)->format('Y-m') === $mk);
+            return [
+                'month'             => $mk,
+                'count'             => $month->count(),
+                'denied_amount'     => round((float) $month->sum('denied_amount'), 2),
+                'recovered_amount'  => round((float) $month->sum('recovered_amount'), 2),
+            ];
+        })->values()->all();
+
+        // 2. Top 8 denial codes — count over the full window + monthly
+        // breakdown for each. We use denial_code if present, fall back
+        // to denial_category so unparsed denials still show up.
+        $byCode = $rows->groupBy(function ($d) {
+            return $d->denial_code ?: ($d->denial_category ?: 'unknown');
+        });
+        $topCodeKeys = $byCode
+            ->map(fn ($g) => $g->count())
+            ->sortDesc()
+            ->take(8)
+            ->keys()
+            ->all();
+        $topCodes = collect($topCodeKeys)->map(function ($code) use ($byCode, $monthKeys, $recoveredStatuses) {
+            $group = $byCode->get($code) ?? collect();
+            $denied = (float) $group->sum('denied_amount');
+            $recovered = (float) $group->sum('recovered_amount');
+            return [
+                'code'              => $code,
+                'count'             => $group->count(),
+                'denied_amount'     => round($denied, 2),
+                'recovered_amount'  => round($recovered, 2),
+                'recovery_rate_pct' => $denied > 0 ? round(($recovered / $denied) * 100, 1) : 0.0,
+                'count_recovered'   => $group->whereIn('status', $recoveredStatuses)->count(),
+                'monthly'           => collect($monthKeys)->map(function ($mk) use ($group) {
+                    $month = $group->filter(fn ($d) => $d->denial_date && \Carbon\Carbon::parse($d->denial_date)->format('Y-m') === $mk);
+                    return [
+                        'month'         => $mk,
+                        'count'         => $month->count(),
+                        'denied_amount' => round((float) $month->sum('denied_amount'), 2),
+                    ];
+                })->values()->all(),
+                // Sample of recent denial_reason strings so the operator
+                // can see what the code translates to in their data.
+                'sample_reasons' => $group->take(3)->pluck('denial_reason')->filter()->unique()->values()->all(),
+            ];
+        })->values()->all();
+
+        // 3. Top 8 payers — same shape
+        $byPayer = $rows->groupBy(fn ($d) => $d->claim?->payer_name ?: 'Unknown');
+        $topPayerKeys = $byPayer
+            ->map(fn ($g) => $g->count())
+            ->sortDesc()
+            ->take(8)
+            ->keys()
+            ->all();
+        $topPayers = collect($topPayerKeys)->map(function ($payerName) use ($byPayer, $monthKeys, $recoveredStatuses) {
+            $group = $byPayer->get($payerName) ?? collect();
+            $denied = (float) $group->sum('denied_amount');
+            $recovered = (float) $group->sum('recovered_amount');
+            return [
+                'payer_name'        => $payerName,
+                'count'             => $group->count(),
+                'denied_amount'     => round($denied, 2),
+                'recovered_amount'  => round($recovered, 2),
+                'recovery_rate_pct' => $denied > 0 ? round(($recovered / $denied) * 100, 1) : 0.0,
+                'count_recovered'   => $group->whereIn('status', $recoveredStatuses)->count(),
+                'monthly'           => collect($monthKeys)->map(function ($mk) use ($group) {
+                    $month = $group->filter(fn ($d) => $d->denial_date && \Carbon\Carbon::parse($d->denial_date)->format('Y-m') === $mk);
+                    return [
+                        'month'         => $mk,
+                        'count'         => $month->count(),
+                        'denied_amount' => round((float) $month->sum('denied_amount'), 2),
+                    ];
+                })->values()->all(),
+            ];
+        })->values()->all();
+
+        // 4. payer × code cross-tab — flat list, top 30 by count.
+        // Lets the operator drill from "BCBSNM has the most denials"
+        // (top_payers) to "...because of CO-50 specifically" (this).
+        $crossTab = [];
+        foreach ($rows as $d) {
+            $payer = $d->claim?->payer_name ?: 'Unknown';
+            $code = $d->denial_code ?: ($d->denial_category ?: 'unknown');
+            $k = $payer . '||' . $code;
+            if (!isset($crossTab[$k])) {
+                $crossTab[$k] = [
+                    'payer_name'    => $payer,
+                    'code'          => $code,
+                    'count'         => 0,
+                    'denied_amount' => 0.0,
+                ];
+            }
+            $crossTab[$k]['count']++;
+            $crossTab[$k]['denied_amount'] += (float) $d->denied_amount;
+        }
+        usort($crossTab, fn ($a, $b) => $b['count'] <=> $a['count']);
+        $payerXCode = array_slice(array_values(array_map(function ($r) {
+            $r['denied_amount'] = round($r['denied_amount'], 2);
+            return $r;
+        }, $crossTab)), 0, 30);
+
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'window'        => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+                'months'        => $monthKeys,
+                'monthly_total' => $monthlyTotal,
+                'top_codes'     => $topCodes,
+                'top_payers'    => $topPayers,
+                'payer_x_code'  => $payerXCode,
+            ],
+        ]);
+    }
+
+    /**
      * GET /rcm/denials/{id}/history — full appeal-level lineage for
      * this denial. Walks up via parent_denial_id and down via
      * escalations relation, returns the chain ordered by appeal_level.
