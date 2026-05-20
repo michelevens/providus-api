@@ -17,6 +17,7 @@ class ProviderDocument extends Model
         'file_url', 'file_path', 'file_disk', 'mime_type', 'file_size',
         'original_filename', 'uploaded_by', 'status', 'received_date',
         'expiration_date', 'request_attempts', 'last_requested_at', 'notes',
+        'document_request_id',
     ];
 
     protected $casts = [
@@ -32,4 +33,9 @@ class ProviderDocument extends Model
     }
 
     public function provider(): BelongsTo { return $this->belongsTo(Provider::class); }
+
+    public function documentRequest(): BelongsTo
+    {
+        return $this->belongsTo(DocumentRequest::class);
+    }
 }

@@ -189,6 +189,16 @@ Route::get('/public/service-line-plans/{token}', [ServiceLineShareController::cl
     ->where('token', '[A-Za-z0-9]{40}')
     ->middleware('throttle:60,1');
 
+// ─── Public document-request endpoints (recipient-facing, no auth) ───
+// Tokenized URLs from DocumentRequestMail. View shows the checklist;
+// upload accepts files keyed to one item at a time.
+Route::get('/public/doc-requests/{token}', [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'publicShow'])
+    ->where('token', '[A-Za-z0-9]{40}')
+    ->middleware('throttle:60,1');
+Route::post('/public/doc-requests/{token}/upload', [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'publicUpload'])
+    ->where('token', '[A-Za-z0-9]{40}')
+    ->middleware('throttle:30,1');
+
 /*
 |--------------------------------------------------------------------------
 | Authenticated Routes
@@ -246,6 +256,17 @@ Route::middleware('auth:sanctum')->group(function () {
     // GETs from lower-privilege users.
     Route::apiResource('organizations', OrganizationController::class)->only(['index', 'show']);
     Route::apiResource('organizations', OrganizationController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
+
+    // ── Organization documents (W-9, COIs, contracts, doc-request uploads) ──
+    // R2-backed storage mirroring patient/provider docs. Reads open
+    // to any authed user (org-role recipients see their own org's
+    // docs via TenantScope on the parent organization); writes
+    // role:agency-gated.
+    Route::get(   '/organizations/{orgId}/documents',               [\App\Http\Controllers\Api\V1\OrganizationDocumentController::class, 'index'])->where('orgId', '[0-9]+');
+    Route::post(  '/organizations/{orgId}/documents/upload',        [\App\Http\Controllers\Api\V1\OrganizationDocumentController::class, 'upload'])->where('orgId', '[0-9]+');
+    Route::get(   '/organizations/{orgId}/documents/{id}/download', [\App\Http\Controllers\Api\V1\OrganizationDocumentController::class, 'download'])->where(['orgId' => '[0-9]+', 'id' => '[0-9]+']);
+    Route::put(   '/organizations/{orgId}/documents/{id}',          [\App\Http\Controllers\Api\V1\OrganizationDocumentController::class, 'update'])->where(['orgId' => '[0-9]+', 'id' => '[0-9]+'])->middleware('role:agency');
+    Route::delete('/organizations/{orgId}/documents/{id}',          [\App\Http\Controllers\Api\V1\OrganizationDocumentController::class, 'destroy'])->where(['orgId' => '[0-9]+', 'id' => '[0-9]+'])->middleware('role:agency');
     Route::apiResource('providers', ProviderController::class)->only(['index', 'show']);
     Route::apiResource('providers', ProviderController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
     Route::apiResource('licenses', LicenseController::class)->only(['index', 'show']);
@@ -480,6 +501,24 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/contracts/stats', [ContractController::class, 'stats']);
     Route::apiResource('contracts', ContractController::class)->only(['index', 'show']);
     Route::apiResource('contracts', ContractController::class)->only(['store', 'update', 'destroy'])->middleware('role:agency');
+
+    // ── Document Requests (agency → org/provider) ──
+    // Reads + sends gated to staff+ via the apiResource pattern; only
+    // operators originate requests. Recipient endpoints below sit
+    // under /portal/ for clarity.
+    Route::get(   '/document-requests',              [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'index']);
+    Route::post(  '/document-requests',              [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'store']);
+    Route::get(   '/document-requests/{id}',         [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'show'])->where('id', '[0-9]+');
+    Route::post(  '/document-requests/{id}/resend',  [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'resend'])->where('id', '[0-9]+');
+    Route::post(  '/document-requests/{id}/cancel',  [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'cancel'])->where('id', '[0-9]+')->middleware('role:agency');
+
+    // ── In-portal recipient endpoints (logged-in org/provider users) ──
+    // Scoped to the requesting user's own organization_id / provider_id
+    // FK, NOT through TenantScope. Returns the same shape as the public
+    // token route so the UI can share components.
+    Route::get(   '/portal/doc-requests',              [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'portalIndex']);
+    Route::get(   '/portal/doc-requests/{id}',         [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'portalShow'])->where('id', '[0-9]+');
+    Route::post(  '/portal/doc-requests/{id}/upload',  [\App\Http\Controllers\Api\V1\DocumentRequestController::class, 'portalUpload'])->where('id', '[0-9]+');
     Route::post('/contracts/{id}/send', [ContractController::class, 'send']);
     Route::post('/contracts/{id}/terminate', [ContractController::class, 'terminate'])->middleware('role:agency');
     Route::post('/contracts/{id}/generate-invoice', [ContractController::class, 'generateInvoice']);
