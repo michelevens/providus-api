@@ -571,8 +571,13 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/denials', [RcmController::class, 'denials']);
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::get('/rcm/denials/{id}', [RcmController::class, 'showDenial'])->where('id', '[0-9]+');
-    Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial']);
-    Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial'])->middleware('role:agency');
+    // Numeric-id constraint on PUT/DELETE too — without it Laravel
+    // matches PUT /rcm/denials/trends (or any other static-path sibling)
+    // and returns 405 on the corresponding GET because the path is now
+    // "reserved" by an incompatible method. Caused the Trends panel
+    // 405 on first deploy.
+    Route::put('/rcm/denials/{id}', [RcmController::class, 'updateDenial'])->where('id', '[0-9]+');
+    Route::delete('/rcm/denials/{id}', [RcmController::class, 'destroyDenial'])->where('id', '[0-9]+')->middleware('role:agency');
     // Spawn a corrected claim from a denial — clones service lines,
     // links lineage, leaves status=draft for the biller to fix and
     // re-submit. Endpoint sits next to the denial CRUD because the
