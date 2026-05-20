@@ -565,9 +565,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/rcm/denials/recovery-report', [RcmController::class, 'denialRecoveryReport']);
     // Denial trends — what's getting denied, by whom, when. Monthly
     // time series for top denial codes + top payers, plus a
-    // payer-x-code cross-tab. Lives next to recovery-report; must be
-    // declared BEFORE /rcm/denials/{id} so the static path wins.
-    Route::get('/rcm/denials/trends', [RcmController::class, 'denialTrends']);
+    // payer-x-code cross-tab.
+    //
+    // Path is INTENTIONALLY outside the /rcm/denials/* namespace
+    // (using /rcm/denial-trends instead of /rcm/denials/trends) so
+    // it can never collide with the {id} pattern regardless of route
+    // ordering or `where()` constraints on sibling PUT/DELETE routes.
+    // We tried /rcm/denials/trends first; even with proper static-path
+    // ordering it got swallowed by an unconstrained PUT route on prod.
+    Route::get('/rcm/denial-trends', [RcmController::class, 'denialTrends']);
     Route::get('/rcm/denials', [RcmController::class, 'denials']);
     Route::post('/rcm/denials', [RcmController::class, 'storeDenial']);
     Route::get('/rcm/denials/{id}', [RcmController::class, 'showDenial'])->where('id', '[0-9]+');
