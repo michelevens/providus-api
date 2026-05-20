@@ -9,9 +9,13 @@ use Illuminate\Http\Request;
 
 class OrganizationController extends Controller
 {
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
-        return response()->json(['success' => true, 'data' => Organization::with('providers')->get()]);
+        // Staff with org assignments only see those orgs. Agency+ sees
+        // all. Unassigned staff sees all (backward compat).
+        $query = Organization::with('providers');
+        \App\Support\StaffScope::applyToOrganizations($query, $request->user());
+        return response()->json(['success' => true, 'data' => $query->get()]);
     }
 
     public function store(Request $request): JsonResponse

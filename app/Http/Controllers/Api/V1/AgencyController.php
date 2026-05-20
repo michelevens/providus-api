@@ -364,6 +364,94 @@ class AgencyController extends Controller
     }
 
     /**
+     * GET /agency/users/{id}/assigned-organizations
+     * Returns the list of organization_ids this staff user is scoped
+     * to. Empty list means no restriction (= sees all agency orgs).
+     */
+    public function listAssignedOrganizations(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $user = User::where('agency_id', $agencyId)->findOrFail($id);
+        $orgIds = $user->assignedOrganizations()->pluck('organizations.id')->all();
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user_id' => $user->id,
+                'role' => $user->role,
+                'organization_ids' => $orgIds,
+                // Surface the policy meaning so the UI can describe
+                // "this user sees ALL orgs" vs "scoped to N orgs".
+                'scope' => empty($orgIds) ? 'unrestricted' : 'restricted',
+            ],
+        ]);
+    }
+
+    /**
+     * PUT /agency/users/{id}/assigned-organizations
+     * Body: { organization_ids: [int] }
+     *
+     * Replaces the full set (idempotent). Pass empty array to remove
+     * all assignments (= unrestricted, sees everything). Only valid
+     * for role=staff; other roles return 422 since their scope is
+     * controlled differently (FK column or sees-all rule).
+     */
+    public function setAssignedOrganizations(Request $request, int $id): JsonResponse
+    {
+        $request->validate([
+            'organization_ids'   => 'present|array',
+            'organization_ids.*' => 'integer',
+        ]);
+
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $user = User::where('agency_id', $agencyId)->findOrFail($id);
+
+        if ($user->role !== 'staff') {
+            return response()->json([
+                'success' => false,
+                'message' => "Per-org assignment only applies to role=staff. This user is '{$user->role}'.",
+            ], 422);
+        }
+
+        // Guard: every org_id must belong to the SAME agency. Defense-
+        // in-depth — without this, a junior agency-admin could try to
+        // assign a staff user to another tenant's orgs via crafted body.
+        $orgIds = $request->input('organization_ids', []);
+        if (!empty($orgIds)) {
+            $validCount = Organization::where('agency_id', $agencyId)
+                ->whereIn('id', $orgIds)
+                ->count();
+            if ($validCount !== count(array_unique($orgIds))) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'One or more organizations are not in this agency.',
+                ], 422);
+            }
+        }
+
+        // sync() handles add/remove/no-op in one call. withPivot is
+        // populated for new rows; existing rows keep their original
+        // assigned_by + created_at.
+        $syncData = [];
+        foreach ($orgIds as $oid) {
+            $syncData[$oid] = [
+                'agency_id'   => $agencyId,
+                'assigned_by' => $request->user()->id,
+            ];
+        }
+        $user->assignedOrganizations()->sync($syncData);
+
+        $finalIds = $user->assignedOrganizations()->pluck('organizations.id')->all();
+        return response()->json([
+            'success' => true,
+            'data' => [
+                'user_id' => $user->id,
+                'organization_ids' => $finalIds,
+                'scope' => empty($finalIds) ? 'unrestricted' : 'restricted',
+            ],
+        ]);
+    }
+
+    /**
      * SuperAdmin: change a user's email address.
      */
     public function changeUserEmail(Request $request, int $id): JsonResponse

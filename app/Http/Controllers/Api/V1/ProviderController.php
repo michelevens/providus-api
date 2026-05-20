@@ -15,6 +15,10 @@ class ProviderController extends Controller
         $query = Provider::with(['organization', 'licenses']);
         if ($request->has('active')) $query->where('is_active', $request->boolean('active'));
         if ($request->has('organization_id')) $query->where('organization_id', $request->organization_id);
+        // Staff with org assignments only see providers tied to those
+        // orgs. Agency+ sees all. Backward compat: unassigned staff =
+        // sees all.
+        \App\Support\StaffScope::apply($query, $request->user(), 'organization_id');
         return response()->json(['success' => true, 'data' => $query->get()]);
     }
 

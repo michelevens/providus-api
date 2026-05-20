@@ -216,6 +216,12 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::delete('/{id}', [AgencyController::class, 'deleteUser']);
             Route::post('/{id}/reset-password', [AgencyController::class, 'resetUserPassword']);
             Route::put('/{id}/change-email', [AgencyController::class, 'changeUserEmail']);
+            // Per-staff organization assignments. GET returns the list
+            // of assigned org ids; PUT replaces the full set (idempotent).
+            // Only meaningful for role=staff — agency+ ignore, org/provider
+            // have their own dedicated FK scope.
+            Route::get('/{id}/assigned-organizations', [AgencyController::class, 'listAssignedOrganizations'])->where('id', '[0-9]+');
+            Route::put('/{id}/assigned-organizations', [AgencyController::class, 'setAssignedOrganizations'])->where('id', '[0-9]+');
         });
 
         // Audit logs (agency-scoped)

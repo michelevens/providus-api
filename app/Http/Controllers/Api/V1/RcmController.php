@@ -26,6 +26,8 @@ class RcmController extends Controller
     {
         $query = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['billingClient:id,organization_name', 'serviceLines']);
+        // Per-staff org scoping. Claims tie to orgs via provider.
+        \App\Support\StaffScope::applyToClaims($query, $request->user());
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
         if ($from = $request->input('from_date')) $query->where('date_of_service', '>=', $from);
@@ -1674,6 +1676,8 @@ class RcmController extends Controller
     {
         $query = ClaimDenial::where('agency_id', $request->user()->effectiveAgencyId($request))
             ->with(['claim:id,claim_number,payer_name,patient_name,total_charges', 'billingClient:id,organization_name']);
+        // Per-staff org scoping. Denials inherit scope from claim->provider->org.
+        \App\Support\StaffScope::applyToDenials($query, $request->user());
         if ($cid = $request->input('billing_client_id')) $query->where('billing_client_id', $cid);
         if ($s = $request->input('status')) $query->where('status', $s);
         if ($cat = $request->input('category')) $query->where('denial_category', $cat);

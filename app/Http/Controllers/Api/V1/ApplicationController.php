@@ -25,6 +25,8 @@ class ApplicationController extends Controller
         if ($request->has('provider_id')) $query->where('provider_id', $request->provider_id);
         if ($request->has('payer_id')) $query->where('payer_id', $request->payer_id);
         if ($request->has('organization_id')) $query->where('organization_id', $request->organization_id);
+        // Per-staff org scoping. Agency+ and unassigned staff see all.
+        \App\Support\StaffScope::apply($query, $request->user(), 'organization_id');
         return response()->json(['success' => true, 'data' => $query->orderBy('created_at', 'desc')->get()]);
     }
 

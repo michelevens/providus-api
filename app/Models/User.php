@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Models\Traits\Auditable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
@@ -110,6 +111,53 @@ class User extends Authenticatable
     public function provider(): BelongsTo
     {
         return $this->belongsTo(Provider::class);
+    }
+
+    /**
+     * Per-staff organization assignments. Many-to-many via
+     * staff_organization_assignments. Used to scope what a staff user
+     * can SEE — providers, applications, claims, etc. tied to
+     * organizations outside this set are hidden from them.
+     *
+     * Semantics:
+     *   - Empty set = no restriction (sees all the agency's orgs).
+     *     Backward compatible — existing staff with no rows keep their
+     *     current "sees everything" behavior.
+     *   - Non-empty set = restricted to those orgs only.
+     *
+     * Agency/owner/superadmin ignore this entirely (they always see all
+     * agency data). Org/provider users have their own dedicated scope
+     * via the organization_id / provider_id columns on this table.
+     */
+    public function assignedOrganizations(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Organization::class,
+            'staff_organization_assignments',
+            'user_id',
+            'organization_id',
+        )->withTimestamps()->withPivot(['agency_id', 'assigned_by']);
+    }
+
+    /**
+     * Returns the array of organization_ids this staff user is scoped
+     * to, OR null if they have no assignments (= see everything).
+     * Controllers use the null-coalesce check pattern:
+     *
+     *     $scope = $user->assignedOrgIds();
+     *     if ($scope !== null) $query->whereIn('organization_id', $scope);
+     *
+     * Only applies to role=staff. Higher roles always return null
+     * (sees everything). Org/provider roles are scoped through their
+     * direct FK and never go through this path.
+     */
+    public function assignedOrgIds(): ?array
+    {
+        if ($this->role !== 'staff') {
+            return null;
+        }
+        $ids = $this->assignedOrganizations()->pluck('organizations.id')->all();
+        return empty($ids) ? null : $ids;
     }
 
     // ── New Role Helpers ─────────────────────────────────────────
