@@ -2657,7 +2657,14 @@ class RcmController extends Controller
             $crossTab[$k]['denied_amount'] += (float) $d->denied_amount;
         }
         usort($crossTab, fn ($a, $b) => $b['count'] <=> $a['count']);
-        $payerXCode = array_slice(array_values(array_map(function ($r) {
+        // KEY NAME NOTE: do NOT name this `payer_x_code`. The V2
+        // snake-to-camel converter (snakeToCamel in v2/src/lib/api.ts)
+        // chokes on single-char interstitials — `payer_x_code` becomes
+        // `payerX_code` (the trailing `_code` doesn't get converted
+        // because the regex lastIndex consumed past the `x`).
+        // `payer_code_pairs` avoids the trap and converts cleanly to
+        // `payerCodePairs`. Memory: feedback_snake_camel_data_keys.md
+        $payerCodePairs = array_slice(array_values(array_map(function ($r) {
             $r['denied_amount'] = round($r['denied_amount'], 2);
             return $r;
         }, $crossTab)), 0, 30);
@@ -2665,12 +2672,12 @@ class RcmController extends Controller
         return response()->json([
             'success' => true,
             'data' => [
-                'window'        => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
-                'months'        => $monthKeys,
-                'monthly_total' => $monthlyTotal,
-                'top_codes'     => $topCodes,
-                'top_payers'    => $topPayers,
-                'payer_x_code'  => $payerXCode,
+                'window'            => ['from' => $from->toDateString(), 'to' => $to->toDateString()],
+                'months'            => $monthKeys,
+                'monthly_total'     => $monthlyTotal,
+                'top_codes'         => $topCodes,
+                'top_payers'        => $topPayers,
+                'payer_code_pairs'  => $payerCodePairs,
             ],
         ]);
     }
