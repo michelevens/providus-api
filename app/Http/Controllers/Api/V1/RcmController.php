@@ -50,7 +50,8 @@ class RcmController extends Controller
 
     public function showClaim(Request $request, int $id): JsonResponse
     {
-        $claim = Claim::where('agency_id', $request->user()->effectiveAgencyId($request))
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        $claim = Claim::where('agency_id', $agencyId)
             ->with([
                 'billingClient:id,organization_name',
                 'serviceLines',
@@ -64,7 +65,92 @@ class RcmController extends Controller
                 'followups',
             ])
             ->findOrFail($id);
+
+        // Prior-auth check — informational only (warn-don't-block).
+        // We match candidate auths by claim_id first (explicit link),
+        // then fall back to (patient_member_id, payer_name) when the
+        // operator hasn't wired the link yet. Status string lets the
+        // UI render a banner: missing / expired / expiring_soon / ok.
+        $claim->setAttribute('authCheck', $this->buildAuthCheck($claim, $agencyId));
+
         return response()->json(['success' => true, 'data' => $claim]);
+    }
+
+    /**
+     * Look up the most-relevant PriorAuthorization for a claim and
+     * derive a UI-friendly status descriptor. We do this in PHP
+     * (rather than eager-loading) because the join is fuzzy — auths
+     * may be linked by FK OR keyed loosely by patient + payer.
+     */
+    private function buildAuthCheck(Claim $claim, int $agencyId): array
+    {
+        // Hard miss conditions — patient/payer info missing or claim
+        // is in a state where auth doesn't apply (e.g., draft).
+        if (in_array($claim->status, ['draft', 'void'])) {
+            return ['status' => 'na', 'reason' => 'claim_state'];
+        }
+
+        // 1. Explicit FK match — strongest signal.
+        $auth = \App\Models\PriorAuthorization::where('agency_id', $agencyId)
+            ->where('claim_id', $claim->id)
+            ->orderByDesc('effective_date')
+            ->first();
+
+        // 2. Fall back to (member_id, payer_name) heuristic.
+        if (!$auth && $claim->patient_member_id && $claim->payer_name) {
+            $auth = \App\Models\PriorAuthorization::where('agency_id', $agencyId)
+                ->where('patient_member_id', $claim->patient_member_id)
+                ->where('payer_name', $claim->payer_name)
+                ->orderByDesc('effective_date')
+                ->first();
+        }
+
+        if (!$auth) {
+            return [
+                'status' => 'missing',
+                'reason' => 'no_auth_found',
+                'message' => 'No prior authorization on file for this patient/payer.',
+            ];
+        }
+
+        $dos = $claim->date_of_service ? \Carbon\Carbon::parse($claim->date_of_service) : null;
+        $exp = $auth->expiration_date;
+
+        if ($exp && $dos && $dos->gt($exp)) {
+            return [
+                'status' => 'expired',
+                'authorization_id' => $auth->id,
+                'authorization_number' => $auth->authorization_number,
+                'expiration_date' => $exp->toDateString(),
+                'message' => "Auth #{$auth->authorization_number} expired {$exp->toDateString()} (before this DOS).",
+            ];
+        }
+        if ($exp && $exp->lt(now()->addDays(14))) {
+            return [
+                'status' => 'expiring_soon',
+                'authorization_id' => $auth->id,
+                'authorization_number' => $auth->authorization_number,
+                'expiration_date' => $exp->toDateString(),
+                'message' => "Auth #{$auth->authorization_number} expires {$exp->toDateString()}.",
+            ];
+        }
+        // Units check — only enforce when the auth tracks units.
+        if ($auth->units_authorized && $auth->units_used !== null && $auth->units_used >= $auth->units_authorized) {
+            return [
+                'status' => 'exhausted',
+                'authorization_id' => $auth->id,
+                'authorization_number' => $auth->authorization_number,
+                'units_authorized' => (float) $auth->units_authorized,
+                'units_used' => (float) $auth->units_used,
+                'message' => "Auth #{$auth->authorization_number} has used {$auth->units_used}/{$auth->units_authorized} units.",
+            ];
+        }
+        return [
+            'status' => 'ok',
+            'authorization_id' => $auth->id,
+            'authorization_number' => $auth->authorization_number,
+            'expiration_date' => $exp?->toDateString(),
+        ];
     }
 
     public function storeClaim(Request $request): JsonResponse
@@ -183,6 +269,135 @@ class RcmController extends Controller
         }
         Claim::where('agency_id', $request->user()->effectiveAgencyId($request))->findOrFail($id)->delete();
         return response()->json(['success' => true]);
+    }
+
+    /**
+     * POST /rcm/claims/{id}/backfill-allocations
+     *
+     * Repair claim-level paid amounts that don't have per-line
+     * allocations. The Era835Importer drops SVC-loop resolution on some
+     * 835s (~256 historical claims at last count) — the claim_payments
+     * row knows the total but PaymentAllocation rows for each service
+     * line are missing. Reports relying on per-line splits (write-off
+     * by service, payer-mix-by-CPT) silently undercount.
+     *
+     * Strategy: distribute the claim's total_paid across surviving
+     * service lines proportional to their charge. Same proportional
+     * split for total_allowed and adjustments. Idempotent — running it
+     * twice produces the same result.
+     *
+     * Returns 422 if the claim has no service lines OR already has
+     * allocations on the latest payment (so we don't overwrite legit
+     * ERA-derived splits). Reserved for the "claim has total paid but
+     * line splits never landed" case.
+     */
+    public function backfillAllocations(Request $request, int $id): JsonResponse
+    {
+        $agencyId = $request->user()->effectiveAgencyId($request);
+        abort_unless($agencyId, 400, 'No agency context.');
+
+        $claim = Claim::where('agency_id', $agencyId)
+            ->with(['serviceLines', 'paymentAllocations'])
+            ->findOrFail($id);
+
+        // Guard: only run on claims that genuinely need it.
+        if ($claim->serviceLines->isEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Claim has no service lines — nothing to allocate against.',
+            ], 422);
+        }
+        if ($claim->paymentAllocations->isNotEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Claim already has payment allocations. Backfill only runs on empty allocations.',
+                'allocation_count' => $claim->paymentAllocations->count(),
+            ], 422);
+        }
+        $totalPaid = (float) $claim->total_paid;
+        $totalAllowed = (float) ($claim->total_allowed ?: 0);
+        $totalAdj = (float) ($claim->adjustments ?: 0);
+        if ($totalPaid <= 0 && $totalAllowed <= 0 && $totalAdj <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Claim has no paid / allowed / adjustment totals — nothing to distribute.',
+            ], 422);
+        }
+
+        // Find the most recent ClaimPayment for this claim so the
+        // allocations have a parent to attach to.
+        $payment = \App\Models\ClaimPayment::where('agency_id', $agencyId)
+            ->where('claim_id', $claim->id)
+            ->orderByDesc('payment_date')
+            ->orderByDesc('id')
+            ->first();
+        if (!$payment) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No ClaimPayment row found for this claim. Backfill requires a parent payment.',
+            ], 422);
+        }
+
+        $totalCharges = (float) $claim->serviceLines->sum('charges');
+        if ($totalCharges <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Service-line charges sum to zero — cannot pro-rate.',
+            ], 422);
+        }
+
+        // Pro-rate. Round to 2 decimals, then sweep any rounding
+        // remainder into the largest-charge line so the row sums match
+        // the claim totals exactly.
+        $allocations = [];
+        $sumPaid = 0.0;
+        $sumAllowed = 0.0;
+        $sumAdj = 0.0;
+        $largestLineIdx = 0;
+        $largestCharge = 0.0;
+        foreach ($claim->serviceLines as $i => $line) {
+            $weight = (float) $line->charges / $totalCharges;
+            $linePaid    = round($totalPaid    * $weight, 2);
+            $lineAllowed = round($totalAllowed * $weight, 2);
+            $lineAdj     = round($totalAdj     * $weight, 2);
+            $sumPaid    += $linePaid;
+            $sumAllowed += $lineAllowed;
+            $sumAdj     += $lineAdj;
+            if ((float) $line->charges > $largestCharge) {
+                $largestCharge = (float) $line->charges;
+                $largestLineIdx = $i;
+            }
+            $allocations[] = [
+                'claim_payment_id'    => $payment->id,
+                'claim_id'            => $claim->id,
+                'service_line_number' => $line->line_number ?? ($i + 1),
+                'charged_amount'      => (float) $line->charges,
+                'allowed_amount'      => $lineAllowed,
+                'paid_amount'         => $linePaid,
+                'adjustment_amount'   => $lineAdj,
+            ];
+        }
+        // Reconcile rounding into the largest line.
+        $allocations[$largestLineIdx]['paid_amount']       += round($totalPaid    - $sumPaid,    2);
+        $allocations[$largestLineIdx]['allowed_amount']    += round($totalAllowed - $sumAllowed, 2);
+        $allocations[$largestLineIdx]['adjustment_amount'] += round($totalAdj     - $sumAdj,     2);
+
+        \DB::transaction(function () use ($allocations) {
+            foreach ($allocations as $a) {
+                \App\Models\PaymentAllocation::create($a);
+            }
+        });
+
+        $claim->load('paymentAllocations');
+        return response()->json([
+            'success' => true,
+            'message' => "Allocated across {$claim->serviceLines->count()} service lines.",
+            'data' => [
+                'claim_id'         => $claim->id,
+                'allocation_count' => $claim->paymentAllocations->count(),
+                'allocations'      => $claim->paymentAllocations,
+            ],
+        ]);
     }
 
     /**

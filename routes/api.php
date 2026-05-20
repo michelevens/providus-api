@@ -522,6 +522,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/claims', [RcmController::class, 'storeClaim']);
     Route::put('/rcm/claims/{id}', [RcmController::class, 'updateClaim']);
     Route::delete('/rcm/claims/{id}', [RcmController::class, 'destroyClaim'])->middleware('role:agency');
+    // Repair per-line payment allocations for claims whose 835 import
+    // dropped the SVC-loop split. Pro-rates claim.total_paid across
+    // service lines weighted by charge. Idempotent — refuses if
+    // allocations already exist.
+    Route::post('/rcm/claims/{id}/backfill-allocations', [RcmController::class, 'backfillAllocations'])->where('id', '[0-9]+')->middleware('role:agency');
     // Dedicated write-off endpoint — enforces the $500 owner-approval
     // threshold and keeps adjustments/balance math + note marker in
     // one server-side transaction. Returns 403 with the structured
@@ -578,6 +583,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/rcm/denials/{id}/draft-letter',    [RcmController::class, 'draftLetter']);
     Route::get( '/rcm/denials/{id}/pdf',              [RcmController::class, 'denialPdf']);
     Route::get( '/rcm/denials/{id}/docx',             [RcmController::class, 'denialDocx']);
+
+    // Denial resubmissions — full appeal-attempt history per denial.
+    // Each row = one resubmission/appeal attempt (1st appeal, 2nd
+    // appeal, etc). Writes here keep the parent ClaimDenial summary
+    // fields in sync inside a single transaction.
+    Route::get(   '/rcm/denials/{denialId}/resubmissions',       [\App\Http\Controllers\Api\V1\DenialResubmissionController::class, 'index'])->where('denialId', '[0-9]+');
+    Route::post(  '/rcm/denials/{denialId}/resubmissions',       [\App\Http\Controllers\Api\V1\DenialResubmissionController::class, 'store'])->where('denialId', '[0-9]+');
+    Route::put(   '/rcm/denials/{denialId}/resubmissions/{id}',  [\App\Http\Controllers\Api\V1\DenialResubmissionController::class, 'update'])->where(['denialId' => '[0-9]+', 'id' => '[0-9]+']);
+    Route::delete('/rcm/denials/{denialId}/resubmissions/{id}',  [\App\Http\Controllers\Api\V1\DenialResubmissionController::class, 'destroy'])->where(['denialId' => '[0-9]+', 'id' => '[0-9]+'])->middleware('role:agency');
 
     // Denial attachments — supporting docs uploaded for the appeal.
     // Storage: Cloudflare R2 (private bucket; signed URLs returned to
